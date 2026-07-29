@@ -13,8 +13,8 @@ Roda de qualquer maquina Linux (ou por SSH), sem instalar nada: stdlib pura.
 
 O config e o mesmo do tray do Windows. Gere com linux-agent/deploy.sh.
 
-O ambiente tem prioridade sobre o arquivo - util para checar um host sem
-editar nada:
+O arquivo manda: nada do ambiente sobrescreve valor presente no config.json.
+Sem arquivo nenhum, da para checar um host avulso pelo ambiente:
 
     SYSMON_URL=http://10.0.0.5:9109/metrics SYSMON_TOKEN=... sysmon-dash.py --once
 
@@ -40,7 +40,7 @@ from sysmon_nucleo import (  # noqa: E402
     fmt_bps, fmt_pct, fmt_temp, fmt_uptime, resumo_linhas,
 )
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 CAMINHOS_PADRAO = [
     Path("hosts.json"),

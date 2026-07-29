@@ -12,12 +12,12 @@ Configuracao: config.json nesta pasta. Gere automaticamente com
 linux-agent/deploy.sh, ou copie config.example.json e preencha.
 O formato antigo de host unico (url e token na raiz) continua funcionando.
 
-O ambiente tem prioridade sobre o arquivo:
+O ARQUIVO MANDA: nada do ambiente sobrescreve valor presente no config.json.
+O ambiente so preenche o que o arquivo nao definiu.
 
-    SYSMON_URL + SYSMON_TOKEN   -> host unico, ignora os hosts[] do config
-    SYSMON_URL_<NOME>           -> troca a url de um host do config
-    SYSMON_TOKEN_<NOME>         -> troca o token de um host do config
-    SYSMON_CONFIG               -> caminho do proprio config.json
+    SYSMON_CONFIG          -> qual arquivo carregar
+    SYSMON_TOKEN_<NOME>    -> so se aquele host nao tiver token no arquivo
+    SYSMON_URL/_TOKEN      -> so se o arquivo nao definir host nenhum
 
 No <NOME>, tudo que nao for letra ou digito vira _ e o resto vira maiuscula:
 o host "pve-01" responde a SYSMON_TOKEN_PVE_01.
@@ -47,7 +47,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import pystray
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 BASE = Path(sys.argv[0]).resolve().parent
 # O Agendador de Tarefas inicia o processo em outro diretorio de trabalho, por

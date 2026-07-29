@@ -125,12 +125,12 @@ Dashboard no terminal (Linux, ou WSL):
     python3 tools/sysmon-dash.py --config config.json --once    # uma vez, para script
     python3 tools/sysmon-dash.py --config config.json --host pve
 
-O ambiente tem prioridade sobre o config.json:
+O config.json manda. Nada do ambiente sobrescreve valor presente nele; o
+ambiente so preenche o que faltar:
 
-    SYSMON_URL + SYSMON_TOKEN   -> host unico, ignora os hosts[] do arquivo
-    SYSMON_URL_<NOME>           -> troca a url de um host do arquivo
-    SYSMON_TOKEN_<NOME>         -> troca o token de um host do arquivo
-    SYSMON_CONFIG               -> caminho do proprio config.json
+    SYSMON_CONFIG          -> qual arquivo carregar
+    SYSMON_TOKEN_<NOME>    -> so se aquele host nao tiver token no arquivo
+    SYSMON_URL/_TOKEN      -> so se o arquivo nao definir host nenhum
 
 No Windows, use setx para gravar permanentemente (vale so para processos
 abertos depois) e \$env: para a sessao atual. No <NOME>, tudo que nao for

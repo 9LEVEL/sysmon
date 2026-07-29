@@ -51,12 +51,12 @@ você já está autenticado, e mandar por `scp`:
 
 ```bash
 # na sua máquina
-gh release download v2.0.0-rc1 -p 'sysmon-agent-2.0.0-linux-amd64.tar.gz'
-scp sysmon-agent-2.0.0-linux-amd64.tar.gz root@192.168.0.10:/tmp/
+gh release download v2.0.1 -p 'sysmon-agent-2.0.1-linux-amd64.tar.gz'
+scp sysmon-agent-2.0.1-linux-amd64.tar.gz root@192.168.0.10:/tmp/
 
 # no host
-cd /tmp && tar xzf sysmon-agent-2.0.0-linux-amd64.tar.gz
-cd sysmon-agent-2.0.0-linux-amd64
+cd /tmp && tar xzf sysmon-agent-2.0.1-linux-amd64.tar.gz
+cd sysmon-agent-2.0.1-linux-amd64
 sudo ./install.sh 192.168.0.10          # IP da LAN ou do túnel
 ```
 
@@ -67,8 +67,8 @@ endpoint de API do asset:
 ```bash
 # no host, com GH_TOKEN exportado
 ASSET=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-  https://api.github.com/repos/9LEVEL/sysmon/releases/tags/v2.0.0-rc1 \
-  | grep -B2 '"name": "sysmon-agent-2.0.0-linux-amd64.tar.gz"' \
+  https://api.github.com/repos/9LEVEL/sysmon/releases/tags/v2.0.1 \
+  | grep -B2 '"name": "sysmon-agent-2.0.1-linux-amd64.tar.gz"' \
   | grep '"id":' | head -1 | tr -dc 0-9)
 
 curl -fL -H "Authorization: Bearer $GH_TOKEN" \
@@ -180,29 +180,37 @@ python3 tools/sysmon-dash.py --config config.json --once
 
 ## Configuração dos clientes
 
-Os dois clientes leem o mesmo arquivo. A ordem de precedência é:
+Os dois clientes leem o mesmo arquivo, e **o arquivo manda**. Nada do ambiente
+sobrescreve um valor presente no `config.json` — o ambiente só preenche o que o
+arquivo não definiu.
 
-1. **`SYSMON_URL` + `SYSMON_TOKEN`** no ambiente — se `SYSMON_URL` estiver
-   definida, ela **vence o `config.json` inteiro** e o cliente monitora esse
-   host único. É o caminho mais rápido para responder "o problema é o config ou
-   é o agente?" sem editar arquivo nenhum.
-2. **`SYSMON_URL_<NOME>` / `SYSMON_TOKEN_<NOME>`** — sobrescrevem um host
-   específico do arquivo, mantendo os demais. Útil para rotacionar o token de
-   um host sem mexer no JSON.
-3. **`config.json`** (ou o caminho em `SYSMON_CONFIG`).
+Isso é deliberado. Variável de ambiente é invisível no dia a dia: um
+`SYSMON_URL` esquecido de um teste antigo sequestraria a configuração inteira
+sem deixar pista de por que o cliente está olhando para o host errado.
 
-| Variável | Efeito |
+| Variável | Quando é usada |
 |---|---|
-| `SYSMON_URL` | host único, ignora os `hosts[]` do arquivo |
-| `SYSMON_TOKEN` | token desse host único |
-| `SYSMON_NOME` | nome desse host único (padrão: derivado da URL) |
-| `SYSMON_URL_<NOME>` | troca a URL de um host do arquivo |
-| `SYSMON_TOKEN_<NOME>` | troca o token de um host do arquivo |
-| `SYSMON_CONFIG` | caminho do `config.json` |
+| `SYSMON_CONFIG` | sempre — define **qual** arquivo carregar |
+| `SYSMON_TOKEN_<NOME>` | só se aquele host não tiver `token` no arquivo |
+| `SYSMON_URL` + `SYSMON_TOKEN` | só se o arquivo não definir host nenhum |
+| `SYSMON_NOME` | nome do host acima (padrão: derivado da URL) |
 
 No `<NOME>`, tudo que não for letra ou dígito vira `_` e o resto vira
 maiúscula: o host `pve-01.lan` responde a `SYSMON_TOKEN_PVE_01_LAN`. Nome de
 variável não aceita hífen nem ponto em nenhum dos dois sistemas.
+
+O uso prático do `SYSMON_TOKEN_<NOME>` é manter token fora do JSON: omita o
+campo `"token"` no arquivo e ponha o segredo no ambiente.
+
+### Rodar sem arquivo nenhum
+
+Quando não há `config.json`, `SYSMON_URL` + `SYSMON_TOKEN` bastam para um host
+avulso — útil para checar um agente sem configurar nada:
+
+```bash
+SYSMON_URL=http://192.168.0.10:9109/metrics SYSMON_TOKEN=... \
+  python3 tools/sysmon-dash.py --once
+```
 
 ### No Windows
 
@@ -210,37 +218,25 @@ variável não aceita hífen nem ponto em nenhum dos dois sistemas.
 o PowerShell onde você rodou continua sem a variável:
 
 ```powershell
-setx SYSMON_URL   "http://192.168.0.10:9109/metrics"
-setx SYSMON_TOKEN "cole-o-token-aqui"
+setx SYSMON_TOKEN_PVE "cole-o-token-aqui"
+$env:SYSMON_TOKEN_PVE = "cole-o-token-aqui"      # sessão atual também
 
-# para a sessão atual também:
-$env:SYSMON_URL   = "http://192.168.0.10:9109/metrics"
-$env:SYSMON_TOKEN = "cole-o-token-aqui"
-
-# conferir o que ficou gravado:
-[Environment]::GetEnvironmentVariable("SYSMON_URL", "User")
+[Environment]::GetEnvironmentVariable("SYSMON_TOKEN_PVE", "User")   # conferir
 ```
 
 `setx` sozinho grava em `HKCU\Environment` (só o seu usuário); com `/M` vai
 para o sistema todo e exige prompt como administrador. Valores acima de 1024
-caracteres são truncados — irrelevante para URL, mas importa se você tentar
-guardar algo maior.
+caracteres são truncados.
 
 A tarefa agendada do autostart herda o ambiente do usuário no logon, então o
-`setx` também vale para o tray iniciado automaticamente. Para **voltar** a usar
-o `config.json`, apague a variável:
+`setx` vale também para o tray iniciado automaticamente. Para apagar:
 
 ```powershell
-setx SYSMON_URL ""
-Remove-ItemProperty -Path HKCU:\Environment -Name SYSMON_URL -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path HKCU:\Environment -Name SYSMON_TOKEN_PVE -ErrorAction SilentlyContinue
 ```
 
-### No Linux
-
-```bash
-SYSMON_URL=http://192.168.0.10:9109/metrics SYSMON_TOKEN=... \
-  python3 tools/sysmon-dash.py --once
-```
+Para trocar de host ou de token no dia a dia, edite o `config.json` — é o
+caminho previsível, e o que a interface toda reflete.
 
 ## Dashboard no terminal
 

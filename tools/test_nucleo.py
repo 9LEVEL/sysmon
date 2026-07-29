@@ -108,57 +108,48 @@ class TestConfig(unittest.TestCase):
         p = cfg_temp({"hosts": [{"url": "http://192.168.0.9:9109/metrics", "token": "t"}]})
         self.assertEqual(carregar_config(p).hosts[0].nome, "192.168.0.9")
 
-    def test_ambiente_vence_o_arquivo(self):
-        # A prioridade do ambiente e o atalho para apontar o cliente a outro
-        # host sem editar config: util para isolar problema.
+    def test_arquivo_vence_o_ambiente(self):
+        # O arquivo manda. Um SYSMON_URL esquecido de um teste antigo nao pode
+        # sequestrar a configuracao - seria invisivel e impossivel de depurar.
         p = cfg_temp({"hosts": [
             {"nome": "pve", "url": "http://do-arquivo/metrics", "token": "arq"}]})
         with ambiente(SYSMON_URL="http://do-ambiente:9109/metrics",
-                      SYSMON_TOKEN="env"):
+                      SYSMON_TOKEN="env", SYSMON_NOME="outro"):
             cfg = carregar_config(p)
         self.assertEqual(len(cfg.hosts), 1)
-        self.assertEqual(cfg.hosts[0].url, "http://do-ambiente:9109/metrics")
-        self.assertEqual(cfg.hosts[0].token, "env")
+        self.assertEqual(cfg.hosts[0].nome, "pve")
+        self.assertEqual(cfg.hosts[0].url, "http://do-arquivo/metrics")
+        self.assertEqual(cfg.hosts[0].token, "arq")
 
-    def test_ambiente_dispensa_o_arquivo(self):
+    def test_token_do_arquivo_vence_o_do_ambiente(self):
+        p = cfg_temp({"hosts": [
+            {"nome": "nas", "url": "http://b/metrics", "token": "do-arquivo"}]})
+        with ambiente(SYSMON_TOKEN_NAS="do-ambiente"):
+            cfg = carregar_config(p)
+        self.assertEqual(cfg.hosts[0].token, "do-arquivo")
+
+    def test_ambiente_supre_host_quando_nao_ha_arquivo(self):
+        # Unico caso em que o ambiente define host: arquivo ausente ou sem hosts.
         with ambiente(SYSMON_URL="http://so-ambiente:9109/metrics",
                       SYSMON_TOKEN="env", SYSMON_NOME="apelido"):
             cfg = carregar_config(Path("/nao/existe/config.json"))
         self.assertEqual(cfg.hosts[0].nome, "apelido")
+        self.assertEqual(cfg.hosts[0].url, "http://so-ambiente:9109/metrics")
 
-    def test_ambiente_sem_url_nao_interfere(self):
-        p = cfg_temp({"hosts": [
-            {"nome": "pve", "url": "http://do-arquivo/metrics", "token": "arq"}]})
-        with ambiente(SYSMON_TOKEN="solto"):  # sem SYSMON_URL: nao aciona nada
+    def test_ambiente_supre_token_ausente_no_arquivo(self):
+        # Permite manter o token fora do JSON, sem sobrescrever nada.
+        p = cfg_temp({"hosts": [{"nome": "pve", "url": "http://a/metrics"}]})
+        with ambiente(SYSMON_TOKEN_PVE="vindo-do-ambiente"):
             cfg = carregar_config(p)
-        self.assertEqual(cfg.hosts[0].url, "http://do-arquivo/metrics")
-        self.assertEqual(cfg.hosts[0].token, "arq")
+        self.assertEqual(cfg.hosts[0].token, "vindo-do-ambiente")
 
-    def test_override_por_host(self):
-        p = cfg_temp({"hosts": [
-            {"nome": "pve", "url": "http://a/metrics", "token": "ta"},
-            {"nome": "nas", "url": "http://b/metrics", "token": "tb"},
-        ]})
-        with ambiente(SYSMON_TOKEN_NAS="novo-token-do-nas"):
-            cfg = carregar_config(p)
-        self.assertEqual(cfg.hosts[0].token, "ta")           # intacto
-        self.assertEqual(cfg.hosts[1].token, "novo-token-do-nas")
-        self.assertEqual(cfg.hosts[1].url, "http://b/metrics")
-
-    def test_override_normaliza_nome_com_hifen(self):
-        # Nome de variavel de ambiente nao aceita hifen nem ponto.
-        p = cfg_temp({"hosts": [
-            {"nome": "pve-01.lan", "url": "http://a/metrics", "token": "ta"}]})
-        with ambiente(SYSMON_URL_PVE_01_LAN="http://novo:9109/metrics"):
-            cfg = carregar_config(p)
-        self.assertEqual(cfg.hosts[0].url, "http://novo:9109/metrics")
-
-    def test_url_invalida_no_ambiente_e_recusada(self):
-        p = cfg_temp({"hosts": [
-            {"nome": "pve", "url": "http://a/metrics", "token": "t"}]})
-        with ambiente(SYSMON_URL_PVE="192.168.0.1:9109"):  # sem esquema
-            with self.assertRaises(ErroConfig):
-                carregar_config(p)
+    def test_token_ausente_nos_dois_lados_ensina_as_duas_saidas(self):
+        p = cfg_temp({"hosts": [{"nome": "pve-01.lan", "url": "http://a/metrics"}]})
+        with self.assertRaises(ErroConfig) as ctx:
+            carregar_config(p)
+        # O nome normalizado precisa aparecer na mensagem, senao o usuario
+        # tenta SYSMON_TOKEN_PVE-01.LAN, que nem e nome de variavel valido.
+        self.assertIn("SYSMON_TOKEN_PVE_01_LAN", str(ctx.exception))
 
     def test_erros_uteis(self):
         casos = {

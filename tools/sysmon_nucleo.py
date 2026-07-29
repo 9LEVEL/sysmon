@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 # ------------------------------------------------------------------ severidade
 OK, AVISO, CRITICO, OFFLINE = 0, 1, 2, 3
@@ -66,24 +66,29 @@ class ErroConfig(Exception):
 
 
 def carregar_config(caminho: Path) -> Config:
-    """Le o config.json. Aceita o formato antigo de host unico da v1."""
+    """Le o config.json. Aceita o formato antigo de host unico da v1.
+
+    O ARQUIVO MANDA. Nada do ambiente sobrescreve um valor presente no
+    config.json - o ambiente so preenche o que o arquivo nao definiu. Isso e
+    deliberado: variavel de ambiente e invisivel no dia a dia, e um SYSMON_URL
+    esquecido de um teste antigo sequestraria a configuracao inteira sem deixar
+    pista nenhuma de por que o cliente esta olhando para o host errado.
+    """
     bruto = _ler_arquivo(caminho)
 
-    # SYSMON_URL vence o arquivo inteiro: aponta o cliente para um host
-    # qualquer sem editar nada. E o caminho mais rapido para isolar problema
-    # ("e o config ou e o agente?").
-    entradas = _host_do_ambiente() or bruto.get("hosts")
-
+    entradas = bruto.get("hosts")
     if not entradas:
         # Formato v1: url e token soltos na raiz. Continua funcionando.
         if bruto.get("url"):
             entradas = [{"nome": bruto.get("nome"),
                          "url": bruto["url"], "token": bruto.get("token", "")}]
         else:
+            # Ultimo recurso, so quando o arquivo nao trouxe host nenhum.
+            entradas = _host_do_ambiente()
+        if not entradas:
             raise ErroConfig(
                 "nenhum host configurado.\n\n"
                 'Esperado: {"hosts": [{"nome": "...", "url": "...", "token": "..."}]}'
-                "\n\nOu defina SYSMON_URL e SYSMON_TOKEN no ambiente."
             )
 
     token_padrao = bruto.get("token", "")
@@ -92,14 +97,19 @@ def carregar_config(caminho: Path) -> Config:
         if not isinstance(e, dict) or not e.get("url"):
             raise ErroConfig(f"host #{i + 1} sem 'url'.")
         nome = e.get("nome") or _apelido(e["url"])
-        # Override por host: SYSMON_URL_<NOME> / SYSMON_TOKEN_<NOME>.
-        url = os.environ.get(f"SYSMON_URL_{_sufixo(nome)}", "").strip() or e["url"]
+        url = e["url"]
         if not url.startswith(("http://", "https://")):
             raise ErroConfig(f"host '{nome}': url deve comecar com http:// ou https://")
-        token = (os.environ.get(f"SYSMON_TOKEN_{_sufixo(nome)}", "").strip()
-                 or e.get("token") or token_padrao)
+        # O ambiente entra so como ultimo recurso, para quem prefere nao deixar
+        # token em texto claro no arquivo. Token presente no JSON sempre vence.
+        token = (e.get("token") or token_padrao
+                 or os.environ.get(f"SYSMON_TOKEN_{_sufixo(nome)}", "").strip())
         if not token:
-            raise ErroConfig(f"host '{nome}' sem token.")
+            raise ErroConfig(
+                f"host '{nome}' sem token.\n\n"
+                f"Preencha \"token\" no config, ou defina "
+                f"SYSMON_TOKEN_{_sufixo(nome)} no ambiente."
+            )
         hosts.append(Host(nome=nome, url=url, token=token))
 
     nomes = [h.nome for h in hosts]
@@ -115,7 +125,7 @@ def carregar_config(caminho: Path) -> Config:
 
 
 def _ler_arquivo(caminho: Path) -> dict:
-    """Le o config.json. Ausencia so e erro quando o ambiente nao supre o host."""
+    """Le o config.json. Ausencia so nao e erro quando o ambiente supre o host."""
     try:
         bruto = json.loads(caminho.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -124,8 +134,7 @@ def _ler_arquivo(caminho: Path) -> dict:
         raise ErroConfig(
             f"config nao encontrado em:\n{caminho}\n\n"
             "Copie config.example.json para config.json e preencha,\n"
-            "ou gere automaticamente com linux-agent/deploy.sh.\n"
-            "Para um teste rapido, defina SYSMON_URL e SYSMON_TOKEN."
+            "ou gere automaticamente com linux-agent/deploy.sh."
         ) from None
     except json.JSONDecodeError as e:
         raise ErroConfig(f"config invalido ({caminho}):\n\n{e}") from None
@@ -136,7 +145,11 @@ def _ler_arquivo(caminho: Path) -> dict:
 
 
 def _host_do_ambiente() -> list[dict]:
-    """SYSMON_URL/SYSMON_TOKEN definem um host unico com prioridade sobre o arquivo."""
+    """Host vindo de SYSMON_URL/SYSMON_TOKEN.
+
+    Usado APENAS quando o config.json nao define host nenhum - serve para rodar
+    o dashboard sem criar arquivo, nao para sobrescrever o que esta no arquivo.
+    """
     url = os.environ.get("SYSMON_URL", "").strip()
     if not url:
         return []
