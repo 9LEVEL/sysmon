@@ -1,0 +1,14 @@
+{
+  "url": "http://10.0.0.5:9109/metrics",
+  "token": "COLE_AQUI_O_TOKEN_GERADO_PELO_INSTALL_SH",
+  "intervalo": 5,
+  "timeout": 4,
+  "overlay_ao_iniciar": true,
+  "posicao": [40, 40],
+  "opacidade": 0.86,
+  "fonte_tamanho": 11,
+  "frac_aviso": 0.75,
+  "frac_critico": 0.90,
+  "aviso_c": 70,
+  "critico_c": 85
+}

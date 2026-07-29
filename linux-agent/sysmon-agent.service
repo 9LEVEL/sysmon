@@ -1,0 +1,41 @@
+[Unit]
+Description=sysmon agent (telemetria read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# --host: troque pelo IP da LAN do PVE. Nunca 0.0.0.0 se a maquina tiver IP publico.
+ExecStart=/usr/bin/python3 /opt/sysmon/sysmon_agent.py --host __BIND_IP__ --port __PORT__ --mounts / /var/lib/vz
+EnvironmentFile=/etc/sysmon/token.env
+
+# --- Hardening: o agente so precisa LER sysfs e procfs ---
+DynamicUser=yes
+# Necessario apenas para a contagem de VMs/CTs em /etc/pve/.vmlist:
+SupplementaryGroups=www-data
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+
+# Isso jamais deve competir com as VMs
+MemoryMax=64M
+CPUQuota=5%
+Nice=10
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

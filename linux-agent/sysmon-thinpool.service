@@ -1,0 +1,15 @@
+[Unit]
+Description=Snapshot de uso dos thin pools LVM para o sysmon-agent
+Documentation=man:lvs(8)
+
+[Service]
+Type=oneshot
+RuntimeDirectory=sysmon
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+# lvs precisa de root; por isso fica ISOLADO aqui, e nao dentro do agente.
+ExecStart=/bin/sh -c '/sbin/lvs --reportformat json --units b --nosuffix \
+    -o vg_name,lv_name,data_percent,metadata_percent \
+    --select "lv_attr=~^t" > /run/sysmon/thinpool.json.tmp \
+    && mv /run/sysmon/thinpool.json.tmp /run/sysmon/thinpool.json'
+Nice=15
