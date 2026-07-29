@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-traymon.py - tray icon + overlay no Windows mostrando a saude do host Proxmox.
+traymon.py - icone de bandeja + overlay no Windows para varios hosts Linux.
 
-Consome o JSON de sysmon_agent.py rodando no PVE.
+Consome o /metrics de N agentes sysmon ao mesmo tempo. O icone mostra o pior
+host da frota; o overlay lista todos.
 
-Requisitos (no Windows, nao no PVE):
+Requisitos (no Windows, nao nos hosts monitorados):
     pip install -r requirements.txt
 
-Configuracao: config.json na mesma pasta deste arquivo.
-As variaveis de ambiente SYSMON_URL / SYSMON_TOKEN, se existirem, tem prioridade.
+Configuracao: config.json nesta pasta. Gere automaticamente com
+linux-agent/deploy.sh, ou copie config.example.json e preencha.
+O formato antigo de host unico (url e token na raiz) continua funcionando.
 
 Arquitetura de threads:
-    - thread principal : loop do tkinter (overlay + aplicacao de comandos)
-    - thread poller    : busca o JSON a cada N segundos
-    - thread tray      : pystray (no Windows o message loop pode ser off-main)
+    - principal : loop do tkinter (overlay + aplicacao dos comandos do menu)
+    - N pollers : um por host, com recuo exponencial (ficam no sysmon_nucleo)
+    - tray      : pystray (no Windows o message loop pode ficar fora da main)
+
+Nada que venha das threads de rede toca no tkinter direto: tudo passa pela
+fila `pedidos`, porque o Tk nao e thread-safe.
 """
 
 from __future__ import annotations
@@ -25,21 +30,20 @@ import os
 import queue
 import sys
 import threading
-import time
 import tkinter as tk
 import traceback
-import urllib.error
-import urllib.request
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 import pystray
 
-__version__ = "1.1.0"
+__version__ = "2.0.0"
 
 BASE = Path(sys.argv[0]).resolve().parent
-CFG_PATH = BASE / "config.json"
+# O Agendador de Tarefas inicia o processo em outro diretorio de trabalho, por
+# isso o caminho e resolvido a partir do script e nao do cwd. SYSMON_CONFIG
+# permite guardar o config (que tem tokens) fora da pasta do programa.
+CFG_PATH = Path(os.environ.get("SYSMON_CONFIG") or (BASE / "config.json"))
 LOG_PATH = Path(os.environ.get("TEMP", BASE)) / "traymon.log"
 
 logging.basicConfig(
@@ -65,183 +69,55 @@ def _fatal(tipo, valor, tb) -> None:
 sys.excepthook = _fatal
 
 
+# O nucleo compartilhado com o sysmon-dash fica em tools/. Procura ao lado
+# deste arquivo primeiro, para quem copia so a pasta windows-tray.
+for _candidato in (BASE, BASE.parent / "tools"):
+    if (_candidato / "sysmon_nucleo.py").is_file():
+        sys.path.insert(0, str(_candidato))
+        break
+else:
+    caixa("sysmon_nucleo.py nao encontrado.\n\n"
+          f"Procurei em:\n  {BASE}\n  {BASE.parent / 'tools'}\n\n"
+          "Clone o repositorio inteiro, ou copie tools/sysmon_nucleo.py\n"
+          "para a pasta do traymon.py.")
+    sys.exit(1)
+
+from sysmon_nucleo import (  # noqa: E402
+    AVISO, CRITICO, OFFLINE, OK,
+    ErroConfig, Estado, Frota,
+    avaliar, carregar_config, como_dict, fmt_pct, fmt_temp,
+    primeira_temp, resumo_linhas,
+)
+
 # ------------------------------------------------------------------- config
-def carregar_config() -> dict:
-    try:
-        cfg = json.loads(CFG_PATH.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        caixa(f"config.json nao encontrado em:\n{CFG_PATH}\n\n"
-              "Copie config.example.json para config.json e preencha.")
-        sys.exit(1)
-    except json.JSONDecodeError as e:
-        caixa(f"config.json invalido:\n\n{e}")
-        sys.exit(1)
+try:
+    CFG = carregar_config(CFG_PATH)
+except ErroConfig as e:
+    caixa(str(e))
+    sys.exit(1)
 
-    cfg["url"] = os.environ.get("SYSMON_URL") or cfg.get("url", "")
-    cfg["token"] = os.environ.get("SYSMON_TOKEN") or cfg.get("token", "")
-    if not cfg["url"] or not cfg["token"]:
-        caixa("Preencha 'url' e 'token' no config.json.")
-        sys.exit(1)
-    return cfg
+BRUTO = CFG.extra
+POSICAO = list(BRUTO.get("posicao", [40, 40]))
+OVERLAY_INICIAL = bool(BRUTO.get("overlay_ao_iniciar", True))
+COMPACTO_INICIAL = bool(BRUTO.get("overlay_compacto", len(CFG.hosts) > 2))
+NOTIFICAR = bool(BRUTO.get("notificar", True))
 
+# Cores do icone, por nivel de severidade.
+CORES = {
+    OK: (80, 200, 120),
+    AVISO: (230, 180, 60),
+    CRITICO: (225, 80, 80),
+    OFFLINE: (140, 140, 140),
+}
+# Mesmas cores em hex, para o overlay.
+CORES_HEX = {n: "#%02x%02x%02x" % c for n, c in CORES.items()}
 
-CFG = carregar_config()
-URL: str = CFG["url"]
-TOKEN: str = CFG["token"]
-INTERVALO = float(CFG.get("intervalo", 5))
-TIMEOUT = float(CFG.get("timeout", 4))
-OVERLAY_INICIAL = bool(CFG.get("overlay_ao_iniciar", True))
-POSICAO = CFG.get("posicao", [40, 40])
+FUNDO = "#12141a"
 
-# Fracao do valor critico do sensor a partir da qual pinta amarelo / vermelho.
-FRAC_AVISO = float(CFG.get("frac_aviso", 0.75))
-FRAC_CRITICO = float(CFG.get("frac_critico", 0.90))
-# Usados quando o sensor nao reporta 'crit'.
-FALLBACK_AVISO = float(CFG.get("aviso_c", 70))
-FALLBACK_CRITICO = float(CFG.get("critico_c", 85))
-# Thin pool LVM: acima disso o Proxmox comeca a falhar snapshots.
-THIN_AVISO, THIN_CRITICO = 80.0, 90.0
-
-VERDE = (80, 200, 120)
-AMARELO = (230, 180, 60)
-VERMELHO = (225, 80, 80)
-CINZA = (140, 140, 140)
+pedidos: queue.Queue[tuple[str, object]] = queue.Queue()
 
 
-# ------------------------------------------------------------------- estado
-@dataclass
-class Estado:
-    dados: dict | None = None
-    erro: str | None = None
-    atualizado: float = 0.0
-    lock: threading.Lock = field(default_factory=threading.Lock)
-
-    def set(self, dados: dict | None, erro: str | None) -> None:
-        with self.lock:
-            self.dados, self.erro, self.atualizado = dados, erro, time.time()
-
-    def get(self) -> tuple[dict | None, str | None]:
-        with self.lock:
-            return self.dados, self.erro
-
-
-estado = Estado()
-pedidos: queue.Queue[str] = queue.Queue()  # tray -> thread do tkinter
-
-
-# ------------------------------------------------------------------- coleta
-def buscar() -> None:
-    req = urllib.request.Request(URL, headers={"Authorization": f"Bearer {TOKEN}"})
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            estado.set(json.loads(r.read().decode()), None)
-    except urllib.error.HTTPError as e:
-        estado.set(None, "token invalido" if e.code == 401 else f"HTTP {e.code}")
-    except urllib.error.URLError as e:
-        estado.set(None, f"sem conexao ({e.reason})")
-    except (json.JSONDecodeError, TimeoutError, OSError) as e:
-        estado.set(None, type(e).__name__)
-
-
-def poller() -> None:
-    while True:
-        try:
-            buscar()
-        except Exception:
-            logging.exception("falha inesperada no poller")
-        time.sleep(INTERVALO)
-
-
-# ------------------------------------------------------------------ formato
-def cor_temp(c: float | None, crit: float | None = None) -> tuple[int, int, int]:
-    """Limiares derivados do critico real do sensor, com fallback fixo."""
-    if c is None:
-        return CINZA
-    if crit:
-        aviso, critico = crit * FRAC_AVISO, crit * FRAC_CRITICO
-    else:
-        aviso, critico = FALLBACK_AVISO, FALLBACK_CRITICO
-    if c >= critico:
-        return VERMELHO
-    if c >= aviso:
-        return AMARELO
-    return VERDE
-
-
-def cor_percent(p: float | None, aviso: float, critico: float) -> tuple[int, int, int]:
-    if p is None:
-        return CINZA
-    return VERMELHO if p >= critico else AMARELO if p >= aviso else VERDE
-
-
-def fmt_uptime(s: int) -> str:
-    d, resto = divmod(s, 86400)
-    h, m = divmod(resto // 60, 60)
-    return f"{d}d {h}h {m}m" if d else f"{h}h {m}m"
-
-
-def fmt_bytes(n: float) -> str:
-    for unidade in ("B", "K", "M", "G", "T"):
-        if n < 1024:
-            return f"{n:.0f}{unidade}"
-        n /= 1024
-    return f"{n:.1f}P"
-
-
-def resumo() -> list[str]:
-    dados, erro = estado.get()
-    if erro or not dados:
-        return [f"Offline - {erro or 'sem dados'}"]
-
-    l = [str(dados.get("host", "?"))]
-    t, crit = dados.get("cpu_temp"), dados.get("cpu_crit")
-    l.append(f"CPU  {t:.0f}C" + (f" / {crit:.0f}C" if crit else "")
-             if t is not None else "CPU  --")
-    if dados.get("cpu_percent") is not None:
-        l.append(f"Uso  {dados['cpu_percent']:.0f}%  ({dados.get('cpus', '?')} cores)")
-    if load := dados.get("load"):
-        l.append(f"Load {load[0]:.2f} {load[1]:.2f} {load[2]:.2f}")
-
-    mem = dados.get("mem") or {}
-    if mem.get("percent") is not None:
-        l.append(f"RAM  {mem['percent']:.0f}%  {fmt_bytes(mem['usado'])}"
-                 f"/{fmt_bytes(mem['total'])}")
-    if mem.get("swap_percent"):
-        l.append(f"Swap {mem['swap_percent']:.0f}%  {fmt_bytes(mem['swap_usado'])}")
-
-    for d in dados.get("discos", [])[:3]:
-        l.append(f"{d['mount']:<12} {d['percent']:.0f}%")
-    for tp in dados.get("thinpools", []):
-        l.append(f"{tp['nome']:<12} {tp['data_percent']:.0f}%"
-                 f" (meta {tp['meta_percent']:.0f}%)")
-
-    if fans := dados.get("fans"):
-        l.append("Fans " + " ".join(f"{v}" for v in list(fans.values())[:3]) + " rpm")
-    if g := dados.get("guests"):
-        l.append(f"VMs {g['qemu']}   CTs {g['lxc']}")
-    l.append(f"Up   {fmt_uptime(dados.get('uptime_s', 0))}")
-    return l
-
-
-def alertas() -> list[str]:
-    """Condicoes que merecem atencao agora."""
-    dados, erro = estado.get()
-    if erro or not dados:
-        return []
-    out = []
-    t, crit = dados.get("cpu_temp"), dados.get("cpu_crit")
-    if t is not None and cor_temp(t, crit) == VERMELHO:
-        out.append(f"CPU em {t:.0f}C")
-    for d in dados.get("discos", []):
-        if d["percent"] >= 90:
-            out.append(f"Disco {d['mount']} em {d['percent']:.0f}%")
-    for tp in dados.get("thinpools", []):
-        if tp["data_percent"] >= THIN_AVISO:
-            out.append(f"Thin pool {tp['nome']} em {tp['data_percent']:.0f}%")
-    return out
-
-
-# ------------------------------------------------------------------ icone
+# ------------------------------------------------------------------- icone
 _fonte_cache: dict[int, object] = {}
 
 
@@ -258,16 +134,18 @@ def fonte(tam: int):
     return _fonte_cache[tam]
 
 
-def desenhar_icone() -> Image.Image:
-    """Icone 64x64 com a temperatura em numero, colorido pelo limiar."""
-    dados, erro = estado.get()
-    temp = (dados or {}).get("cpu_temp") if not erro else None
-    crit = (dados or {}).get("cpu_crit") if not erro else None
+def desenhar_icone(frota: Frota) -> Image.Image:
+    """Icone 64x64: temperatura do host mais quente, cor do pior host da frota.
+
+    Com N hosts um numero so nao conta a historia toda - por isso o ponto de
+    alerta no canto, que acende para qualquer host com problema ou offline.
+    """
+    nivel = frota.pior_nivel()
+    temp, _ = primeira_temp(frota.estados())
 
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    cor = cor_temp(temp, crit)
-    d.rounded_rectangle([0, 0, 63, 63], radius=14, fill=cor + (235,))
+    d.rounded_rectangle([0, 0, 63, 63], radius=14, fill=CORES[nivel] + (235,))
 
     texto = "--" if temp is None else f"{temp:.0f}"
     f = fonte(40 if len(texto) <= 2 else 32)
@@ -275,20 +153,45 @@ def desenhar_icone() -> Image.Image:
     d.text(((64 - cx[2] + cx[0]) / 2, (64 - cx[3] + cx[1]) / 2 - 2),
            texto, font=f, fill=(20, 20, 20, 255))
 
-    if alertas():  # ponto de alerta no canto
+    if nivel >= AVISO:
         d.ellipse([46, 2, 62, 18], fill=(200, 30, 30, 255),
                   outline=(255, 255, 255, 220), width=2)
     return img
 
 
+def linha_compacta(host, estado: Estado) -> str:
+    """Uma linha por host: e o que cabe na tela quando sao muitos."""
+    if estado.erro or not estado.dados:
+        return f"{host.nome:<10} offline"
+    d = estado.dados
+    mem = (d.get("mem") or {}).get("percent")
+    discos = d.get("discos") or []
+    disco = f"{discos[0]['mount']} {discos[0]['percent']:.0f}%" if discos else "--"
+    return (f"{host.nome:<10} {fmt_temp(d.get('cpu_temp')):>5}"
+            f" {fmt_pct(d.get('cpu_percent')):>5}"
+            f"  RAM {fmt_pct(mem):>4}  {disco}")
+
+
+def titulo_tray(frota: Frota) -> str:
+    """Tooltip do Windows - truncado em ~127 caracteres pelo proprio sistema."""
+    linhas = [linha_compacta(h, e) for h, e in frota.estados()]
+    return "\n".join(linhas[:5])
+
+
 # ------------------------------------------------------------------ overlay
 class Overlay:
-    """Janela sempre no topo, sem bordas, arrastavel, opcionalmente click-through."""
+    """Janela sempre no topo, sem bordas, arrastavel, opcionalmente click-through.
 
-    def __init__(self, root: tk.Tk) -> None:
+    Usa um tk.Text em vez de Label porque cada host precisa da propria cor -
+    com Label so daria para pintar o bloco inteiro de uma cor so.
+    """
+
+    def __init__(self, root: tk.Tk, frota: Frota) -> None:
         self.root = root
+        self.frota = frota
         self.win: tk.Toplevel | None = None
-        self.label: tk.Label | None = None
+        self.texto: tk.Text | None = None
+        self.compacto = COMPACTO_INICIAL
         self.click_through = False
         self._drag = (0, 0)
 
@@ -302,21 +205,26 @@ class Overlay:
         w = tk.Toplevel(self.root)
         w.overrideredirect(True)
         w.attributes("-topmost", True)
-        w.attributes("-alpha", float(CFG.get("opacidade", 0.86)))
-        w.configure(bg="#12141a")
+        w.attributes("-alpha", float(BRUTO.get("opacidade", 0.86)))
+        w.configure(bg=FUNDO)
         w.geometry(f"+{POSICAO[0]}+{POSICAO[1]}")
 
-        self.label = tk.Label(
-            w, justify="left", anchor="w",
-            font=("Consolas", int(CFG.get("fonte_tamanho", 11))),
-            bg="#12141a", fg="#e6e6e6", padx=12, pady=8,
+        self.texto = tk.Text(
+            w, font=("Consolas", int(BRUTO.get("fonte_tamanho", 10))),
+            bg=FUNDO, fg="#e6e6e6", bd=0, highlightthickness=0,
+            padx=12, pady=8, wrap="none", cursor="arrow",
+            width=10, height=1,
         )
-        self.label.pack()
+        for nivel, cor in CORES_HEX.items():
+            self.texto.tag_configure(f"n{nivel}", foreground=cor)
+        self.texto.tag_configure("alerta", foreground="#ff9a9a")
+        self.texto.pack()
 
-        for widget in (w, self.label):
+        for widget in (w, self.texto):
             widget.bind("<Button-1>", self._inicio_drag)
             widget.bind("<B1-Motion>", self._arrastar)
-            widget.bind("<Double-Button-1>", lambda e: pedidos.put("overlay"))
+            widget.bind("<Double-Button-1>", lambda e: pedidos.put(("compacto", None)))
+            widget.bind("<Button-3>", lambda e: pedidos.put(("overlay", None)))
 
         self.win = w
         if self.click_through:
@@ -328,23 +236,32 @@ class Overlay:
         if self.win:
             POSICAO[:] = [self.win.winfo_x(), self.win.winfo_y()]
             self.win.destroy()
-            self.win = self.label = None
+            self.win = self.texto = None
 
     def alternar(self) -> None:
         self.fechar() if self.win else self.abrir()
 
+    def alternar_compacto(self) -> None:
+        self.compacto = not self.compacto
+        self.atualizar()
+
     def _inicio_drag(self, e) -> None:
-        self._drag = (e.x_root - self.win.winfo_x(), e.y_root - self.win.winfo_y())
+        if self.win:
+            self._drag = (e.x_root - self.win.winfo_x(), e.y_root - self.win.winfo_y())
 
     def _arrastar(self, e) -> None:
-        self.win.geometry(f"+{e.x_root - self._drag[0]}+{e.y_root - self._drag[1]}")
+        if self.win:
+            self.win.geometry(f"+{e.x_root - self._drag[0]}+{e.y_root - self._drag[1]}")
 
     def alternar_click_through(self) -> None:
-        """WS_EX_TRANSPARENT faz os cliques atravessarem a janela (Windows)."""
+        """WS_EX_TRANSPARENT faz os cliques atravessarem a janela (so Windows)."""
         if not self.win:
             return
         GWL_EXSTYLE, WS_EX_TRANSPARENT, WS_EX_LAYERED = -20, 0x20, 0x80000
-        user32 = ctypes.windll.user32
+        try:
+            user32 = ctypes.windll.user32
+        except AttributeError:  # rodando fora do Windows
+            return
         hwnd = user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
         estilo = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
         self.click_through = not self.click_through
@@ -354,59 +271,106 @@ class Overlay:
             estilo &= ~WS_EX_TRANSPARENT
         user32.SetWindowLongW(hwnd, GWL_EXSTYLE, estilo)
 
+    def _conteudo(self) -> list[tuple[str, str]]:
+        """(linha, tag) para cada linha da janela."""
+        out: list[tuple[str, str]] = []
+        for host, estado in self.frota.estados():
+            nivel, _ = avaliar(estado)
+            tag = f"n{nivel}"
+            if self.compacto:
+                out.append((linha_compacta(host, estado), tag))
+            else:
+                out.extend((linha, tag) for linha in resumo_linhas(host, estado))
+                out.append(("", tag))
+        while out and out[-1][0] == "":
+            out.pop()
+
+        if alertas := self.frota.alertas():
+            out.append(("", "alerta"))
+            out.extend(("! " + a, "alerta") for a in alertas)
+        return out
+
     def atualizar(self) -> None:
-        if not self.label:
+        if not self.texto:
             return
-        dados, erro = estado.get()
-        temp = (dados or {}).get("cpu_temp") if not erro else None
-        crit = (dados or {}).get("cpu_crit") if not erro else None
-        cor = "#e15050" if erro else "#%02x%02x%02x" % cor_temp(temp, crit)
-        linhas = resumo()
-        if av := alertas():
-            linhas += ["", "! " + "; ".join(av)]
-        self.label.configure(text="\n".join(linhas), fg=cor)
+        linhas = self._conteudo()
+        self.texto.configure(state="normal")
+        self.texto.delete("1.0", "end")
+        for i, (linha, tag) in enumerate(linhas):
+            self.texto.insert("end", linha + ("\n" if i < len(linhas) - 1 else ""), tag)
+        # A janela acompanha o conteudo: sem isso a caixa fica com sobra ou corta.
+        self.texto.configure(
+            state="disabled",
+            width=max((len(l) for l, _ in linhas), default=10) + 1,
+            height=max(len(linhas), 1),
+        )
 
 
 # ------------------------------------------------------------------ tray
-def montar_tray(overlay: Overlay) -> pystray.Icon:
-    def enfileirar(nome: str):
-        return lambda icon, item: pedidos.put(nome)
+def montar_tray(frota: Frota, overlay: Overlay) -> pystray.Icon:
+    def enfileirar(nome: str, arg=None):
+        return lambda icon, item: pedidos.put((nome, arg))
 
-    def atualizar_agora(icon, item):
-        threading.Thread(target=buscar, daemon=True).start()
+    def cabecalho(item) -> str:
+        alertas = len(frota.alertas())
+        base = f"{len(frota.cfg.hosts)} host(s)"
+        return base if not alertas else f"{base} - {alertas} alerta(s)"
 
-    def copiar_json(icon, item):
-        dados, _ = estado.get()
-        if dados:
-            pedidos.put("copiar")
+    def submenu_host(indice: int):
+        def linhas(item):
+            host, estado = frota.estados()[indice]
+            return "\n".join(resumo_linhas(host, estado))
+        return pystray.Menu(
+            pystray.MenuItem(linhas, lambda i, it: None, enabled=False),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Atualizar agora", enfileirar("atualizar_host", indice)),
+            pystray.MenuItem("Copiar JSON deste host", enfileirar("copiar_host", indice)),
+        )
 
-    menu = pystray.Menu(
-        pystray.MenuItem(lambda item: resumo()[0], lambda i, it: None, enabled=False),
+    itens = [
+        pystray.MenuItem(cabecalho, lambda i, it: None, enabled=False),
+        pystray.Menu.SEPARATOR,
+    ]
+    for i, host in enumerate(frota.cfg.hosts):
+        itens.append(pystray.MenuItem(host.nome, submenu_host(i)))
+
+    itens += [
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Mostrar overlay", enfileirar("overlay"),
                          checked=lambda item: overlay.visivel, default=True),
+        pystray.MenuItem("Overlay compacto", enfileirar("compacto"),
+                         checked=lambda item: overlay.compacto),
         pystray.MenuItem("Cliques atravessam", enfileirar("clickthrough"),
                          checked=lambda item: overlay.click_through),
-        pystray.MenuItem("Atualizar agora", atualizar_agora),
-        pystray.MenuItem("Copiar JSON", copiar_json),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Atualizar todos", enfileirar("atualizar")),
+        pystray.MenuItem("Copiar JSON da frota", enfileirar("copiar")),
         pystray.MenuItem("Sair", enfileirar("sair")),
-    )
-    return pystray.Icon("sysmon", desenhar_icone(), "sysmon", menu)
+    ]
+    return pystray.Icon("sysmon", desenhar_icone(frota), "sysmon", pystray.Menu(*itens))
 
 
-def loop_ui(root: tk.Tk, overlay: Overlay, icone: pystray.Icon) -> None:
-    """Roda na thread principal: aplica comandos do tray e redesenha."""
+def loop_ui(root: tk.Tk, frota: Frota, overlay: Overlay, icone: pystray.Icon) -> None:
+    """Roda na thread principal: aplica os comandos do menu e redesenha."""
     while not pedidos.empty():
-        cmd = pedidos.get()
+        cmd, arg = pedidos.get()
         if cmd == "overlay":
             overlay.alternar()
+        elif cmd == "compacto":
+            overlay.alternar_compacto()
         elif cmd == "clickthrough":
             overlay.alternar_click_through()
+        elif cmd == "atualizar":
+            frota.atualizar_agora()
+        elif cmd == "atualizar_host":
+            frota.monitores[arg].atualizar_agora()
         elif cmd == "copiar":
-            dados, _ = estado.get()
-            root.clipboard_clear()
-            root.clipboard_append(json.dumps(dados, indent=2, ensure_ascii=False))
+            copiar(root, como_dict(frota))
+        elif cmd == "copiar_host":
+            _, estado = frota.estados()[arg]
+            copiar(root, estado.dados or {"erro": estado.erro})
+        elif cmd == "notificar":
+            notificar(icone, arg)
         elif cmd == "sair":
             overlay.fechar()
             icone.stop()
@@ -415,30 +379,62 @@ def loop_ui(root: tk.Tk, overlay: Overlay, icone: pystray.Icon) -> None:
 
     overlay.atualizar()
     try:
-        icone.icon = desenhar_icone()
-        icone.title = "\n".join(resumo()[:6])  # tooltip do Windows trunca em ~127 ch
+        icone.icon = desenhar_icone(frota)
+        icone.title = titulo_tray(frota)
     except Exception:
         logging.exception("falha ao redesenhar o icone")
-    root.after(1000, loop_ui, root, overlay, icone)
+    root.after(1000, loop_ui, root, frota, overlay, icone)
+
+
+def copiar(root: tk.Tk, dados: dict) -> None:
+    root.clipboard_clear()
+    root.clipboard_append(json.dumps(dados, indent=2, ensure_ascii=False))
+
+
+def notificar(icone: pystray.Icon, texto: str) -> None:
+    """Balao do Windows. Nem todo backend do pystray suporta; falhar e ok."""
+    try:
+        icone.notify(texto[:250], "sysmon")
+    except Exception:
+        logging.info("notificacao nao suportada: %s", texto)
 
 
 def main() -> None:
-    logging.info("iniciando traymon %s -> %s", __version__, URL)
+    logging.info("iniciando traymon %s com %d host(s)", __version__, len(CFG.hosts))
 
-    threading.Thread(target=poller, daemon=True).start()
-    time.sleep(0.8)  # da tempo do primeiro fetch antes de desenhar o icone
+    def ao_mudar(nome: str, estado: Estado) -> None:
+        """Chamado da thread do poller quando um host muda de nivel."""
+        nivel, alertas = avaliar(estado)
+        if nivel == OK:
+            texto = f"{nome}: normalizado"
+        elif nivel == OFFLINE:
+            texto = f"{nome}: offline - {estado.erro}"
+        else:
+            texto = f"{nome}: " + "; ".join(alertas[:3])
+        logging.info("mudanca de nivel: %s", texto)
+        if NOTIFICAR and nivel != OK:
+            pedidos.put(("notificar", texto))
+
+    frota = Frota(CFG, ao_mudar=ao_mudar)
+    frota.iniciar()
+    # Da tempo da primeira rodada antes de desenhar, para o icone nao piscar
+    # cinza no arranque.
+    frota.esperar_primeira_leitura(limite=CFG.timeout + 1)
 
     root = tk.Tk()
     root.withdraw()  # a janela raiz nunca aparece
-    overlay = Overlay(root)
+    overlay = Overlay(root, frota)
     if OVERLAY_INICIAL:
         overlay.abrir()
 
-    icone = montar_tray(overlay)
-    threading.Thread(target=icone.run, daemon=True).start()
+    icone = montar_tray(frota, overlay)
+    threading.Thread(target=icone.run, name="tray", daemon=True).start()
 
-    root.after(500, loop_ui, root, overlay, icone)
-    root.mainloop()
+    root.after(500, loop_ui, root, frota, overlay, icone)
+    try:
+        root.mainloop()
+    finally:
+        frota.parar()
     logging.info("encerrado")
 
 
