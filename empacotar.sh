@@ -72,7 +72,17 @@ Conferir:
 
     systemctl status sysmon-agent
     journalctl -u sysmon-agent -n 30
-    curl -s localhost:9109/health
+    ss -lntp | grep 9109
+
+ATENCAO: o agente escuta SO no IP que voce passou ao install.sh, nao em
+localhost. Teste sempre com o mesmo IP:
+
+    curl -s http://<IP_DE_BIND>:9109/health      # funciona
+    curl -s http://localhost:9109/health         # conexao recusada, e esperado
+
+"Conexao recusada" quase sempre significa uma destas tres coisas: o servico
+nao subiu, voce testou em um IP diferente do de bind, ou a porta e outra.
+O `ss -lntp | grep 9109` mostra em qual IP ele esta de fato escutando.
 
 Remover:
 

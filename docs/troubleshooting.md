@@ -2,6 +2,49 @@
 
 ## Agente Linux
 
+### "Conexão recusada" / "a máquina de destino as recusou ativamente"
+
+É o erro mais comum na primeira instalação. Primeiro entenda o que ele diz:
+
+- **recusada** — o pacote chegou na máquina e ninguém estava escutando naquele
+  IP e porta. O host está no ar, o firewall não bloqueou.
+- **timeout** — aí sim é firewall com `DROP`, ou host inacessível.
+
+Como a mensagem é *recusada*, o problema está no agente ou no endereço, não na
+rede. Descubra em qual IP ele está de fato escutando:
+
+```bash
+ss -lntp | grep 9109
+systemctl status sysmon-agent
+```
+
+As três causas, em ordem de frequência:
+
+**1. Você testou em `localhost`.** O agente escuta **somente** no IP que você
+passou ao `install.sh` — nunca em `0.0.0.0`, e isso é proposital. Se você
+instalou com `192.168.0.10`, então:
+
+```bash
+curl -s http://192.168.0.10:9109/health   # funciona
+curl -s http://localhost:9109/health      # recusada, e é o esperado
+```
+
+**2. O cliente aponta para um IP diferente do de bind.** Acontece em host com
+mais de um endereço — instalou com o IP do Tailscale e o `config.json` do tray
+usa o da LAN, ou vice-versa. Compare:
+
+```bash
+grep ExecStart /etc/systemd/system/sysmon-agent.service   # IP de bind
+```
+
+Para trocar o IP de bind, edite essa linha e recarregue:
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl restart sysmon-agent
+```
+
+**3. O serviço não está rodando.** Veja a seção seguinte.
+
 ### Serviço não sobe
 
 ```bash
