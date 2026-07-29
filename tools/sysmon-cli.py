@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
-sysmon.py - leitor de temperaturas e info de hardware no Linux.
+sysmon-cli.py - leitor LOCAL de temperaturas e info de hardware no Linux.
 
-Uso:
-    python3.12 sysmon.py            # snapshot único
-    python3.12 sysmon.py --watch    # atualiza a cada 2s
-    python3.12 sysmon.py --json     # saída em JSON (para scripts/dashboards)
+Lê o sysfs da máquina onde está rodando. Não fala com o agente e não precisa
+de token: é para diagnosticar um host de perto — tipicamente para descobrir
+se os sensores estão expostos antes de instalar o agente.
+
+    python3 sysmon-cli.py            # snapshot único
+    python3 sysmon-cli.py --watch    # atualiza a cada 2s
+    python3 sysmon-cli.py --json     # saída em JSON
+
+Para ver vários hosts pela rede, use o sysmon-dash.py.
 
 Dependências: nenhuma (stdlib). Se 'psutil' estiver instalado, é usado como
-fonte extra de fans/bateria.
+fonte extra de bateria e uso de CPU/RAM.
 """
 
 from __future__ import annotations
