@@ -12,6 +12,16 @@ Configuracao: config.json nesta pasta. Gere automaticamente com
 linux-agent/deploy.sh, ou copie config.example.json e preencha.
 O formato antigo de host unico (url e token na raiz) continua funcionando.
 
+O ambiente tem prioridade sobre o arquivo:
+
+    SYSMON_URL + SYSMON_TOKEN   -> host unico, ignora os hosts[] do config
+    SYSMON_URL_<NOME>           -> troca a url de um host do config
+    SYSMON_TOKEN_<NOME>         -> troca o token de um host do config
+    SYSMON_CONFIG               -> caminho do proprio config.json
+
+No <NOME>, tudo que nao for letra ou digito vira _ e o resto vira maiuscula:
+o host "pve-01" responde a SYSMON_TOKEN_PVE_01.
+
 Arquitetura de threads:
     - principal : loop do tkinter (overlay + aplicacao dos comandos do menu)
     - N pollers : um por host, com recuo exponencial (ficam no sysmon_nucleo)

@@ -10,12 +10,29 @@ sem instalar nada.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+
+@contextlib.contextmanager
+def ambiente(**variaveis: str):
+    """Define variaveis de ambiente so durante o bloco, restaurando depois."""
+    anteriores = {k: os.environ.get(k) for k in variaveis}
+    os.environ.update(variaveis)
+    try:
+        yield
+    finally:
+        for k, v in anteriores.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 from sysmon_nucleo import (
     AVISO, CRITICO, OFFLINE, OK,
@@ -90,6 +107,58 @@ class TestConfig(unittest.TestCase):
     def test_nome_derivado_da_url(self):
         p = cfg_temp({"hosts": [{"url": "http://192.168.0.9:9109/metrics", "token": "t"}]})
         self.assertEqual(carregar_config(p).hosts[0].nome, "192.168.0.9")
+
+    def test_ambiente_vence_o_arquivo(self):
+        # A prioridade do ambiente e o atalho para apontar o cliente a outro
+        # host sem editar config: util para isolar problema.
+        p = cfg_temp({"hosts": [
+            {"nome": "pve", "url": "http://do-arquivo/metrics", "token": "arq"}]})
+        with ambiente(SYSMON_URL="http://do-ambiente:9109/metrics",
+                      SYSMON_TOKEN="env"):
+            cfg = carregar_config(p)
+        self.assertEqual(len(cfg.hosts), 1)
+        self.assertEqual(cfg.hosts[0].url, "http://do-ambiente:9109/metrics")
+        self.assertEqual(cfg.hosts[0].token, "env")
+
+    def test_ambiente_dispensa_o_arquivo(self):
+        with ambiente(SYSMON_URL="http://so-ambiente:9109/metrics",
+                      SYSMON_TOKEN="env", SYSMON_NOME="apelido"):
+            cfg = carregar_config(Path("/nao/existe/config.json"))
+        self.assertEqual(cfg.hosts[0].nome, "apelido")
+
+    def test_ambiente_sem_url_nao_interfere(self):
+        p = cfg_temp({"hosts": [
+            {"nome": "pve", "url": "http://do-arquivo/metrics", "token": "arq"}]})
+        with ambiente(SYSMON_TOKEN="solto"):  # sem SYSMON_URL: nao aciona nada
+            cfg = carregar_config(p)
+        self.assertEqual(cfg.hosts[0].url, "http://do-arquivo/metrics")
+        self.assertEqual(cfg.hosts[0].token, "arq")
+
+    def test_override_por_host(self):
+        p = cfg_temp({"hosts": [
+            {"nome": "pve", "url": "http://a/metrics", "token": "ta"},
+            {"nome": "nas", "url": "http://b/metrics", "token": "tb"},
+        ]})
+        with ambiente(SYSMON_TOKEN_NAS="novo-token-do-nas"):
+            cfg = carregar_config(p)
+        self.assertEqual(cfg.hosts[0].token, "ta")           # intacto
+        self.assertEqual(cfg.hosts[1].token, "novo-token-do-nas")
+        self.assertEqual(cfg.hosts[1].url, "http://b/metrics")
+
+    def test_override_normaliza_nome_com_hifen(self):
+        # Nome de variavel de ambiente nao aceita hifen nem ponto.
+        p = cfg_temp({"hosts": [
+            {"nome": "pve-01.lan", "url": "http://a/metrics", "token": "ta"}]})
+        with ambiente(SYSMON_URL_PVE_01_LAN="http://novo:9109/metrics"):
+            cfg = carregar_config(p)
+        self.assertEqual(cfg.hosts[0].url, "http://novo:9109/metrics")
+
+    def test_url_invalida_no_ambiente_e_recusada(self):
+        p = cfg_temp({"hosts": [
+            {"nome": "pve", "url": "http://a/metrics", "token": "t"}]})
+        with ambiente(SYSMON_URL_PVE="192.168.0.1:9109"):  # sem esquema
+            with self.assertRaises(ErroConfig):
+                carregar_config(p)
 
     def test_erros_uteis(self):
         casos = {

@@ -67,21 +67,13 @@ class ErroConfig(Exception):
 
 def carregar_config(caminho: Path) -> Config:
     """Le o config.json. Aceita o formato antigo de host unico da v1."""
-    try:
-        bruto = json.loads(caminho.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise ErroConfig(
-            f"config nao encontrado em:\n{caminho}\n\n"
-            "Copie config.example.json para config.json e preencha,\n"
-            "ou gere automaticamente com linux-agent/deploy.sh."
-        ) from None
-    except json.JSONDecodeError as e:
-        raise ErroConfig(f"config invalido ({caminho}):\n\n{e}") from None
+    bruto = _ler_arquivo(caminho)
 
-    if not isinstance(bruto, dict):
-        raise ErroConfig("o config precisa ser um objeto JSON.")
+    # SYSMON_URL vence o arquivo inteiro: aponta o cliente para um host
+    # qualquer sem editar nada. E o caminho mais rapido para isolar problema
+    # ("e o config ou e o agente?").
+    entradas = _host_do_ambiente() or bruto.get("hosts")
 
-    entradas = bruto.get("hosts")
     if not entradas:
         # Formato v1: url e token soltos na raiz. Continua funcionando.
         if bruto.get("url"):
@@ -91,6 +83,7 @@ def carregar_config(caminho: Path) -> Config:
             raise ErroConfig(
                 "nenhum host configurado.\n\n"
                 'Esperado: {"hosts": [{"nome": "...", "url": "...", "token": "..."}]}'
+                "\n\nOu defina SYSMON_URL e SYSMON_TOKEN no ambiente."
             )
 
     token_padrao = bruto.get("token", "")
@@ -98,13 +91,16 @@ def carregar_config(caminho: Path) -> Config:
     for i, e in enumerate(entradas):
         if not isinstance(e, dict) or not e.get("url"):
             raise ErroConfig(f"host #{i + 1} sem 'url'.")
-        url = e["url"]
+        nome = e.get("nome") or _apelido(e["url"])
+        # Override por host: SYSMON_URL_<NOME> / SYSMON_TOKEN_<NOME>.
+        url = os.environ.get(f"SYSMON_URL_{_sufixo(nome)}", "").strip() or e["url"]
         if not url.startswith(("http://", "https://")):
-            raise ErroConfig(f"host #{i + 1}: url deve comecar com http:// ou https://")
-        token = e.get("token") or token_padrao
+            raise ErroConfig(f"host '{nome}': url deve comecar com http:// ou https://")
+        token = (os.environ.get(f"SYSMON_TOKEN_{_sufixo(nome)}", "").strip()
+                 or e.get("token") or token_padrao)
         if not token:
-            raise ErroConfig(f"host '{e.get('nome', url)}' sem token.")
-        hosts.append(Host(nome=e.get("nome") or _apelido(url), url=url, token=token))
+            raise ErroConfig(f"host '{nome}' sem token.")
+        hosts.append(Host(nome=nome, url=url, token=token))
 
     nomes = [h.nome for h in hosts]
     if len(set(nomes)) != len(nomes):
@@ -116,6 +112,47 @@ def carregar_config(caminho: Path) -> Config:
         timeout=float(bruto.get("timeout", 4)),
         extra=bruto,
     )
+
+
+def _ler_arquivo(caminho: Path) -> dict:
+    """Le o config.json. Ausencia so e erro quando o ambiente nao supre o host."""
+    try:
+        bruto = json.loads(caminho.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        if _host_do_ambiente():
+            return {}
+        raise ErroConfig(
+            f"config nao encontrado em:\n{caminho}\n\n"
+            "Copie config.example.json para config.json e preencha,\n"
+            "ou gere automaticamente com linux-agent/deploy.sh.\n"
+            "Para um teste rapido, defina SYSMON_URL e SYSMON_TOKEN."
+        ) from None
+    except json.JSONDecodeError as e:
+        raise ErroConfig(f"config invalido ({caminho}):\n\n{e}") from None
+
+    if not isinstance(bruto, dict):
+        raise ErroConfig("o config precisa ser um objeto JSON.")
+    return bruto
+
+
+def _host_do_ambiente() -> list[dict]:
+    """SYSMON_URL/SYSMON_TOKEN definem um host unico com prioridade sobre o arquivo."""
+    url = os.environ.get("SYSMON_URL", "").strip()
+    if not url:
+        return []
+    return [{
+        "nome": os.environ.get("SYSMON_NOME", "").strip() or None,
+        "url": url,
+        "token": os.environ.get("SYSMON_TOKEN", "").strip(),
+    }]
+
+
+def _sufixo(nome: str) -> str:
+    """Nome de host -> sufixo de variavel de ambiente: 'pve-01' vira 'PVE_01'.
+
+    Nome de variavel nao aceita hifen nem ponto em nenhum dos dois sistemas.
+    """
+    return "".join(c if c.isalnum() else "_" for c in nome).upper()
 
 
 def _apelido(url: str) -> str:

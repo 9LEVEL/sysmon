@@ -12,6 +12,13 @@ Roda de qualquer maquina Linux (ou por SSH), sem instalar nada: stdlib pura.
     python3 sysmon-dash.py --config outro.json
 
 O config e o mesmo do tray do Windows. Gere com linux-agent/deploy.sh.
+
+O ambiente tem prioridade sobre o arquivo - util para checar um host sem
+editar nada:
+
+    SYSMON_URL=http://10.0.0.5:9109/metrics SYSMON_TOKEN=... sysmon-dash.py --once
+
+Ver a tabela completa de variaveis no README.
 """
 
 from __future__ import annotations

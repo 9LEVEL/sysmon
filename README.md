@@ -137,6 +137,111 @@ iptables -A INPUT -p tcp --dport 9109 -s <IP_DO_CLIENTE> -j ACCEPT
 iptables -A INPUT -p tcp --dport 9109 -j DROP
 ```
 
+## Adicionar mais hosts depois
+
+São dois passos: instalar o agente no host novo e acrescentá-lo ao config dos
+clientes. Nada precisa ser reiniciado nos hosts que já funcionam.
+
+**Com `deploy.sh`** — acrescente a linha ao `hosts.conf` e rode de novo. Ele é
+idempotente: nos hosts já instalados o token existente é mantido, e o
+`hosts.json` sai regenerado com todo mundo.
+
+```bash
+cd linux-agent
+echo "novo   root@192.168.0.30   192.168.0.30" >> hosts.conf
+./deploy.sh hosts.conf
+```
+
+**Na mão** — instale no host novo, anote a URL e o token que o `install.sh`
+imprime, e acrescente ao `config.json` dos clientes:
+
+```json
+{
+  "hosts": [
+    {"nome": "pve", "url": "http://192.168.0.10:9109/metrics", "token": "..."},
+    {"nome": "nas", "url": "http://192.168.0.20:9109/metrics", "token": "..."},
+    {"nome": "novo", "url": "http://192.168.0.30:9109/metrics", "token": "..."}
+  ]
+}
+```
+
+Regras do `nome`: precisa ser único (é a chave em toda a interface) e é o que
+aparece na tabela, no menu do tray e nos alertas. Se você omitir, ele é
+derivado do host da URL.
+
+Depois de editar, reinicie o tray (menu → **Sair**, e abra de novo) — o
+`config.json` é lido uma vez, no arranque. O `sysmon-dash` basta rodar de novo.
+
+Confira antes de mexer no tray:
+
+```bash
+python3 tools/sysmon-dash.py --config config.json --once
+```
+
+## Configuração dos clientes
+
+Os dois clientes leem o mesmo arquivo. A ordem de precedência é:
+
+1. **`SYSMON_URL` + `SYSMON_TOKEN`** no ambiente — se `SYSMON_URL` estiver
+   definida, ela **vence o `config.json` inteiro** e o cliente monitora esse
+   host único. É o caminho mais rápido para responder "o problema é o config ou
+   é o agente?" sem editar arquivo nenhum.
+2. **`SYSMON_URL_<NOME>` / `SYSMON_TOKEN_<NOME>`** — sobrescrevem um host
+   específico do arquivo, mantendo os demais. Útil para rotacionar o token de
+   um host sem mexer no JSON.
+3. **`config.json`** (ou o caminho em `SYSMON_CONFIG`).
+
+| Variável | Efeito |
+|---|---|
+| `SYSMON_URL` | host único, ignora os `hosts[]` do arquivo |
+| `SYSMON_TOKEN` | token desse host único |
+| `SYSMON_NOME` | nome desse host único (padrão: derivado da URL) |
+| `SYSMON_URL_<NOME>` | troca a URL de um host do arquivo |
+| `SYSMON_TOKEN_<NOME>` | troca o token de um host do arquivo |
+| `SYSMON_CONFIG` | caminho do `config.json` |
+
+No `<NOME>`, tudo que não for letra ou dígito vira `_` e o resto vira
+maiúscula: o host `pve-01.lan` responde a `SYSMON_TOKEN_PVE_01_LAN`. Nome de
+variável não aceita hífen nem ponto em nenhum dos dois sistemas.
+
+### No Windows
+
+`setx` grava permanentemente, mas **só vale para processos abertos depois** —
+o PowerShell onde você rodou continua sem a variável:
+
+```powershell
+setx SYSMON_URL   "http://192.168.0.10:9109/metrics"
+setx SYSMON_TOKEN "cole-o-token-aqui"
+
+# para a sessão atual também:
+$env:SYSMON_URL   = "http://192.168.0.10:9109/metrics"
+$env:SYSMON_TOKEN = "cole-o-token-aqui"
+
+# conferir o que ficou gravado:
+[Environment]::GetEnvironmentVariable("SYSMON_URL", "User")
+```
+
+`setx` sozinho grava em `HKCU\Environment` (só o seu usuário); com `/M` vai
+para o sistema todo e exige prompt como administrador. Valores acima de 1024
+caracteres são truncados — irrelevante para URL, mas importa se você tentar
+guardar algo maior.
+
+A tarefa agendada do autostart herda o ambiente do usuário no logon, então o
+`setx` também vale para o tray iniciado automaticamente. Para **voltar** a usar
+o `config.json`, apague a variável:
+
+```powershell
+setx SYSMON_URL ""
+Remove-ItemProperty -Path HKCU:\Environment -Name SYSMON_URL -ErrorAction SilentlyContinue
+```
+
+### No Linux
+
+```bash
+SYSMON_URL=http://192.168.0.10:9109/metrics SYSMON_TOKEN=... \
+  python3 tools/sysmon-dash.py --once
+```
+
 ## Dashboard no terminal
 
 Roda de qualquer máquina Linux, inclusive por SSH. Só precisa do Python 3.9+.
