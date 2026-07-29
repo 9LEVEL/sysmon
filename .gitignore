@@ -1,0 +1,14 @@
+# Binarios compilados do agente
+linux-agent/bin/
+
+# Configuracao real dos clientes: contem os tokens de todos os hosts.
+# Versione apenas o config.example.json.
+hosts.json
+config.json
+linux-agent/hosts.conf
+
+__pycache__/
+*.pyc
+
+# Log gerado pelo traymon quando %TEMP% nao existe (rodando fora do Windows)
+traymon.log
