@@ -1,2 +1,4 @@
+# Opcional: so para o icone de bandeja. O dashboard web nao precisa de nada
+# alem do Python - se voce nao instalar isto, o sysmon sobe so o dashboard.
 pystray>=0.19.5
 pillow>=10.0.0

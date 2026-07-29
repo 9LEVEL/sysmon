@@ -18,8 +18,8 @@ comando externo e roda sem root. Os clientes são Python stdlib puro.
                                   │
                  ┌────────────────┴─────────────────┐
         ┌────────┴─────────┐              ┌─────────┴────────┐
-        │   traymon.py     │              │  sysmon-dash.py  │
-        │  bandeja Windows │              │ terminal (Linux) │
+        │  dashboard web   │              │    bandeja +     │
+        │  + terminal      │              │   notificações   │
         └──────────────────┘              └──────────────────┘
 ```
 
@@ -32,11 +32,12 @@ comando externo e roda sem root. Os clientes são Python stdlib puro.
 | `linux-agent/deploy.sh` | sua máquina | instala em N hosts por SSH e gera o config |
 | `linux-agent/sysmon-agent.service` | cada host | unit systemd com hardening + watchdog |
 | `linux-agent/sysmon-thinpool.{service,timer}` | Proxmox | snapshot do thin pool LVM |
+| `sysmon.py` | sua máquina | ponto de entrada único dos clientes |
 | `tools/sysmon_nucleo.py` | clientes | config, polling e regras de alerta (compartilhado) |
-| `tools/sysmon-web.py` | sua máquina | dashboard no browser (gauges, discos, SMART) |
-| `tools/sysmon-dash.py` | sua máquina | dashboard de N hosts no terminal |
-| `tools/sysmon-cli.py` | um host | leitor local de sensores, sem rede nem token |
-| `windows-tray/traymon.py` | Windows | ícone de bandeja + overlay multi-host |
+| `tools/sysmon_web.py` + `tools/web/` | sua máquina | dashboard no browser (gauges, discos, SMART) |
+| `tools/sysmon_dash.py` | sua máquina | dashboard de N hosts no terminal |
+| `tools/sysmon_tray.py` | Windows | ícone de bandeja + overlay multi-host |
+| `tools/sysmon_local.py` | um host | leitor local de sensores, sem rede nem token |
 | `windows-tray/instalar-autostart.ps1` | Windows | registra no Agendador de Tarefas |
 
 ## Instalação nos hosts Linux
@@ -171,13 +172,93 @@ aparece na tabela, no menu do tray e nos alertas. Se você omitir, ele é
 derivado do host da URL.
 
 Depois de editar, reinicie o tray (menu → **Sair**, e abra de novo) — o
-`config.json` é lido uma vez, no arranque. O `sysmon-dash` basta rodar de novo.
+`config.json` é lido uma vez, no arranque. O terminal basta rodar de novo.
 
 Confira antes de mexer no tray:
 
 ```bash
-python3 tools/sysmon-dash.py --config config.json --once
+python3 sysmon.py term --config config.json --once
 ```
+
+## Os clientes
+
+Tudo roda a partir de **um arquivo**. Baixe o `sysmon.pyz` do release, ponha o
+`config.json` ao lado, e:
+
+```bash
+python sysmon.pyz
+```
+
+Isso sobe o dashboard web, abre o browser e — se `pystray` e `Pillow`
+estiverem instalados — o ícone de bandeja **no mesmo processo**. Um autostart
+só, um processo só.
+
+Atualizar é substituir o `sysmon.pyz`. O `config.json` fica.
+
+| Comando | O que faz |
+|---|---|
+| `python sysmon.pyz` | dashboard web + bandeja (padrão) |
+| `python sysmon.pyz web` | só o dashboard |
+| `python sysmon.pyz term` | tabela no terminal, atualiza sozinha |
+| `python sysmon.pyz term --once` | imprime uma vez e sai (script/cron) |
+| `python sysmon.pyz term --host pve` | detalhe completo de um host |
+| `python sysmon.pyz tray` | só o ícone de bandeja |
+| `python sysmon.pyz local` | sensores **desta** máquina, sem rede |
+
+Rodando do repositório em vez do `.pyz`, troque `sysmon.pyz` por `sysmon.py` —
+os argumentos são os mesmos.
+
+### O dashboard no browser
+
+`http://127.0.0.1:9110/` — gauges de temperatura, CPU e RAM por host, cada
+disco físico com modelo, temperatura, taxa de I/O e vida consumida do SMART,
+filesystems, thin pool, rede e RAID.
+
+Sem framework e sem CDN: HTML, CSS e SVG puros servidos por Python stdlib.
+Funciona offline.
+
+**Os tokens não chegam ao browser.** O polling acontece no processo local e a
+página recebe apenas telemetria. Por isso ele escuta só em `127.0.0.1`: a
+página não tem autenticação, então expor na rede entregaria a telemetria da
+frota inteira. Para mudar mesmo assim, `--host 0.0.0.0` (com aviso no terminal).
+
+### Dashboard no terminal
+
+```
+sysmon  3 host(s)  1 alerta(s)                                    14:32:05
+
+HOST       CPU    TEMP   RAM    SWAP   DISCO             LOAD              REDE               PSI-IO  UP
+pve        12%    47C    38%    2%     / 62%             0.40 0.30 0.20    v1.2M/s ^340K/s    0%      12d3h
+nas        4%     39C    22%    --     /tank 91%         0.10 0.00 0.00    v12K/s ^8K/s       3%      45d0h
+vps        offline: sem conexao (timed out)
+
+! nas: disco /tank em 91%
+```
+
+A tabela descarta colunas conforme o terminal estreita. `--once` e `--host`
+saem com código 1 quando há host crítico ou offline, então dá para usar em
+cron ou health check.
+
+### Bandeja do Windows
+
+Opcional — precisa de `pip install pystray pillow`. Sem isso o dashboard sobe
+normalmente e o motivo aparece no terminal.
+
+O ícone mostra a temperatura do **host mais quente**, colorido pelo **pior
+host**: verde abaixo de 75% do crítico do sensor, amarelo entre 75% e 90%,
+vermelho acima, cinza se algum host está offline. Um ponto vermelho no canto
+acende para qualquer alerta.
+
+Menu: **Abrir dashboard**, um submenu por host, overlay liga/desliga, modo
+compacto, cliques atravessam, atualizar todos, copiar JSON, sair.
+
+Autostart:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
+```
+
+Registra uma tarefa que sobe tudo 30s após o login, sem janela de console.
 
 ## Configuração dos clientes
 
@@ -210,7 +291,7 @@ avulso — útil para checar um agente sem configurar nada:
 
 ```bash
 SYSMON_URL=http://192.168.0.10:9109/metrics SYSMON_TOKEN=... \
-  python3 tools/sysmon-dash.py --once
+  python3 sysmon.py term --once
 ```
 
 ### No Windows
@@ -238,106 +319,6 @@ Remove-ItemProperty -Path HKCU:\Environment -Name SYSMON_TOKEN_PVE -ErrorAction 
 
 Para trocar de host ou de token no dia a dia, edite o `config.json` — é o
 caminho previsível, e o que a interface toda reflete.
-
-## Dashboard no browser
-
-```bash
-python3 tools/sysmon-web.py --config config.json
-```
-
-Sobe um servidor local e abre a página: gauges de temperatura, CPU e RAM por
-host, cada disco físico com modelo, temperatura, taxa de I/O e vida consumida
-do SMART, filesystems, thin pool, rede e RAID.
-
-Sem framework e sem CDN — HTML, CSS e SVG puros, servidos por Python stdlib.
-Funciona offline.
-
-**Os tokens não chegam ao browser.** O polling acontece no servidor local e a
-página recebe apenas telemetria. Por isso ele escuta só em `127.0.0.1` por
-padrão: a página não tem autenticação, então expor na rede entregaria a
-telemetria da frota inteira.
-
-No Windows, o menu do tray tem **Abrir dashboard** — ele sobe o servidor se
-ainda não estiver de pé e abre o browser.
-
-## Dashboard no terminal
-
-Roda de qualquer máquina Linux, inclusive por SSH. Só precisa do Python 3.9+.
-
-```bash
-python3 tools/sysmon-dash.py --config hosts.json
-```
-
-```
-sysmon  3 host(s)  1 alerta(s)                                    14:32:05
-
-HOST       CPU    TEMP   RAM    SWAP   DISCO             LOAD              REDE               PSI-IO  UP
-pve        12%    47C    38%    2%     / 62%             0.40 0.30 0.20    v1.2M/s ^340K/s    0%      12d3h
-nas        4%     39C    22%    --     /tank 91%         0.10 0.00 0.00    v12K/s ^8K/s       3%      45d0h
-vps        offline: sem conexao (timed out)
-
-! nas: disco /tank em 91%
-! vps: sem conexao (timed out)
-```
-
-A tabela descarta colunas conforme o terminal estreita. Outras saídas:
-
-```bash
-python3 tools/sysmon-dash.py --once          # imprime e sai (útil em script)
-python3 tools/sysmon-dash.py --host pve      # detalhe completo de um host
-python3 tools/sysmon-dash.py --json          # a frota inteira em JSON
-```
-
-`--once` e `--host` saem com código 1 quando há host crítico ou offline, então
-dá para usar direto em cron ou health check.
-
-## Instalação — Windows
-
-```powershell
-git clone https://github.com/SEU_USUARIO/sysmon.git
-cd sysmon\windows-tray
-python -m pip install -r requirements.txt
-copy ..\hosts.json config.json        # gerado pelo deploy.sh
-python traymon.py                     # primeiro teste COM console, para ver erros
-```
-
-Sem o `deploy.sh`, copie `config.example.json` para `config.json` e preencha.
-
-Funcionando, registre o autostart:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
-```
-
-Proteja o arquivo, que contém os tokens de todos os hosts:
-
-```powershell
-icacls config.json /inheritance:r /grant:r "$env:USERNAME:R"
-```
-
-O `traymon.py` importa `tools/sysmon_nucleo.py` do repositório. Se preferir
-copiar só a pasta `windows-tray`, leve o `sysmon_nucleo.py` junto para dentro
-dela — o script procura nos dois lugares.
-
-## Uso do tray
-
-O ícone mostra a temperatura do **host mais quente** da frota, colorido pelo
-**pior host**:
-
-- **verde** — tudo abaixo de 75% do crítico do sensor
-- **amarelo** — algum host entre 75% e 90%
-- **vermelho** — algum host acima de 90%
-- **cinza** — algum host offline
-
-Um ponto vermelho no canto acende sempre que há qualquer alerta ou host
-offline; com N hosts, um número só não conta a história toda.
-
-Menu: um submenu por host (resumo, atualizar, copiar JSON), mais overlay
-liga/desliga, modo compacto (uma linha por host), cliques atravessam,
-atualizar todos, copiar JSON da frota, sair. Duplo clique no overlay alterna
-compacto/detalhado; botão direito fecha.
-
-Mudanças de estado geram notificação do Windows (`"notificar": false` desliga).
 
 ## O que dispara alerta
 

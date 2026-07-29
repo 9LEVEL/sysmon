@@ -1,26 +1,16 @@
 #!/usr/bin/env python3
 """
-traymon.py - icone de bandeja + overlay no Windows para varios hosts Linux.
+sysmon_tray - icone de bandeja + overlay, para varios hosts Linux.
 
-Consome o /metrics de N agentes sysmon ao mesmo tempo. O icone mostra o pior
-host da frota; o overlay lista todos.
+O icone mostra a temperatura do host mais quente, colorido pelo pior host da
+frota; o overlay lista todos. Quem sobe isto e o sysmon.py, que roda a bandeja
+e o dashboard web no mesmo processo.
 
-Requisitos (no Windows, nao nos hosts monitorados):
-    pip install -r requirements.txt
+Requisitos (na maquina que olha, nao nos hosts monitorados):
+    pip install pystray pillow
 
-Configuracao: config.json nesta pasta. Gere automaticamente com
-linux-agent/deploy.sh, ou copie config.example.json e preencha.
-O formato antigo de host unico (url e token na raiz) continua funcionando.
-
-O ARQUIVO MANDA: nada do ambiente sobrescreve valor presente no config.json.
-O ambiente so preenche o que o arquivo nao definiu.
-
-    SYSMON_CONFIG          -> qual arquivo carregar
-    SYSMON_TOKEN_<NOME>    -> so se aquele host nao tiver token no arquivo
-    SYSMON_URL/_TOKEN      -> so se o arquivo nao definir host nenhum
-
-No <NOME>, tudo que nao for letra ou digito vira _ e o resto vira maiuscula:
-o host "pve-01" responde a SYSMON_TOKEN_PVE_01.
+Sem esses dois o import falha, e o sysmon.py segue so com o dashboard web em
+vez de nao subir - a bandeja e um extra, nao o caminho principal.
 
 Arquitetura de threads:
     - principal : loop do tkinter (overlay + aplicacao dos comandos do menu)
@@ -38,7 +28,6 @@ import json
 import logging
 import os
 import queue
-import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -50,13 +39,9 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import pystray
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
-BASE = Path(sys.argv[0]).resolve().parent
-# O Agendador de Tarefas inicia o processo em outro diretorio de trabalho, por
-# isso o caminho e resolvido a partir do script e nao do cwd. SYSMON_CONFIG
-# permite guardar o config (que tem tokens) fora da pasta do programa.
-CFG_PATH = Path(os.environ.get("SYSMON_CONFIG") or (BASE / "config.json"))
+BASE = Path(__file__).resolve().parent
 LOG_PATH = Path(os.environ.get("TEMP", BASE)) / "traymon.log"
 
 logging.basicConfig(
@@ -82,39 +67,23 @@ def _fatal(tipo, valor, tb) -> None:
 sys.excepthook = _fatal
 
 
-# O nucleo compartilhado com o sysmon-dash fica em tools/. Procura ao lado
-# deste arquivo primeiro, para quem copia so a pasta windows-tray.
-for _candidato in (BASE, BASE.parent / "tools"):
-    if (_candidato / "sysmon_nucleo.py").is_file():
-        sys.path.insert(0, str(_candidato))
-        break
-else:
-    caixa("sysmon_nucleo.py nao encontrado.\n\n"
-          f"Procurei em:\n  {BASE}\n  {BASE.parent / 'tools'}\n\n"
-          "Clone o repositorio inteiro, ou copie tools/sysmon_nucleo.py\n"
-          "para a pasta do traymon.py.")
-    sys.exit(1)
 
-from sysmon_nucleo import (  # noqa: E402
+from sysmon_nucleo import (
     AVISO, CRITICO, OFFLINE, OK,
-    ErroConfig, Estado, Frota,
-    avaliar, carregar_config, como_dict, fmt_pct, fmt_temp,
-    primeira_temp, resumo_linhas,
+    Estado, Frota,
+    avaliar, como_dict, fmt_pct, fmt_temp, primeira_temp, resumo_linhas,
 )
 
 # ------------------------------------------------------------------- config
-try:
-    CFG = carregar_config(CFG_PATH)
-except ErroConfig as e:
-    caixa(str(e))
-    sys.exit(1)
-
-BRUTO = CFG.extra
-POSICAO = list(BRUTO.get("posicao", [40, 40]))
-OVERLAY_INICIAL = bool(BRUTO.get("overlay_ao_iniciar", True))
-COMPACTO_INICIAL = bool(BRUTO.get("overlay_compacto", len(CFG.hosts) > 2))
-NOTIFICAR = bool(BRUTO.get("notificar", True))
-PORTA_WEB = int(BRUTO.get("porta_web", 9110))
+# Preenchidos em preparar(); ficam globais porque o Overlay e o menu leem em
+# varios pontos e sao valores fixos durante toda a execucao.
+CFG = None
+BRUTO: dict = {}
+POSICAO = [40, 40]
+OVERLAY_INICIAL = True
+COMPACTO_INICIAL = True
+NOTIFICAR = True
+PORTA_WEB = 9110
 
 # Cores do icone, por nivel de severidade.
 CORES = {
@@ -409,47 +378,22 @@ def copiar(root: tk.Tk, dados: dict) -> None:
 
 
 def abrir_dashboard() -> None:
-    """Abre o dashboard web, subindo o servidor local se ele nao estiver de pe.
+    """Abre o dashboard no browser.
 
-    O tray e o dashboard sao processos separados de proposito: o tray precisa
-    viver o dia inteiro consumindo quase nada, e o dashboard so existe enquanto
-    voce esta olhando.
+    O servidor sobe junto com a bandeja no mesmo processo (sysmon.py), entao
+    aqui e so apontar o browser. Se alguem rodou `sysmon.py tray` sozinho, o
+    endereco nao responde e a mensagem explica o que fazer.
     """
     url = f"http://127.0.0.1:{PORTA_WEB}/"
     try:
         with urllib.request.urlopen(url + "api/frota", timeout=1):
-            webbrowser.open(url)
-            return
-    except Exception:  # noqa: BLE001 - nao esta no ar, entao sobe agora
-        pass
-
-    script = None
-    for candidato in (BASE / "sysmon-web.py", BASE.parent / "tools" / "sysmon-web.py"):
-        if candidato.is_file():
-            script = candidato
-            break
-    if script is None:
-        caixa("sysmon-web.py nao encontrado.\n\n"
-              "Ele fica em tools/ no repositorio; mantenha as duas pastas juntas.")
+            pass
+    except Exception:  # noqa: BLE001
+        caixa("O dashboard web nao esta no ar.\n\n"
+              "Voce iniciou so a bandeja. Rode `python sysmon.py` (sem "
+              "subcomando) para subir os dois juntos.", icone=0x40)
         return
-
-    try:
-        # pythonw evita abrir janela de console junto no Windows.
-        exe = Path(sys.executable)
-        semjanela = exe.with_name("pythonw.exe")
-        subprocess.Popen(
-            [str(semjanela if semjanela.is_file() else exe), str(script),
-             "--porta", str(PORTA_WEB), "--nao-abrir"],
-            cwd=str(script.parent),
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-    except Exception as e:  # noqa: BLE001
-        logging.exception("falha ao subir o sysmon-web")
-        caixa(f"Nao consegui iniciar o dashboard:\n\n{e}")
-        return
-
-    # Da um tempo para o bind antes de mandar o browser bater na porta.
-    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    webbrowser.open(url)
 
 
 def notificar(icone: pystray.Icon, texto: str) -> None:
@@ -460,8 +404,21 @@ def notificar(icone: pystray.Icon, texto: str) -> None:
         logging.info("notificacao nao suportada: %s", texto)
 
 
-def main() -> None:
-    logging.info("iniciando traymon %s com %d host(s)", __version__, len(CFG.hosts))
+def preparar(frota: Frota, cfg):
+    """Configura a bandeja a partir do config, sem ainda entrar em nenhum laco.
+
+    Devolve um contexto opaco que o rodar() consome. Separar as duas etapas
+    deixa o sysmon.py descobrir cedo se a bandeja e viavel, antes de subir o
+    servidor web.
+    """
+    global CFG, BRUTO, POSICAO, OVERLAY_INICIAL, COMPACTO_INICIAL, NOTIFICAR, PORTA_WEB
+    CFG = cfg
+    BRUTO = cfg.extra
+    POSICAO = list(BRUTO.get("posicao", [40, 40]))
+    OVERLAY_INICIAL = bool(BRUTO.get("overlay_ao_iniciar", False))
+    COMPACTO_INICIAL = bool(BRUTO.get("overlay_compacto", len(cfg.hosts) > 2))
+    NOTIFICAR = bool(BRUTO.get("notificar", True))
+    PORTA_WEB = int(BRUTO.get("porta_web", 9110))
 
     def ao_mudar(nome: str, estado: Estado) -> None:
         """Chamado da thread do poller quando um host muda de nivel."""
@@ -476,12 +433,15 @@ def main() -> None:
         if NOTIFICAR and nivel != OK:
             pedidos.put(("notificar", texto))
 
-    frota = Frota(CFG, ao_mudar=ao_mudar)
-    frota.iniciar()
-    # Da tempo da primeira rodada antes de desenhar, para o icone nao piscar
-    # cinza no arranque.
-    frota.esperar_primeira_leitura(limite=CFG.timeout + 1)
+    for m in frota.monitores:
+        m.ao_mudar = ao_mudar
 
+    logging.info("bandeja preparada, %d host(s)", len(cfg.hosts))
+    return frota
+
+
+def rodar(frota: Frota) -> None:
+    """Laco da bandeja. Precisa da thread principal (tkinter e pystray)."""
     root = tk.Tk()
     root.withdraw()  # a janela raiz nunca aparece
     overlay = Overlay(root, frota)
@@ -495,9 +455,4 @@ def main() -> None:
     try:
         root.mainloop()
     finally:
-        frota.parar()
-    logging.info("encerrado")
-
-
-if __name__ == "__main__":
-    main()
+        logging.info("bandeja encerrada")

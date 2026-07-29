@@ -1,24 +1,35 @@
-# Registra o traymon para iniciar junto com o Windows.
+# Registra o sysmon para iniciar junto com o Windows.
 #   powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
+#
+# Um processo so: sobe o dashboard web e, se pystray/Pillow estiverem
+# instalados, o icone de bandeja junto.
 $ErrorActionPreference = "Stop"
 
 $pasta = Split-Path -Parent $MyInvocation.MyCommand.Path
-$vbs   = Join-Path $pasta "traymon.vbs"
+$vbs   = Join-Path $pasta "sysmon.vbs"
+$pyz   = Join-Path $pasta "sysmon.pyz"
 
+if (-not (Test-Path $pyz)) {
+    Write-Host "sysmon.pyz nao encontrado nesta pasta." -ForegroundColor Red
+    Write-Host "Baixe o pacote de clientes do release e deixe os dois arquivos juntos."
+    exit 1
+}
 if (-not (Test-Path (Join-Path $pasta "config.json"))) {
     Write-Host "config.json nao encontrado." -ForegroundColor Red
-    Write-Host "Copie config.example.json para config.json e preencha url + token."
+    Write-Host "Copie config.example.json para config.json e preencha url + token,"
+    Write-Host "ou use o hosts.json que o deploy.sh gerou."
     exit 1
 }
 
 # Teste rapido antes de registrar: falhar aqui e melhor que falhar no boot.
-Write-Host "==> Testando o traymon (5s)..." -ForegroundColor Cyan
-$p = Start-Process python -ArgumentList "`"$(Join-Path $pasta 'traymon.py')`"" `
+Write-Host "==> Testando (6s)..." -ForegroundColor Cyan
+$p = Start-Process python -ArgumentList "`"$pyz`"", "--nao-abrir" `
      -WorkingDirectory $pasta -PassThru -WindowStyle Hidden
-Start-Sleep 5
+Start-Sleep 6
 if ($p.HasExited) {
-    Write-Host "O traymon morreu durante o teste. Rode 'python traymon.py' para ver o erro." -ForegroundColor Red
-    Write-Host "Log: $env:TEMP\traymon.log"
+    Write-Host "O sysmon morreu durante o teste." -ForegroundColor Red
+    Write-Host "Rode 'python sysmon.pyz' num terminal para ver o erro."
+    Write-Host "Log da bandeja: $env:TEMP\traymon.log"
     exit 1
 }
 Stop-Process -Id $p.Id -Force
@@ -32,10 +43,15 @@ $cfg = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
        -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 `
        -RestartInterval (New-TimeSpan -Minutes 1)
 
-Register-ScheduledTask -TaskName "traymon" -Action $acao -Trigger $gatilho `
+Register-ScheduledTask -TaskName "sysmon" -Action $acao -Trigger $gatilho `
                        -Settings $cfg -Force `
-                       -Description "Monitor do host Proxmox na bandeja" | Out-Null
+                       -Description "Monitor da frota Linux (dashboard + bandeja)" | Out-Null
 
-Write-Host "==> Tarefa 'traymon' registrada (inicia 30s apos o login)." -ForegroundColor Green
-Write-Host "    Iniciar agora    : schtasks /run /tn traymon"
-Write-Host "    Remover          : schtasks /delete /tn traymon /f"
+# A tarefa antiga da v2.1 e anteriores chamava outro script; remove para nao
+# ficarem duas instancias disputando a mesma porta.
+Unregister-ScheduledTask -TaskName "traymon" -Confirm:$false -ErrorAction SilentlyContinue
+
+Write-Host "==> Tarefa 'sysmon' registrada (inicia 30s apos o login)." -ForegroundColor Green
+Write-Host "    Dashboard        : http://127.0.0.1:9110/"
+Write-Host "    Iniciar agora    : schtasks /run /tn sysmon"
+Write-Host "    Remover          : schtasks /delete /tn sysmon /f"

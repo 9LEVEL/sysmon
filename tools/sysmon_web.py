@@ -1,44 +1,33 @@
 #!/usr/bin/env python3
 """
-sysmon-web.py - dashboard da frota no browser.
+sysmon_web - dashboard da frota no browser.
 
-Sobe um servidor local que consulta os agentes e serve uma pagina com gauges,
-temperatura por disco e uso de filesystem. Stdlib pura: nenhuma dependencia,
-nenhum CDN, funciona offline.
+Serve uma pagina local com gauges, temperatura e SMART por disco. Stdlib pura:
+nenhuma dependencia, nenhum CDN, funciona offline.
 
-    python3 sysmon-web.py                    # abre no browser sozinho
-    python3 sysmon-web.py --porta 9110
-    python3 sysmon-web.py --nao-abrir        # so sobe o servidor
+Normalmente voce nao chama este modulo direto - use `python3 sysmon.py`, que
+sobe o dashboard e a bandeja juntos.
 
 Os TOKENS FICAM NO SERVIDOR. O browser recebe apenas a telemetria ja coletada,
 nunca as credenciais dos agentes - por isso o polling acontece aqui e nao no
 JavaScript.
-
-Por padrao escuta so em 127.0.0.1: a pagina nao tem autenticacao, entao expor
-na rede entregaria a telemetria da frota inteira para qualquer um.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 import threading
-import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from sysmon_nucleo import (  # noqa: E402
-    ErroConfig, Frota,
-    achar_config, avisar_permissao, carregar_config, como_dict,
+from sysmon_nucleo import (
+    ErroConfig, Frota, achar_config, avisar_permissao, carregar_config, como_dict,
 )
 
-__version__ = "2.1.0"
-
-WEB = Path(__file__).resolve().parent / "web"
+__version__ = "2.2.0"
 
 # Lista fixa em vez de montar caminho com o que o cliente mandou: nenhuma
 # requisicao consegue sair deste conjunto, entao nao existe travessia de path.
@@ -48,6 +37,20 @@ ESTATICOS = {
     "/estilo.css": ("estilo.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }
+
+_cache: dict[str, bytes] = {}
+
+
+def asset(nome: str) -> bytes:
+    """Le um arquivo da interface.
+
+    Usa importlib.resources em vez de abrir caminho no disco porque isso
+    funciona igual rodando do repositorio e de dentro do sysmon.pyz, onde os
+    arquivos estao comprimidos e nao existem no sistema de arquivos.
+    """
+    if nome not in _cache:
+        _cache[nome] = (files("web") / nome).read_bytes()
+    return _cache[nome]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -92,8 +95,8 @@ class Handler(BaseHTTPRequestHandler):
         if caminho in ESTATICOS:
             arquivo, tipo = ESTATICOS[caminho]
             try:
-                return self._responder(200, (WEB / arquivo).read_bytes(), tipo)
-            except OSError:
+                return self._responder(200, asset(arquivo), tipo)
+            except (OSError, ModuleNotFoundError):
                 return self._responder(500, b"arquivo da interface ausente",
                                        "text/plain; charset=utf-8")
 
@@ -103,16 +106,29 @@ class Handler(BaseHTTPRequestHandler):
         pass  # o dashboard e local; log de acesso so polui o terminal
 
 
-def main() -> int:
+def servidor(frota: Frota, host: str = "127.0.0.1",
+             porta: int = 9110) -> ThreadingHTTPServer:
+    """Cria o servidor ja ligado na porta. Quem chama decide quando servir.
+
+    Separado do laco para o sysmon.py poder subir o dashboard e a bandeja no
+    mesmo processo, e para o erro de porta ocupada aparecer antes de qualquer
+    thread comecar.
+    """
+    classe = type("HandlerLigado", (Handler,), {"frota": frota})
+    srv = ThreadingHTTPServer((host, porta), classe)
+    srv.daemon_threads = True
+    return srv
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Uso avulso: `python3 sysmon_web.py`. O caminho normal e o sysmon.py."""
+    import argparse
     p = argparse.ArgumentParser(description="Dashboard web da frota sysmon.")
-    p.add_argument("--config", help="caminho do config.json")
+    p.add_argument("--config")
     p.add_argument("--porta", type=int, default=9110)
-    p.add_argument("--host", default="127.0.0.1",
-                   help="IP de bind (padrao 127.0.0.1; a pagina nao tem senha)")
-    p.add_argument("--nao-abrir", action="store_true",
-                   help="nao abrir o browser automaticamente")
-    p.add_argument("--version", action="version", version=__version__)
-    args = p.parse_args()
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--nao-abrir", action="store_true")
+    args = p.parse_args(argv)
 
     caminho = achar_config(args.config)
     try:
@@ -120,37 +136,27 @@ def main() -> int:
     except ErroConfig as e:
         print(f"erro: {e}", file=sys.stderr)
         return 2
-
     if aviso := avisar_permissao(caminho):
         print(f"aviso: {aviso}", file=sys.stderr)
-    if args.host not in ("127.0.0.1", "::1", "localhost"):
-        print(f"AVISO: escutando em {args.host}. A pagina nao tem autenticacao "
-              "e mostra a telemetria de todos os hosts.", file=sys.stderr)
 
     frota = Frota(cfg)
     frota.iniciar()
-    Handler.frota = frota
-
-    servidor = ThreadingHTTPServer((args.host, args.porta), Handler)
-    servidor.daemon_threads = True
+    srv = servidor(frota, args.host, args.porta)
 
     url = f"http://{args.host}:{args.porta}/"
     print(f"sysmon-web {__version__} em {url}  ({len(cfg.hosts)} host(s))")
-    print("Ctrl+C para sair")
-
     if not args.nao_abrir:
-        # Depois do bind, senao o browser chega antes do servidor existir.
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-
     try:
-        servidor.serve_forever()
+        srv.serve_forever()
     except KeyboardInterrupt:
         print()
     finally:
         frota.parar()
-        servidor.shutdown()
+        srv.shutdown()
     return 0
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.exit(main())

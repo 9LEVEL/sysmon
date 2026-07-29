@@ -98,46 +98,76 @@ EOF
     verde "    $NOME.tar.gz"
 done
 
+# ------------------------------------------------------- cliente: arquivo unico
+# zipapp da stdlib: um .pyz e um zip com __main__.py que o Python executa
+# direto. Vira UM arquivo para copiar e atualizar, em vez de uma arvore de
+# scripts soltos - que era a principal reclamacao de manutencao.
+PALCO="$DIST/.palco"
+mkdir -p "$PALCO/web"
+for m in sysmon_nucleo sysmon_web sysmon_dash sysmon_local sysmon_tray; do
+    install -m 644 "$AQUI/tools/$m.py" "$PALCO/"
+done
+install -m 644 "$AQUI/sysmon.py" "$PALCO/"
+for w in "$AQUI"/tools/web/*.html "$AQUI"/tools/web/*.css "$AQUI"/tools/web/*.js \
+         "$AQUI"/tools/web/__init__.py; do
+    install -m 644 "$w" "$PALCO/web/"
+done
+cat > "$PALCO/__main__.py" <<'EOF'
+import sysmon, sys
+sys.exit(sysmon.main())
+EOF
+
+python3 -m zipapp "$PALCO" -o "$DIST/sysmon.pyz" -p "/usr/bin/env python3" -c
+rm -rf "$PALCO"
+chmod 755 "$DIST/sysmon.pyz"
+verde "    sysmon.pyz  ($(du -h "$DIST/sysmon.pyz" | cut -f1))"
+
 # ---------------------------------------------------------------- clientes
 NOME="sysmon-clientes-$VERSAO"
 PASTA="$DIST/$NOME"
-mkdir -p "$PASTA/tools" "$PASTA/windows-tray"
+mkdir -p "$PASTA"
 
-install -m 644 "$AQUI/tools/sysmon_nucleo.py" "$PASTA/tools/"
-install -m 755 "$AQUI/tools/sysmon-dash.py"   "$PASTA/tools/"
-install -m 755 "$AQUI/tools/sysmon-web.py"    "$PASTA/tools/"
-install -m 755 "$AQUI/tools/sysmon-cli.py"    "$PASTA/tools/"
-install -d -m 755 "$PASTA/tools/web"
-install -m 644 "$AQUI"/tools/web/* "$PASTA/tools/web/"
-for f in traymon.py traymon.vbs config.example.json requirements.txt \
+# O pacote de clientes agora e so o .pyz + o que ajuda a instalar.
+install -m 755 "$DIST/sysmon.pyz" "$PASTA/"
+for f in config.example.json requirements.txt sysmon.vbs \
          instalar-autostart.ps1 desinstalar-autostart.ps1; do
-    install -m 644 "$AQUI/windows-tray/$f" "$PASTA/windows-tray/"
+    install -m 644 "$AQUI/windows-tray/$f" "$PASTA/"
 done
+rmdir "$PASTA/tools" "$PASTA/windows-tray" 2>/dev/null || true
 install -m 644 "$AQUI/LICENSE" "$PASTA/"
 
 cat > "$PASTA/LEIAME.txt" <<EOF
 sysmon - clientes $VERSAO
 
-Este pacote vai para a maquina de onde voce OLHA os hosts. Python 3.9 ou mais
-novo; o dashboard do terminal nao precisa de mais nada.
+Vai para a maquina de onde voce OLHA os hosts. Sao dois arquivos: o sysmon.pyz
+e o seu config.json. Precisa de Python 3.9 ou mais novo, e nada alem disso.
 
-Preencha primeiro o config: copie windows-tray/config.example.json para
-config.json e liste seus hosts com url e token (o install.sh de cada host
-imprimiu os dois). Se voce usou o deploy.sh, ele ja gerou esse arquivo pronto.
+1) Config: copie config.example.json para config.json e liste seus hosts com
+   url e token (o install.sh de cada host imprimiu os dois). Se voce usou o
+   deploy.sh, ele ja gerou esse arquivo pronto.
 
-Dashboard no browser (Windows ou Linux) - gauges, temperatura e SMART por disco:
+2) Rode:
 
-    python3 tools/sysmon-web.py --config config.json
+    python sysmon.pyz
 
-Ele sobe um servidor local e abre a pagina. Os tokens ficam no servidor: o
-browser recebe so a telemetria. Por padrao escuta apenas em 127.0.0.1, porque
-a pagina nao tem senha.
+Isso sobe o dashboard web e abre o browser. No Windows, se pystray e Pillow
+estiverem instalados, o icone de bandeja sobe junto no mesmo processo.
 
-Dashboard no terminal (Linux, ou WSL):
+Outros modos:
 
-    python3 tools/sysmon-dash.py --config config.json
-    python3 tools/sysmon-dash.py --config config.json --once    # uma vez, para script
-    python3 tools/sysmon-dash.py --config config.json --host pve
+    python sysmon.pyz web           # so o dashboard
+    python sysmon.pyz term          # tabela no terminal
+    python sysmon.pyz term --once   # imprime uma vez e sai (script/cron)
+    python sysmon.pyz tray          # so a bandeja
+    python sysmon.pyz local         # sensores DESTA maquina, sem rede
+
+Bandeja no Windows (opcional):
+
+    python -m pip install -r requirements.txt
+    powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
+
+Os tokens ficam no servidor local: o browser recebe so telemetria. Por padrao
+escuta apenas em 127.0.0.1, porque a pagina nao tem senha.
 
 O config.json manda. Nada do ambiente sobrescreve valor presente nele; o
 ambiente so preenche o que faltar:
@@ -146,28 +176,12 @@ ambiente so preenche o que faltar:
     SYSMON_TOKEN_<NOME>    -> so se aquele host nao tiver token no arquivo
     SYSMON_URL/_TOKEN      -> so se o arquivo nao definir host nenhum
 
-No Windows, use setx para gravar permanentemente (vale so para processos
-abertos depois) e \$env: para a sessao atual. No <NOME>, tudo que nao for
-letra ou digito vira _ e o resto vira maiuscula: "pve-01" -> SYSMON_TOKEN_PVE_01.
-
-Bandeja do Windows:
-
-    cd windows-tray
-    python -m pip install -r requirements.txt
-    copy ..\\config.json config.json
-    python traymon.py          # teste COM console primeiro, para ver erros
-
-Funcionando, registre o autostart:
-
-    powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
-
 O config.json guarda os tokens de TODOS os hosts em texto claro. Proteja:
 
     Windows : icacls config.json /inheritance:r /grant:r "%USERNAME%:R"
     Linux   : chmod 600 config.json
 
-O traymon.py importa tools/sysmon_nucleo.py - por isso mantenha as duas pastas
-lado a lado, ou copie sysmon_nucleo.py para dentro de windows-tray.
+Atualizar: substitua o sysmon.pyz. So isso - o config.json fica.
 
 Documentacao completa: https://github.com/9LEVEL/sysmon
 EOF

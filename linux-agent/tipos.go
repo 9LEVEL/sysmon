@@ -1,5 +1,5 @@
 // Formato do JSON servido em /metrics. Os nomes dos campos sao o contrato
-// publico com o tray do Windows e com o sysmon-dash: mudar um nome aqui quebra
+// publico com os clientes (dashboard web, terminal e bandeja): mudar um nome quebra
 // os clientes. Ponteiros sao usados de proposito onde "nao medido" e diferente
 // de zero - um sensor ausente vira null, nao 0 graus.
 package main

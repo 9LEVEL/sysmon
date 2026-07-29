@@ -123,7 +123,7 @@ arquivo mais sensível do projeto — quem o tiver, lê a telemetria da frota
 inteira.
 
 - O `deploy.sh` já o cria com modo `600`.
-- O `sysmon-dash.py` avisa no stderr se o arquivo estiver legível por outros.
+- O cliente avisa no stderr se o arquivo estiver legível por outros.
 - No Windows: `icacls config.json /inheritance:r /grant:r "$env:USERNAME:R"`.
 - Cada host tem token próprio, então vazar um não dá acesso aos demais.
 

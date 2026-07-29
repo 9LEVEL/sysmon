@@ -204,7 +204,7 @@ else
 fi
 
 echo
-verde "Pronto. Para o cliente (tray do Windows ou sysmon-dash):"
+verde "Pronto. Para o cliente (sysmon.pyz):"
 echo "  url   : http://$BIND_IP:$PORT/metrics"
 echo "  token : $TOKEN"
 echo

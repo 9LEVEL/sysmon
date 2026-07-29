@@ -40,7 +40,7 @@ from sysmon_nucleo import (  # noqa: E402
     fmt_bps, fmt_bytes, fmt_pct, fmt_temp, fmt_uptime, resumo_linhas,
 )
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 
 RESET = "\033[0m"
@@ -234,7 +234,8 @@ def detalhe(frota: Frota, nome: str, tinta: Tinta) -> int:
 # ------------------------------------------------------------------ main
 
 
-def main() -> int:
+def argumentos(argv: list[str] | None = None):
+    """Usado so quando este modulo roda sozinho; o sysmon.py ja entrega args."""
     p = argparse.ArgumentParser(
         description="Dashboard de varios agentes sysmon no terminal.")
     p.add_argument("--config", help="caminho do hosts.json")
@@ -246,7 +247,12 @@ def main() -> int:
                    help="segundos entre atualizacoes (sobrepoe o config)")
     p.add_argument("--sem-cor", action="store_true")
     p.add_argument("--version", action="version", version=__version__)
-    args = p.parse_args()
+    return p.parse_args(argv)
+
+
+def main(args=None) -> int:
+    if args is None:
+        args = argumentos()
 
     caminho = achar_config(args.config)
     try:
@@ -257,10 +263,10 @@ def main() -> int:
 
     if aviso := avisar_permissao(caminho):
         print(f"aviso: {aviso}", file=sys.stderr)
-    if args.intervalo:
+    if getattr(args, "intervalo", None):
         cfg.intervalo = args.intervalo
 
-    tinta = Tinta(not args.sem_cor and sys.stdout.isatty()
+    tinta = Tinta(not getattr(args, "sem_cor", False) and sys.stdout.isatty()
                   and os.environ.get("TERM") not in (None, "dumb"))
 
     frota = Frota(cfg)
@@ -269,12 +275,12 @@ def main() -> int:
         # Uma saida unica so faz sentido depois da primeira rodada completa.
         frota.esperar_primeira_leitura(limite=cfg.timeout + 1)
 
-        if args.como_json:
+        if getattr(args, "como_json", False):
             print(json.dumps(como_dict(frota), indent=2, ensure_ascii=False))
             return 0
-        if args.host:
+        if getattr(args, "host", None):
             return detalhe(frota, args.host, tinta)
-        if args.once:
+        if getattr(args, "once", False):
             largura = shutil.get_terminal_size((100, 24)).columns
             print("\n".join(desenhar(frota, tinta, largura)))
             return 1 if frota.pior_nivel() >= CRITICO else 0

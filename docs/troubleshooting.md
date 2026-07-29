@@ -200,12 +200,11 @@ falharam são listados no fim, com o motivo.
 
 ### `config nao encontrado`
 
-O `sysmon-dash.py` procura, nesta ordem: `--config`, `$SYSMON_CONFIG`,
+O cliente procura o config nesta ordem: `--config`, `$SYSMON_CONFIG`,
 `./hosts.json`, `~/.config/sysmon/hosts.json`, `/etc/sysmon/hosts.json`.
 
-O `traymon.py` usa `$SYSMON_CONFIG` ou o `config.json` **na pasta do script** —
-resolvido a partir de `sys.argv[0]`, não do diretório de trabalho, porque o
-Agendador de Tarefas inicia o processo em outro lugar.
+`./config.json` resolve o caso comum: deixe o `config.json` ao lado do
+`sysmon.pyz`. O autostart define o diretório de trabalho justamente para isso.
 
 ### Um host aparece como "offline: token invalido"
 
@@ -224,29 +223,26 @@ gera tentativa a cada 5s indefinidamente.
 
 ## Windows
 
-### `pythonw traymon.py` não abre nada
+### `pythonw sysmon.pyz` não abre nada
 
 `pythonw.exe` roda sem console: `stdout` e `stderr` vão para o vazio. Qualquer
 erro de import ou de configuração mata o processo em silêncio.
 
-**Sempre teste primeiro com `python traymon.py`**, que mostra o traceback.
+**Sempre teste primeiro com `python sysmon.pyz`**, que mostra o traceback.
 
-O `traymon.py` já instala um `sys.excepthook` que grava em `%TEMP%\traymon.log`
+A bandeja já instala um `sys.excepthook` que grava em `%TEMP%\traymon.log`
 e exibe uma MessageBox. Então:
 
 ```powershell
 type $env:TEMP\traymon.log
 ```
 
-### `sysmon_nucleo.py nao encontrado`
-
-O tray importa o núcleo compartilhado de `tools/`. Ou clone o repositório
-inteiro no Windows, ou copie `tools/sysmon_nucleo.py` para dentro da pasta
-`windows-tray` — o script procura nos dois lugares.
-
 ### `ModuleNotFoundError`
 
 O `pip` pode ter instalado em um Python diferente do que o `pythonw` resolve:
+
+A bandeja é opcional: sem `pystray`/`Pillow` o dashboard web sobe do mesmo
+jeito e o motivo aparece no terminal. Para ter o ícone:
 
 ```powershell
 python -c "import pystray, PIL, tkinter; print('ok')"

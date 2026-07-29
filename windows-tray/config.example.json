@@ -1,5 +1,5 @@
 {
-  "_comentario": "Copie para config.json e preencha. Ou gere pronto com linux-agent/deploy.sh.",
+  "_comentario": "Copie para config.json e preencha. Ou gere pronto com linux-agent/deploy.sh. Rode com: python sysmon.pyz",
 
   "hosts": [
     {
@@ -17,7 +17,8 @@
   "intervalo": 5,
   "timeout": 4,
 
-  "overlay_ao_iniciar": true,
+  "porta_web": 9110,
+  "overlay_ao_iniciar": false,
   "overlay_compacto": true,
   "notificar": true,
   "posicao": [40, 40],

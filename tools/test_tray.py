@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent
-sys.path.insert(0, str(RAIZ.parent / "tools"))
+sys.path.insert(0, str(RAIZ))
 
 
 def _instalar_duplos() -> None:
@@ -63,18 +63,19 @@ CONFIG = {
     "overlay_ao_iniciar": False,
 }
 
-_tmp = Path(tempfile.mkdtemp()) / "config.json"
-_tmp.write_text(json.dumps(CONFIG), encoding="utf-8")
-os.environ["SYSMON_CONFIG"] = str(_tmp)
-
 _instalar_duplos()
-sys.argv = [str(RAIZ / "traymon.py")]
 
-import traymon  # noqa: E402
+import sysmon_tray as traymon  # noqa: E402
 from sysmon_nucleo import AVISO, CRITICO, OFFLINE, OK, Config, Estado, Frota, Host  # noqa: E402
-
-sys.path.insert(0, str(RAIZ.parent / "tools"))
 from test_nucleo import estado_ok  # noqa: E402
+
+# preparar() e quem instala o config nos globais do modulo; sem ele os testes
+# de exibicao rodariam contra os padroes, nao contra a configuracao real.
+traymon.preparar(Frota(Config(hosts=[Host("pve", "http://x/1", "t1"),
+                                     Host("nas", "http://x/2", "t2")],
+                              extra=CONFIG)),
+                 Config(hosts=[Host("pve", "http://x/1", "t1"),
+                               Host("nas", "http://x/2", "t2")], extra=CONFIG))
 
 
 def frota_com(estados: dict[str, Estado]) -> Frota:

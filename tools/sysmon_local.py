@@ -203,12 +203,14 @@ def imprimir(dados: dict) -> None:
             print(f"  Bateria: {e['bateria']['percentual']:.0f}% ({tomada})")
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="Monitor de sensores para Linux")
-    p.add_argument("--watch", action="store_true", help="atualiza continuamente")
-    p.add_argument("--intervalo", type=float, default=2.0, help="segundos entre updates")
-    p.add_argument("--json", action="store_true", help="saída em JSON")
-    args = p.parse_args()
+def main(args=None) -> None:
+    if args is None:
+        p = argparse.ArgumentParser(description="Monitor de sensores para Linux")
+        p.add_argument("--watch", action="store_true", help="atualiza continuamente")
+        p.add_argument("--intervalo", type=float, default=2.0,
+                       help="segundos entre updates")
+        p.add_argument("--json", action="store_true", help="saída em JSON")
+        args = p.parse_args()
 
     if args.json:
         print(json.dumps(snapshot(), indent=2, ensure_ascii=False))
