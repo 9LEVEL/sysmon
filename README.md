@@ -40,6 +40,26 @@ comando externo e roda sem root. Os clientes são Python stdlib puro.
 
 ## Instalação nos hosts Linux
 
+### Pacote pronto (sem compilar nada)
+
+Baixe da [página de releases](https://github.com/9LEVEL/sysmon/releases) o
+tarball do agente para a arquitetura do host. Ele é autocontido — binário
+estático, units e instalador — e não precisa de Go, Python nem internet no
+destino.
+
+```bash
+# no host a ser monitorado
+curl -fLO https://github.com/9LEVEL/sysmon/releases/download/v2.0.0-rc1/sysmon-agent-2.0.0-linux-amd64.tar.gz
+tar xzf sysmon-agent-2.0.0-linux-amd64.tar.gz
+cd sysmon-agent-2.0.0-linux-amd64
+sudo ./install.sh 192.168.0.10          # IP da LAN ou do túnel
+```
+
+Os clientes vêm em `sysmon-clientes-<versão>.zip` (Windows) ou `.tar.gz`.
+Confira as somas com o `SHA256SUMS` do release.
+
+Para gerar os pacotes você mesmo: `make pacote` (roda a suite de testes antes).
+
 ### Vários hosts de uma vez (recomendado)
 
 Na sua máquina, com Go e acesso SSH por chave aos hosts:

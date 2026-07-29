@@ -1,5 +1,6 @@
-# Binarios compilados do agente
+# Binarios compilados do agente e pacotes de distribuicao
 linux-agent/bin/
+dist/
 
 # Configuracao real dos clientes: contem os tokens de todos os hosts.
 # Versione apenas o config.example.json.

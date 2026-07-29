@@ -1,12 +1,13 @@
 # Atalhos do projeto inteiro. O build do agente fica em linux-agent/Makefile.
 
-.PHONY: ajuda teste teste-go teste-py build dist limpar
+.PHONY: ajuda teste teste-go teste-py build dist pacote limpar
 
 ajuda:
 	@echo "make teste    - roda todos os testes (agente Go + clientes Python)"
 	@echo "make build    - compila o agente para esta arquitetura"
 	@echo "make dist     - compila o agente para amd64 e arm64"
-	@echo "make limpar   - remove os binarios"
+	@echo "make pacote   - gera os tarballs de distribuicao em dist/"
+	@echo "make limpar   - remove os binarios e pacotes"
 
 teste: teste-go teste-py
 
@@ -26,5 +27,10 @@ build:
 dist:
 	@$(MAKE) -C linux-agent dist
 
+# Testa antes de empacotar: pacote quebrado nao chega no host de ninguem.
+pacote: teste
+	@./empacotar.sh
+
 limpar:
 	@$(MAKE) -C linux-agent limpar
+	rm -rf dist
