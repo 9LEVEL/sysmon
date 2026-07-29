@@ -1,17 +1,33 @@
 [Unit]
 Description=sysmon agent (telemetria read-only)
+Documentation=https://github.com/SEU_USUARIO/sysmon
 After=network-online.target
 Wants=network-online.target
+# Erro de configuracao nao pode virar loop de restart infinito.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
-Type=simple
-# --host: troque pelo IP da LAN do PVE. Nunca 0.0.0.0 se a maquina tiver IP publico.
-ExecStart=/usr/bin/python3 /opt/sysmon/sysmon_agent.py --host __BIND_IP__ --port __PORT__ --mounts / /var/lib/vz
+# notify: o systemd so considera o servico ativo depois da primeira coleta.
+Type=notify
+NotifyAccess=main
+# __BIND_IP__ e trocado pelo install.sh. Nunca 0.0.0.0 se o host tiver IP publico.
+ExecStart=/opt/sysmon/sysmon-agent --host __BIND_IP__ --port __PORT__ --intervalo 5s
 EnvironmentFile=/etc/sysmon/token.env
+
+# O agente e IO-bound e trivial. Sem isso o Go dimensiona o scheduler pelo
+# numero de CPUs do host, o que num servidor de 64 nucleos e desperdicio puro.
+Environment=GOMAXPROCS=2
+
+# Watchdog: o agente so manda o pulso depois de uma coleta bem-sucedida. Se a
+# coleta travar, o systemd reinicia sozinho - antes, um agente vivo servindo
+# dado congelado passava despercebido.
+WatchdogSec=60
 
 # --- Hardening: o agente so precisa LER sysfs e procfs ---
 DynamicUser=yes
-# Necessario apenas para a contagem de VMs/CTs em /etc/pve/.vmlist:
+# Necessario apenas para a contagem de VMs/CTs em /etc/pve/.vmlist (Proxmox).
+# Em host que nao e Proxmox, o install.sh remove esta linha.
 SupplementaryGroups=www-data
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -20,21 +36,31 @@ PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
+ProtectKernelLogs=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_INET6
+ProtectClock=yes
+ProtectHostname=yes
+# AF_UNIX e exigido pelo sd_notify (watchdog); AF_INET/INET6 pelo proprio HTTP.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 CapabilityBoundingSet=
+UMask=0077
 
-# Isso jamais deve competir com as VMs
+# Isso jamais deve competir com as VMs.
 MemoryMax=64M
 CPUQuota=5%
+TasksMax=32
 Nice=10
+IOSchedulingClass=idle
 
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]
