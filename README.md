@@ -42,23 +42,50 @@ comando externo e roda sem root. Os clientes são Python stdlib puro.
 
 ### Pacote pronto (sem compilar nada)
 
-Baixe da [página de releases](https://github.com/9LEVEL/sysmon/releases) o
-tarball do agente para a arquitetura do host. Ele é autocontido — binário
-estático, units e instalador — e não precisa de Go, Python nem internet no
-destino.
+Os releases trazem o agente empacotado: binário estático, units e instalador.
+Não precisa de Go, Python nem internet no host de destino.
+
+**Este repositório é privado**, então os assets do release exigem token — não
+existe download anônimo. O caminho mais simples é baixar na sua máquina, onde
+você já está autenticado, e mandar por `scp`:
 
 ```bash
-# no host a ser monitorado
-curl -fLO https://github.com/9LEVEL/sysmon/releases/download/v2.0.0-rc1/sysmon-agent-2.0.0-linux-amd64.tar.gz
-tar xzf sysmon-agent-2.0.0-linux-amd64.tar.gz
+# na sua máquina
+gh release download v2.0.0-rc1 -p 'sysmon-agent-2.0.0-linux-amd64.tar.gz'
+scp sysmon-agent-2.0.0-linux-amd64.tar.gz root@192.168.0.10:/tmp/
+
+# no host
+cd /tmp && tar xzf sysmon-agent-2.0.0-linux-amd64.tar.gz
 cd sysmon-agent-2.0.0-linux-amd64
 sudo ./install.sh 192.168.0.10          # IP da LAN ou do túnel
 ```
 
+Para puxar direto do host, é preciso um token com leitura neste repositório.
+A URL de browser (`/releases/download/...`) devolve 404 mesmo com token; use o
+endpoint de API do asset:
+
+```bash
+# no host, com GH_TOKEN exportado
+ASSET=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+  https://api.github.com/repos/9LEVEL/sysmon/releases/tags/v2.0.0-rc1 \
+  | grep -B2 '"name": "sysmon-agent-2.0.0-linux-amd64.tar.gz"' \
+  | grep '"id":' | head -1 | tr -dc 0-9)
+
+curl -fL -H "Authorization: Bearer $GH_TOKEN" \
+     -H "Accept: application/octet-stream" \
+     -o sysmon-agent.tar.gz \
+     "https://api.github.com/repos/9LEVEL/sysmon/releases/assets/$ASSET"
+```
+
+Se o repositório se tornar público, o `curl -fLO` na URL de browser passa a
+funcionar sem nada disso.
+
 Os clientes vêm em `sysmon-clientes-<versão>.zip` (Windows) ou `.tar.gz`.
 Confira as somas com o `SHA256SUMS` do release.
 
-Para gerar os pacotes você mesmo: `make pacote` (roda a suite de testes antes).
+Para gerar os pacotes você mesmo, sem passar pelo GitHub: `make pacote` (roda a
+suite de testes antes). E note que o **`deploy.sh` já faz tudo isso por SSH** —
+compila, copia e instala em N hosts, sem release nem token no meio.
 
 ### Vários hosts de uma vez (recomendado)
 
