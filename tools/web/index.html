@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>sysmon</title>
+<link rel="stylesheet" href="estilo.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230ca30c'/></svg>">
+</head>
+<body>
+
+<header>
+  <div class="marca">sysmon <span id="versao"></span></div>
+  <div class="resumo">
+    <span class="pilula" id="contagem"></span>
+    <span class="pilula" id="relogio"></span>
+    <button class="acao" id="atualizar" type="button">Atualizar</button>
+  </div>
+</header>
+
+<section class="alertas" id="alertas" hidden>
+  <ul id="lista-alertas"></ul>
+</section>
+
+<main id="frota">
+  <p class="vazio">Carregando...</p>
+</main>
+
+<footer id="rodape"></footer>
+
+<script src="app.js"></script>
+</body>
+</html>

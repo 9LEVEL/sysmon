@@ -33,6 +33,7 @@ comando externo e roda sem root. Os clientes são Python stdlib puro.
 | `linux-agent/sysmon-agent.service` | cada host | unit systemd com hardening + watchdog |
 | `linux-agent/sysmon-thinpool.{service,timer}` | Proxmox | snapshot do thin pool LVM |
 | `tools/sysmon_nucleo.py` | clientes | config, polling e regras de alerta (compartilhado) |
+| `tools/sysmon-web.py` | sua máquina | dashboard no browser (gauges, discos, SMART) |
 | `tools/sysmon-dash.py` | sua máquina | dashboard de N hosts no terminal |
 | `tools/sysmon-cli.py` | um host | leitor local de sensores, sem rede nem token |
 | `windows-tray/traymon.py` | Windows | ícone de bandeja + overlay multi-host |
@@ -51,12 +52,12 @@ você já está autenticado, e mandar por `scp`:
 
 ```bash
 # na sua máquina
-gh release download v2.0.1 -p 'sysmon-agent-2.0.1-linux-amd64.tar.gz'
-scp sysmon-agent-2.0.1-linux-amd64.tar.gz root@192.168.0.10:/tmp/
+gh release download v2.1.0 -p 'sysmon-agent-2.1.0-linux-amd64.tar.gz'
+scp sysmon-agent-2.1.0-linux-amd64.tar.gz root@192.168.0.10:/tmp/
 
 # no host
-cd /tmp && tar xzf sysmon-agent-2.0.1-linux-amd64.tar.gz
-cd sysmon-agent-2.0.1-linux-amd64
+cd /tmp && tar xzf sysmon-agent-2.1.0-linux-amd64.tar.gz
+cd sysmon-agent-2.1.0-linux-amd64
 sudo ./install.sh 192.168.0.10          # IP da LAN ou do túnel
 ```
 
@@ -67,8 +68,8 @@ endpoint de API do asset:
 ```bash
 # no host, com GH_TOKEN exportado
 ASSET=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-  https://api.github.com/repos/9LEVEL/sysmon/releases/tags/v2.0.1 \
-  | grep -B2 '"name": "sysmon-agent-2.0.1-linux-amd64.tar.gz"' \
+  https://api.github.com/repos/9LEVEL/sysmon/releases/tags/v2.1.0 \
+  | grep -B2 '"name": "sysmon-agent-2.1.0-linux-amd64.tar.gz"' \
   | grep '"id":' | head -1 | tr -dc 0-9)
 
 curl -fL -H "Authorization: Bearer $GH_TOKEN" \
@@ -238,6 +239,27 @@ Remove-ItemProperty -Path HKCU:\Environment -Name SYSMON_TOKEN_PVE -ErrorAction 
 Para trocar de host ou de token no dia a dia, edite o `config.json` — é o
 caminho previsível, e o que a interface toda reflete.
 
+## Dashboard no browser
+
+```bash
+python3 tools/sysmon-web.py --config config.json
+```
+
+Sobe um servidor local e abre a página: gauges de temperatura, CPU e RAM por
+host, cada disco físico com modelo, temperatura, taxa de I/O e vida consumida
+do SMART, filesystems, thin pool, rede e RAID.
+
+Sem framework e sem CDN — HTML, CSS e SVG puros, servidos por Python stdlib.
+Funciona offline.
+
+**Os tokens não chegam ao browser.** O polling acontece no servidor local e a
+página recebe apenas telemetria. Por isso ele escuta só em `127.0.0.1` por
+padrão: a página não tem autenticação, então expor na rede entregaria a
+telemetria da frota inteira.
+
+No Windows, o menu do tray tem **Abrir dashboard** — ele sobe o servidor se
+ainda não estiver de pé e abre o browser.
+
 ## Dashboard no terminal
 
 Roda de qualquer máquina Linux, inclusive por SSH. Só precisa do Python 3.9+.
@@ -329,6 +351,10 @@ dashboard não podem divergir sobre o que é problema.
 | Thin pool LVM (data e metadata) | 80% | 90% |
 | RAM | 90% | 97% |
 | Pressão PSI (`some_avg60`) | 40% | 70% |
+| Temperatura de disco | 60 °C | 70 °C |
+| Vida consumida do SSD (SMART) | 80% | 90% |
+| Setores realocados | ≥ 1 | — |
+| SMART reprovado | — | sempre |
 | RAID mdadm degradado | — | sempre |
 | Coleta parada no agente | > 4× o intervalo | — |
 | Host inalcançável | — | offline |
@@ -351,9 +377,18 @@ curl -H "Authorization: Bearer $TOKEN" http://192.168.0.10:9109/metrics | jq
 ```
 
 Campos: `cpu_temp`, `cpu_crit`, `cpu_percent`, `cpu_modelo`, `temps[]`,
-`fans{}`, `load[]`, `mem{}`, `pressure{}`, `discos[]`, `diskio[]`, `net[]`,
+`fans{}`, `load[]`, `mem{}`, `pressure{}`, `discos[]`, `blocos[]`, `net[]`,
 `raid[]`, `thinpools[]`, `guests{}`, `so{}`, `uptime_s`, `extras{}`,
 `idade_s`, `intervalo_s`, `coletor_falhas`.
+
+`discos[]` são os **filesystems montados** (quanto está cheio). `blocos[]` são
+os **discos físicos**: modelo, capacidade, tipo (`nvme`/`ssd`/`hdd`),
+temperatura, taxa de leitura/escrita, ocupação e, quando o `smartctl` está
+instalado, `smart` com vida consumida, horas ligado e setores realocados.
+
+Temperatura por disco vem do sysfs: NVMe funciona direto, SATA exige o módulo
+`drivetemp` — o instalador carrega e persiste automaticamente quando o kernel
+suporta.
 
 `idade_s` é a idade do dado servido. Se crescer muito além de `intervalo_s`, o
 agente está vivo mas parou de coletar — o `/health` devolve 503 nesse caso, e

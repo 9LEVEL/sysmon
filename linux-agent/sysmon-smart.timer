@@ -1,0 +1,13 @@
+[Unit]
+Description=Atualiza o snapshot SMART dos discos
+
+[Timer]
+OnBootSec=2min
+# Desgaste e horas ligadas mudam devagar; de 15 em 15 minutos e de sobra, e
+# evita acordar disco em standby o tempo todo.
+OnUnitActiveSec=15min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

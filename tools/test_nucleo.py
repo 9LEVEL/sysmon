@@ -62,7 +62,7 @@ def snapshot(**campos) -> dict:
                 "swap_total": 0, "swap_usado": 0, "swap_percent": None},
         "discos": [{"mount": "/", "total": 100, "usado": 10,
                     "percent": 10.0, "inodes_percent": 5.0}],
-        "diskio": [], "net": [], "raid": [], "thinpools": [],
+        "blocos": [], "net": [], "raid": [], "thinpools": [],
         "guests": None, "extras": {}, "pressure": None,
         "idade_s": 1.0, "intervalo_s": 5.0, "coletor_falhas": 0,
     }
@@ -235,6 +235,47 @@ class TestAvaliar(unittest.TestCase):
     def test_raid_saudavel_nao_alerta(self):
         nivel, _ = avaliar(estado_ok(raid=[
             {"nome": "md0", "estado": "ativo", "discos": "UU", "degradado": False}]))
+        self.assertEqual(nivel, OK)
+
+    def test_smart_reprovado_e_critico(self):
+        nivel, alertas = avaliar(estado_ok(blocos=[
+            {"dev": "sda", "tipo": "hdd", "temp_c": 39.0,
+             "smart": {"saude": "falha", "horas_ligado": 52104}}]))
+        self.assertEqual(nivel, CRITICO)
+        self.assertIn("SMART reprovou o disco sda", alertas)
+
+    def test_disco_quente(self):
+        nivel, alertas = avaliar(estado_ok(blocos=[
+            {"dev": "nvme0n1", "tipo": "nvme", "temp_c": 72.0, "smart": None}]))
+        self.assertEqual(nivel, CRITICO)
+        self.assertTrue(any("nvme0n1 em 72C" in a for a in alertas))
+
+    def test_disco_gasto(self):
+        nivel, alertas = avaliar(estado_ok(blocos=[
+            {"dev": "nvme1n1", "tipo": "nvme", "temp_c": 44.0,
+             "smart": {"saude": "ok", "desgaste_percent": 86.0}}]))
+        self.assertEqual(nivel, AVISO)
+        self.assertTrue(any("86% de vida consumida" in a for a in alertas))
+
+    def test_setor_realocado_ja_avisa(self):
+        # Um setor realocado significa midia degradando; nao se espera piorar.
+        nivel, alertas = avaliar(estado_ok(blocos=[
+            {"dev": "sdb", "tipo": "hdd", "temp_c": 35.0,
+             "smart": {"saude": "ok", "realocados": 1}}]))
+        self.assertEqual(nivel, AVISO)
+        self.assertTrue(any("1 setores realocados" in a for a in alertas))
+
+    def test_disco_saudavel_nao_alerta(self):
+        nivel, alertas = avaliar(estado_ok(blocos=[
+            {"dev": "nvme0n1", "tipo": "nvme", "temp_c": 45.0,
+             "smart": {"saude": "ok", "desgaste_percent": 7.0, "realocados": 0}}]))
+        self.assertEqual(nivel, OK)
+        self.assertEqual(alertas, [])
+
+    def test_bloco_sem_smart_nao_quebra(self):
+        # smartmontools ausente e o caso comum: smart vem null.
+        nivel, _ = avaliar(estado_ok(blocos=[
+            {"dev": "sda", "tipo": "ssd", "temp_c": None, "smart": None}]))
         self.assertEqual(nivel, OK)
 
     def test_pressao_de_io(self):

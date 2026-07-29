@@ -1,0 +1,353 @@
+/* sysmon - dashboard da frota.
+ *
+ * Tema escuro assumido de propriedade: e um painel que fica aberto o dia todo,
+ * e as cores de status foram escolhidas contra a superficie escura (todas
+ * >= 3:1 nela). As cores de status NUNCA carregam significado sozinhas - cada
+ * gauge traz o numero e o rotulo, cada alerta traz o texto.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Superficies e tinta */
+  --plano: #0d0d0d;
+  --superficie: #1a1a19;
+  --superficie-2: #211f1f;
+  --tinta: #ffffff;
+  --tinta-2: #c3c2b7;
+  --tinta-3: #898781;
+  --grade: #2c2c2a;
+  --borda: rgba(255, 255, 255, 0.10);
+
+  /* Status - fixas, nunca tematizadas, nunca reutilizadas como serie */
+  --ok: #0ca30c;
+  --aviso: #fab219;
+  --serio: #ec835a;
+  --critico: #d03b3b;
+  --offline: #898781;
+
+  /* Categoricas (validadas para fundo escuro: CVD dE 26.8) */
+  --serie-1: #3987e5;  /* leitura / entrada */
+  --serie-2: #d95926;  /* escrita / saida  */
+
+  --raio: 12px;
+  --gap: 16px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--plano);
+  color: var(--tinta);
+  font: 14px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numeros em tabela alinham em coluna e nao "dancam" a cada atualizacao. */
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- topo */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 14px 24px;
+  background: color-mix(in srgb, var(--plano) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--borda);
+}
+
+.marca {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-size: 15px;
+}
+.marca span { color: var(--tinta-3); font-weight: 400; }
+
+.resumo { display: flex; gap: 18px; margin-left: auto; align-items: center; }
+
+.pilula {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--tinta-2);
+  white-space: nowrap;
+}
+.pilula b { color: var(--tinta); font-weight: 600; }
+
+.ponto {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cor, var(--tinta-3));
+  flex: none;
+}
+
+button.acao {
+  background: var(--superficie-2);
+  color: var(--tinta-2);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+button.acao:hover { color: var(--tinta); border-color: var(--tinta-3); }
+button.acao:active { transform: translateY(1px); }
+
+/* ---------------------------------------------------------------- alertas */
+.alertas {
+  margin: var(--gap) 24px 0;
+  border: 1px solid color-mix(in srgb, var(--critico) 45%, transparent);
+  background: color-mix(in srgb, var(--critico) 12%, var(--superficie));
+  border-radius: var(--raio);
+  padding: 12px 16px;
+}
+.alertas ul { margin: 0; padding-left: 18px; }
+.alertas li { color: var(--tinta); padding: 1px 0; }
+.alertas li b { color: var(--tinta-2); font-weight: 600; }
+
+/* ---------------------------------------------------------------- grade */
+main {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
+  /* start, senao um host offline (card curto) estica ate a altura do vizinho
+     mais alto e vira um retangulo vazio enorme. */
+  align-items: start;
+  gap: var(--gap);
+  padding: var(--gap) 24px 32px;
+}
+
+.host {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  overflow: hidden;
+  /* Faixa lateral com a severidade: redundante com o texto, nunca sozinha. */
+  border-left: 3px solid var(--cor, var(--offline));
+}
+
+.host > header {
+  position: static;
+  backdrop-filter: none;
+  background: transparent;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--grade);
+  align-items: baseline;
+}
+.host h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;   /* o nome do host nunca quebra; quem cede e o subtitulo */
+  flex: none;
+}
+.host .sub {
+  margin-left: auto;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--tinta-3);
+  text-align: right;
+  line-height: 1.35;
+}
+.host .sub div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corpo { padding: 16px 18px 18px; }
+
+/* ---------------------------------------------------------------- gauges */
+.gauges {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.gauge { text-align: center; width: 92px; flex: none; }
+.gauge svg { display: block; margin: 0 auto; }
+
+.gauge .valor {
+  font-size: 19px;
+  font-weight: 650;
+  fill: var(--tinta);
+  letter-spacing: -0.02em;
+}
+.gauge .unidade { font-size: 10px; fill: var(--tinta-3); }
+.gauge .rotulo {
+  margin-top: 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--tinta-3);
+}
+.gauge .detalhe { font-size: 11px; color: var(--tinta-2); }
+
+/* Estatisticas ao lado dos gauges */
+.stats {
+  margin-left: auto;
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  text-align: right;
+  color: var(--tinta-3);
+}
+.stats b { color: var(--tinta-2); font-weight: 600; margin-left: 8px; }
+
+/* ---------------------------------------------------------------- secoes */
+.secao { margin-top: 18px; }
+.secao > h3 {
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tinta-3);
+}
+
+/* ---------------------------------------------------------------- discos */
+/* Duas colunas: selo fixo a esquerda ocupando todas as linhas, conteudo a
+   direita. O modelo ocupa a linha inteira - dividir espaco com o fluxo de IO
+   truncava o texto justamente onde estao os dados de SMART. */
+.disco {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--grade);
+}
+.disco:first-of-type { border-top: none; }
+
+/* Tudo que nao e o selo vai para a coluna 2, empilhado. Sem isso a auto
+   colocacao do grid disputa a coluna 1 com o selo que a atravessa. */
+.disco > *:not(.selo) { grid-column: 2; }
+
+.disco .topo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.disco .topo .direita { margin-left: auto; white-space: nowrap; }
+
+.selo {
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--superficie-2);
+  border: 1px solid var(--borda);
+  color: var(--tinta-2);
+  align-self: start;
+  margin-top: 2px;
+  grid-column: 1;
+  grid-row: 1 / -1;   /* atravessa quantas linhas o disco tiver */
+  text-align: center;
+}
+
+/* SMART reprovado e condicao de trocar o disco: precisa saltar aos olhos,
+   com texto e nao so cor. */
+.reprovado {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--critico);
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--critico) 55%, transparent);
+  background: color-mix(in srgb, var(--critico) 14%, transparent);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+.disco .nome { font-size: 12.5px; font-weight: 600; }
+.disco .modelo {
+  font-size: 11px;
+  color: var(--tinta-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.disco .direita { text-align: right; font-size: 11.5px; color: var(--tinta-2); }
+.disco .direita .temp { font-weight: 650; }
+
+/* Fluxo de leitura/escrita: as duas series categoricas, sempre com rotulo
+   direto (R / W) ao lado - a cor nao carrega a identidade sozinha. */
+.fluxo { display: flex; gap: 12px; justify-content: flex-end; font-size: 11px; }
+.fluxo span { display: inline-flex; align-items: center; gap: 4px; color: var(--tinta-3); }
+.fluxo i {
+  width: 7px; height: 7px; border-radius: 2px;
+  background: var(--c); font-style: normal;
+}
+
+/* ---------------------------------------------------------------- barras */
+.barra {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 12px;
+}
+.barra .rot { color: var(--tinta-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barra .pct { color: var(--tinta); font-weight: 600; min-width: 42px; text-align: right; }
+
+.trilha {
+  height: 7px;
+  border-radius: 4px;
+  background: var(--grade);
+  overflow: hidden;
+}
+.preenche {
+  height: 100%;
+  /* 4px arredondado na ponta do dado, ancorado na base. */
+  border-radius: 0 4px 4px 0;
+  background: var(--cor, var(--ok));
+  transition: width 0.4s ease;
+}
+
+/* ---------------------------------------------------------------- offline */
+.offline .corpo {
+  color: var(--tinta-3);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 84px;
+}
+.offline .motivo { color: var(--tinta-2); }
+
+.vazio {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--tinta-3);
+  padding: 60px 20px;
+}
+
+footer {
+  padding: 0 24px 28px;
+  color: var(--tinta-3);
+  font-size: 11.5px;
+}
+
+@media (max-width: 560px) {
+  main { grid-template-columns: 1fr; padding: var(--gap) 12px 24px; }
+  header { padding: 12px 14px; flex-wrap: wrap; }
+  .resumo { margin-left: 0; width: 100%; }
+  .alertas { margin: var(--gap) 12px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preenche { transition: none; }
+}

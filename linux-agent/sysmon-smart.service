@@ -1,0 +1,14 @@
+[Unit]
+Description=Snapshot SMART dos discos para o sysmon-agent
+Documentation=man:smartctl(8)
+
+[Service]
+Type=oneshot
+RuntimeDirectory=sysmon
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+# smartctl precisa de root; por isso fica ISOLADO aqui, e nao dentro do agente.
+ExecStart=/opt/sysmon/sysmon-smart.sh
+# Ler SMART acorda disco em standby; nao vale a pena competir com IO real.
+Nice=15
+IOSchedulingClass=idle

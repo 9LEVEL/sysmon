@@ -61,6 +61,7 @@ func (c *Coletor) coletar() Snapshot {
 	}
 
 	temps := c.fontes.Temps()
+	extras := c.fontes.Extras()
 	s := Snapshot{
 		V:          versao,
 		TS:         float64(ag.t.UnixNano()) / 1e9,
@@ -75,11 +76,11 @@ func (c *Coletor) coletar() Snapshot {
 		Mem:        c.fontes.Mem(),
 		Pressure:   c.fontes.Pressure(),
 		Discos:     c.fontes.Discos(c.fontes.DescobrirMounts()),
-		DiskIO:     c.taxasIO(ant, ag, dt),
+		Blocos:     c.blocos(ant, ag, dt, extras),
 		Net:        c.taxasNet(ant, ag, dt),
 		Raid:       c.fontes.Raid(),
 		Guests:     c.fontes.Guests(),
-		Extras:     c.fontes.Extras(),
+		Extras:     extras,
 		PlacaMae:   c.fontes.PlacaMae(),
 		IntervaloS: c.intervalo.Seconds(),
 	}
@@ -138,31 +139,34 @@ func (c *Coletor) taxasNet(ant, ag *amostra, dt float64) []Net {
 	return out
 }
 
-func (c *Coletor) taxasIO(ant, ag *amostra, dt float64) []DiskIO {
+// blocos junta as tres fontes de informacao sobre cada disco fisico: os
+// contadores de IO (delta entre amostras), a identidade vinda do sysfs e o
+// SMART depositado pelo timer isolado.
+func (c *Coletor) blocos(ant, ag *amostra, dt float64, extras map[string]Extra) []Bloco {
 	nomes := make([]string, 0, len(ag.io))
 	for n := range ag.io {
 		nomes = append(nomes, n)
 	}
 	sort.Strings(nomes)
 
-	out := make([]DiskIO, 0, len(nomes))
+	out := make([]Bloco, 0, len(nomes))
 	for _, nome := range nomes {
 		a := ag.io[nome]
 		p, tem := AmostraIO{}, false
 		if ant != nil {
 			p, tem = ant.io[nome]
 		}
-		d := DiskIO{
-			Disco:      nome,
-			LeituraBps: taxa(a.LidosB, p.LidosB, tem, dt),
-			EscritaBps: taxa(a.EscritosB, p.EscritosB, tem, dt),
-		}
+
+		b := c.fontes.InfoBloco(nome)
+		b.LeituraBps = taxa(a.LidosB, p.LidosB, tem, dt)
+		b.EscritaBps = taxa(a.EscritosB, p.EscritosB, tem, dt)
 		// io_ms sobe 1000ms por segundo de parede quando o disco esta 100%
 		// ocupado; a razao entre os dois e a taxa de ocupacao.
 		if ms := taxa(a.IOms, p.IOms, tem, dt); ms != nil {
-			d.UtilPercent = f64(arred(math.Min(*ms/10, 100), 1))
+			b.UtilPercent = f64(arred(math.Min(*ms/10, 100), 1))
 		}
-		out = append(out, d)
+		b.Smart = SmartDe(extras, nome)
+		out = append(out, b)
 	}
 	return out
 }

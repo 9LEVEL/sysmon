@@ -485,6 +485,166 @@ func (f Fontes) DiskIOBruto() map[string]AmostraIO {
 	return out
 }
 
+// InfoBloco descreve o hardware por tras de um disco: modelo, tamanho, tipo e
+// temperatura. Tudo do sysfs, sem root e sem executar nada.
+func (f Fontes) InfoBloco(dev string) Bloco {
+	base := f.P("/sys/block", dev)
+	b := Bloco{Dev: dev, Tipo: "ssd"}
+
+	// /sys/block/<dev>/size conta setores de 512B, sempre - inclusive em disco
+	// com setor fisico de 4K.
+	if setores, ok := lerInt(filepath.Join(base, "size")); ok {
+		b.Tamanho = setores * setor
+	}
+	if rot, ok := lerInt(filepath.Join(base, "queue", "rotational")); ok && rot == 1 {
+		b.Tipo = "hdd"
+	}
+	if strings.HasPrefix(dev, "nvme") {
+		b.Tipo = "nvme"
+	}
+
+	if v, ok := ler(filepath.Join(base, "device", "model"), 256); ok {
+		b.Modelo = strings.TrimSpace(v)
+	}
+	if v, ok := ler(filepath.Join(base, "device", "vendor"), 256); ok {
+		b.Fabricante = strings.TrimSpace(v)
+	}
+	// Em NVMe o modelo costuma estar no controlador, nao no namespace.
+	if ctrl := ctrlNVMe(dev); ctrl != "" {
+		if b.Modelo == "" {
+			if v, ok := ler(f.P("/sys/class/nvme", ctrl, "model"), 256); ok {
+				b.Modelo = strings.TrimSpace(v)
+			}
+		}
+		if b.Fabricante == "" {
+			b.Fabricante = "NVMe"
+		}
+	}
+
+	b.TempC = f.tempBloco(dev)
+	return b
+}
+
+// tempBloco procura o hwmon do disco em dois lugares: pendurado no device
+// (drivetemp em SATA, e tambem NVMe em kernel recente) e no controlador NVMe.
+func (f Fontes) tempBloco(dev string) *float64 {
+	candidatos := []string{filepath.Join(f.P("/sys/block", dev), "device", "hwmon*")}
+	if ctrl := ctrlNVMe(dev); ctrl != "" {
+		candidatos = append(candidatos, f.P("/sys/class/nvme", ctrl, "hwmon*"))
+	}
+	for _, padrao := range candidatos {
+		dirs, _ := filepath.Glob(padrao)
+		for _, hw := range dirs {
+			// temp1 e a temperatura principal: "Composite" no NVMe, o sensor
+			// unico no drivetemp. Os temp2+ do NVMe sao por sensor interno.
+			if v, ok := lerInt(filepath.Join(hw, "temp1_input")); ok {
+				return milli(v, true)
+			}
+		}
+	}
+	return nil
+}
+
+// ctrlNVMe devolve o controlador de um namespace: nvme0n1 -> nvme0.
+// Vazio quando o dispositivo nao e NVMe.
+func ctrlNVMe(dev string) string {
+	if !strings.HasPrefix(dev, "nvme") {
+		return ""
+	}
+	resto := dev[len("nvme"):]
+	if i := strings.IndexByte(resto, 'n'); i > 0 {
+		return "nvme" + resto[:i]
+	}
+	return dev
+}
+
+// SmartDe normaliza a saida do smartctl que o timer gravou em extras.
+//
+// NVMe e SATA reportam saude com vocabularios completamente diferentes: um tem
+// percentage_used e available_spare, o outro tem uma tabela de atributos
+// numerados por fabricante. A traducao mora aqui, e nao no shell, porque aqui
+// da para testar.
+func SmartDe(extras map[string]Extra, dev string) *Smart {
+	bloco, ok := extras["smart"]
+	if !ok {
+		return nil
+	}
+	var todos map[string]json.RawMessage
+	if err := json.Unmarshal(bloco.Dados, &todos); err != nil {
+		return nil
+	}
+	bruto, ok := todos[dev]
+	if !ok {
+		return nil
+	}
+
+	var doc struct {
+		SmartStatus struct {
+			Passed *bool `json:"passed"`
+		} `json:"smart_status"`
+		PowerOnTime struct {
+			Hours *int64 `json:"hours"`
+		} `json:"power_on_time"`
+		NVMe *struct {
+			PercentageUsed *float64 `json:"percentage_used"`
+			AvailableSpare *float64 `json:"available_spare"`
+			MediaErrors    *int64   `json:"media_errors"`
+			PowerOnHours   *int64   `json:"power_on_hours"`
+		} `json:"nvme_smart_health_information_log"`
+		ATA struct {
+			Table []struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+				Raw  struct {
+					Value *int64 `json:"value"`
+				} `json:"raw"`
+				Value *int64 `json:"value"` // normalizado 0-100
+			} `json:"table"`
+		} `json:"ata_smart_attributes"`
+	}
+	if err := json.Unmarshal(bruto, &doc); err != nil {
+		return nil
+	}
+
+	s := &Smart{IdadeS: bloco.IdadeS}
+	if doc.SmartStatus.Passed != nil {
+		s.Saude = "falha"
+		if *doc.SmartStatus.Passed {
+			s.Saude = "ok"
+		}
+	}
+	s.HorasLigado = doc.PowerOnTime.Hours
+
+	if n := doc.NVMe; n != nil {
+		s.DesgastePercent = n.PercentageUsed
+		s.SpareRestante = n.AvailableSpare
+		s.ErrosMidia = n.MediaErrors
+		if s.HorasLigado == nil {
+			s.HorasLigado = n.PowerOnHours
+		}
+		return s
+	}
+
+	for _, a := range doc.ATA.Table {
+		switch a.ID {
+		case 5: // Reallocated_Sector_Ct
+			s.Realocados = a.Raw.Value
+		case 9: // Power_On_Hours
+			if s.HorasLigado == nil {
+				s.HorasLigado = a.Raw.Value
+			}
+		case 177, 202, 231, 233:
+			// Wear leveling: o atributo normalizado conta a vida RESTANTE de
+			// 100 a 0, entao o desgaste e o complemento. O id varia por
+			// fabricante, dai a lista.
+			if a.Value != nil && s.DesgastePercent == nil {
+				s.DesgastePercent = f64(float64(100 - *a.Value))
+			}
+		}
+	}
+	return s
+}
+
 // Raid le /proc/mdstat (legivel por qualquer usuario) e diz se algum array
 // mdadm esta degradado - a diferenca entre "perdi um disco" e "perdi tudo".
 func (f Fontes) Raid() []RaidArray {

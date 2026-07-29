@@ -7,10 +7,13 @@ set -euo pipefail
 SIM=0
 [[ "${1:-}" == "-y" || "${1:-}" == "--yes" ]] && SIM=1
 
-systemctl disable --now sysmon-agent.service sysmon-thinpool.timer 2>/dev/null || true
+systemctl disable --now sysmon-agent.service sysmon-thinpool.timer sysmon-smart.timer 2>/dev/null || true
 rm -f /etc/systemd/system/sysmon-agent.service \
       /etc/systemd/system/sysmon-thinpool.service \
-      /etc/systemd/system/sysmon-thinpool.timer
+      /etc/systemd/system/sysmon-thinpool.timer \
+      /etc/systemd/system/sysmon-smart.service \
+      /etc/systemd/system/sysmon-smart.timer \
+      /etc/modules-load.d/sysmon-drivetemp.conf
 systemctl daemon-reload
 systemctl reset-failed sysmon-agent.service 2>/dev/null || true
 rm -rf /opt/sysmon /run/sysmon

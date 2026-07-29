@@ -32,11 +32,37 @@ type Disco struct {
 	InodesPercent *float64 `json:"inodes_percent"`
 }
 
-type DiskIO struct {
-	Disco       string   `json:"disco"`
+// Bloco e um disco fisico inteiro (sda, nvme0n1), nao um ponto de montagem.
+// Disco.Mount responde "quanto do filesystem esta cheio"; Bloco responde "qual
+// hardware e esse, quao quente esta e quanto de vida sobrou".
+type Bloco struct {
+	Dev        string `json:"dev"`
+	Modelo     string `json:"modelo"`
+	Fabricante string `json:"fabricante"`
+	Tipo       string `json:"tipo"` // nvme | ssd | hdd
+	Tamanho    int64  `json:"tamanho"`
+
+	TempC *float64 `json:"temp_c"` // NVMe direto; SATA so com o modulo drivetemp
+
 	LeituraBps  *float64 `json:"leitura_bps"`
 	EscritaBps  *float64 `json:"escrita_bps"`
 	UtilPercent *float64 `json:"util_percent"`
+
+	// Vem do timer isolado do smartctl; nil quando smartmontools nao esta
+	// instalado ou o timer nunca rodou.
+	Smart *Smart `json:"smart"`
+}
+
+// Smart normaliza o que smartctl reporta para NVMe e para SATA, que usam
+// vocabularios completamente diferentes. Campo nil = aquele disco nao expoe.
+type Smart struct {
+	Saude           string   `json:"saude"`            // ok | falha | ""
+	DesgastePercent *float64 `json:"desgaste_percent"` // vida util ja consumida
+	SpareRestante   *float64 `json:"spare_restante"`   // NVMe available_spare
+	HorasLigado     *int64   `json:"horas_ligado"`
+	Realocados      *int64   `json:"realocados"`  // setores realocados (SATA)
+	ErrosMidia      *int64   `json:"erros_midia"` // media_errors (NVMe)
+	IdadeS          *float64 `json:"idade_s"`     // do snapshot, nao do agente
 }
 
 type Net struct {
@@ -104,8 +130,8 @@ type Snapshot struct {
 	Mem      Mem                           `json:"mem"`
 	Pressure map[string]map[string]float64 `json:"pressure"`
 
-	Discos    []Disco     `json:"discos"`
-	DiskIO    []DiskIO    `json:"diskio"`
+	Discos    []Disco     `json:"discos"` // filesystems montados
+	Blocos    []Bloco     `json:"blocos"` // discos fisicos
 	Net       []Net       `json:"net"`
 	Raid      []RaidArray `json:"raid"`
 	Thinpools []Thinpool  `json:"thinpools"`

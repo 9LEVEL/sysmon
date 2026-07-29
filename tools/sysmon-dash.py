@@ -36,17 +36,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sysmon_nucleo import (  # noqa: E402
     AVISO, CRITICO, OFFLINE, OK,
     ErroConfig, Frota,
-    avaliar, avisar_permissao, carregar_config, como_dict,
-    fmt_bps, fmt_pct, fmt_temp, fmt_uptime, resumo_linhas,
+    achar_config, avaliar, avisar_permissao, carregar_config, como_dict,
+    fmt_bps, fmt_bytes, fmt_pct, fmt_temp, fmt_uptime, resumo_linhas,
 )
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 
-CAMINHOS_PADRAO = [
-    Path("hosts.json"),
-    Path("~/.config/sysmon/hosts.json").expanduser(),
-    Path("/etc/sysmon/hosts.json"),
-]
 
 RESET = "\033[0m"
 NEGRITO = "\033[1m"
@@ -204,10 +199,25 @@ def detalhe(frota: Frota, nome: str, tinta: Tinta) -> int:
             print(f"  {'SO':<5} {so.get('nome') or '?'}  (kernel {so.get('kernel') or '?'})")
             if d.get("cpu_modelo"):
                 print(f"  {'Chip':<5} {d['cpu_modelo']}")
-            for io in (d.get("diskio") or [])[:4]:
-                print(f"  {io['disco']:<14} leitura {fmt_bps(io.get('leitura_bps'))}"
-                      f"  escrita {fmt_bps(io.get('escrita_bps'))}"
-                      f"  uso {fmt_pct(io.get('util_percent'))}")
+            for b in d.get("blocos") or []:
+                smart = b.get("smart") or {}
+                detalhes = [
+                    fmt_bytes(b.get("tamanho")),
+                    fmt_temp(b.get("temp_c")),
+                    f"L {fmt_bps(b.get('leitura_bps'))}",
+                    f"E {fmt_bps(b.get('escrita_bps'))}",
+                    f"uso {fmt_pct(b.get('util_percent'))}",
+                ]
+                if smart.get("desgaste_percent") is not None:
+                    detalhes.append(f"vida consumida {smart['desgaste_percent']:.0f}%")
+                if smart.get("horas_ligado"):
+                    detalhes.append(f"{smart['horas_ligado']}h")
+                if smart.get("realocados"):
+                    detalhes.append(f"{smart['realocados']} realocados")
+                if smart.get("saude") == "falha":
+                    detalhes.append("SMART REPROVOU")
+                print(f"  {b['dev']:<10} [{(b.get('tipo') or '?'):>4}] "
+                      f"{(b.get('modelo') or '?')[:26]:<26} " + "  ".join(detalhes))
             for s in (d.get("temps") or []):
                 crit = f"  (crit {s['crit']:.0f}C)" if s.get("crit") else ""
                 print(f"  {s['chip']:<12} {s['label']:<20} {s['c']:>6.1f}C{crit}")
@@ -222,15 +232,6 @@ def detalhe(frota: Frota, nome: str, tinta: Tinta) -> int:
 
 
 # ------------------------------------------------------------------ main
-def achar_config(indicado: str | None) -> Path:
-    if indicado:
-        return Path(indicado).expanduser()
-    if do_ambiente := os.environ.get("SYSMON_CONFIG"):
-        return Path(do_ambiente).expanduser()
-    for c in CAMINHOS_PADRAO:
-        if c.is_file():
-            return c
-    return CAMINHOS_PADRAO[0]
 
 
 def main() -> int:

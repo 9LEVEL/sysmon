@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 
 # ------------------------------------------------------------------ severidade
 OK, AVISO, CRITICO, OFFLINE = 0, 1, 2, 3
@@ -42,6 +42,11 @@ DISCO_AVISO, DISCO_CRITICO = 80.0, 90.0
 # pode ficar irrecuperavel.
 THIN_AVISO, THIN_CRITICO = 80.0, 90.0
 MEM_AVISO, MEM_CRITICO = 90.0, 97.0
+# Temperatura de disco: NVMe entra em throttling termico por volta de 70C.
+DISCO_TEMP_AVISO, DISCO_TEMP_CRITICO = 60.0, 70.0
+# Vida util consumida (percentage_used do SMART). Acima de 90% o fabricante
+# nao garante mais retencao de dados.
+DESGASTE_AVISO, DESGASTE_CRITICO = 80.0, 90.0
 # PSI: fracao do tempo em que *alguma* tarefa ficou parada esperando o recurso.
 PSI_AVISO, PSI_CRITICO = 40.0, 70.0
 
@@ -63,6 +68,27 @@ class Config:
 
 class ErroConfig(Exception):
     """Configuracao ausente ou invalida - a mensagem e para o usuario final."""
+
+
+# Onde os clientes procuram o config quando nao recebem --config.
+CAMINHOS_PADRAO = [
+    Path("hosts.json"),
+    Path("config.json"),
+    Path("~/.config/sysmon/hosts.json").expanduser(),
+    Path("/etc/sysmon/hosts.json"),
+]
+
+
+def achar_config(indicado: str | None = None) -> Path:
+    """Resolve o caminho do config: --config, depois SYSMON_CONFIG, depois os padroes."""
+    if indicado:
+        return Path(indicado).expanduser()
+    if do_ambiente := os.environ.get("SYSMON_CONFIG"):
+        return Path(do_ambiente).expanduser()
+    for c in CAMINHOS_PADRAO:
+        if c.is_file():
+            return c
+    return CAMINHOS_PADRAO[0]
 
 
 def carregar_config(caminho: Path) -> Config:
@@ -405,6 +431,23 @@ def avaliar(estado: Estado) -> tuple[int, list[str]]:
         if r.get("degradado"):
             marcar(CRITICO, f"RAID {r['nome']} degradado ({r.get('discos', '?')})")
 
+    for b in d.get("blocos") or []:
+        dev = b.get("dev", "?")
+        # NVMe faz throttling termico por volta de 70C; acima disso o disco
+        # fica lento e a vida util encurta.
+        n = _faixa(b.get("temp_c"), DISCO_TEMP_AVISO, DISCO_TEMP_CRITICO)
+        marcar(n, f"disco {dev} em {b['temp_c']:.0f}C" if n >= AVISO else None)
+
+        smart = b.get("smart") or {}
+        if smart.get("saude") == "falha":
+            marcar(CRITICO, f"SMART reprovou o disco {dev}")
+        n = _faixa(smart.get("desgaste_percent"), DESGASTE_AVISO, DESGASTE_CRITICO)
+        marcar(n, f"disco {dev} com {smart['desgaste_percent']:.0f}% de vida consumida"
+               if n >= AVISO else None)
+        # Um setor realocado ja significa midia se degradando: nao espera piorar.
+        if smart.get("realocados"):
+            marcar(AVISO, f"disco {dev} com {smart['realocados']} setores realocados")
+
     # PSI 'some' alto significa que ha tarefa parada esperando o recurso - e o
     # sinal que aparece antes de o host ficar visivelmente lento.
     psi = d.get("pressure") or {}
@@ -522,14 +565,30 @@ def primeira_temp(estados: Iterable[tuple[Host, Estado]]) -> tuple[float | None,
 
 
 def como_dict(frota: Frota) -> dict[str, Any]:
-    """Snapshot da frota inteira, para --json e para o 'copiar JSON' do tray."""
+    """Snapshot da frota inteira, para --json, para o dashboard web e para o tray.
+
+    A severidade vai calculada junto de proposito: o dashboard nao reimplementa
+    avaliar() em JavaScript. Manter "o que conta como alerta" num lugar so vale
+    mais do que economizar alguns bytes no payload.
+
+    Nao inclui token: o browser recebe telemetria, nunca credencial.
+    """
+    hosts = []
+    for host, estado in frota.estados():
+        nivel, alertas = avaliar(estado)
+        hosts.append({
+            "nome": host.nome,
+            "url": host.url,
+            "nivel": nivel,
+            "nivel_nome": NOMES_NIVEL[nivel],
+            "alertas": alertas,
+            "erro": estado.erro,
+            "atualizado": estado.atualizado,
+            "dados": estado.dados,
+        })
     return {
         "ts": time.time(),
-        "hosts": {
-            host.nome: (
-                {"erro": estado.erro} if estado.erro or not estado.dados
-                else estado.dados
-            )
-            for host, estado in frota.estados()
-        },
+        "intervalo": frota.cfg.intervalo,
+        "pior_nivel": max((h["nivel"] for h in hosts), default=OK),
+        "hosts": hosts,
     }

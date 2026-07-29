@@ -38,16 +38,19 @@ import json
 import logging
 import os
 import queue
+import subprocess
 import sys
 import threading
 import tkinter as tk
 import traceback
+import urllib.request
+import webbrowser
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 import pystray
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 
 BASE = Path(sys.argv[0]).resolve().parent
 # O Agendador de Tarefas inicia o processo em outro diretorio de trabalho, por
@@ -111,6 +114,7 @@ POSICAO = list(BRUTO.get("posicao", [40, 40]))
 OVERLAY_INICIAL = bool(BRUTO.get("overlay_ao_iniciar", True))
 COMPACTO_INICIAL = bool(BRUTO.get("overlay_compacto", len(CFG.hosts) > 2))
 NOTIFICAR = bool(BRUTO.get("notificar", True))
+PORTA_WEB = int(BRUTO.get("porta_web", 9110))
 
 # Cores do icone, por nivel de severidade.
 CORES = {
@@ -353,6 +357,7 @@ def montar_tray(frota: Frota, overlay: Overlay) -> pystray.Icon:
         pystray.MenuItem("Cliques atravessam", enfileirar("clickthrough"),
                          checked=lambda item: overlay.click_through),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Abrir dashboard", enfileirar("dashboard")),
         pystray.MenuItem("Atualizar todos", enfileirar("atualizar")),
         pystray.MenuItem("Copiar JSON da frota", enfileirar("copiar")),
         pystray.MenuItem("Sair", enfileirar("sair")),
@@ -370,6 +375,8 @@ def loop_ui(root: tk.Tk, frota: Frota, overlay: Overlay, icone: pystray.Icon) ->
             overlay.alternar_compacto()
         elif cmd == "clickthrough":
             overlay.alternar_click_through()
+        elif cmd == "dashboard":
+            threading.Thread(target=abrir_dashboard, daemon=True).start()
         elif cmd == "atualizar":
             frota.atualizar_agora()
         elif cmd == "atualizar_host":
@@ -399,6 +406,50 @@ def loop_ui(root: tk.Tk, frota: Frota, overlay: Overlay, icone: pystray.Icon) ->
 def copiar(root: tk.Tk, dados: dict) -> None:
     root.clipboard_clear()
     root.clipboard_append(json.dumps(dados, indent=2, ensure_ascii=False))
+
+
+def abrir_dashboard() -> None:
+    """Abre o dashboard web, subindo o servidor local se ele nao estiver de pe.
+
+    O tray e o dashboard sao processos separados de proposito: o tray precisa
+    viver o dia inteiro consumindo quase nada, e o dashboard so existe enquanto
+    voce esta olhando.
+    """
+    url = f"http://127.0.0.1:{PORTA_WEB}/"
+    try:
+        with urllib.request.urlopen(url + "api/frota", timeout=1):
+            webbrowser.open(url)
+            return
+    except Exception:  # noqa: BLE001 - nao esta no ar, entao sobe agora
+        pass
+
+    script = None
+    for candidato in (BASE / "sysmon-web.py", BASE.parent / "tools" / "sysmon-web.py"):
+        if candidato.is_file():
+            script = candidato
+            break
+    if script is None:
+        caixa("sysmon-web.py nao encontrado.\n\n"
+              "Ele fica em tools/ no repositorio; mantenha as duas pastas juntas.")
+        return
+
+    try:
+        # pythonw evita abrir janela de console junto no Windows.
+        exe = Path(sys.executable)
+        semjanela = exe.with_name("pythonw.exe")
+        subprocess.Popen(
+            [str(semjanela if semjanela.is_file() else exe), str(script),
+             "--porta", str(PORTA_WEB), "--nao-abrir"],
+            cwd=str(script.parent),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception as e:  # noqa: BLE001
+        logging.exception("falha ao subir o sysmon-web")
+        caixa(f"Nao consegui iniciar o dashboard:\n\n{e}")
+        return
+
+    # Da um tempo para o bind antes de mandar o browser bater na porta.
+    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
 
 def notificar(icone: pystray.Icon, texto: str) -> None:

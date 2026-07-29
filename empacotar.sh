@@ -43,6 +43,9 @@ for ARCO in amd64 arm64; do
     install -m 644 "$AQUI/linux-agent/sysmon-agent.service"    "$PASTA/"
     install -m 644 "$AQUI/linux-agent/sysmon-thinpool.service" "$PASTA/"
     install -m 644 "$AQUI/linux-agent/sysmon-thinpool.timer"   "$PASTA/"
+    install -m 755 "$AQUI/linux-agent/sysmon-smart.sh"         "$PASTA/"
+    install -m 644 "$AQUI/linux-agent/sysmon-smart.service"    "$PASTA/"
+    install -m 644 "$AQUI/linux-agent/sysmon-smart.timer"      "$PASTA/"
     install -m 644 "$AQUI/LICENSE" "$PASTA/"
 
     cat > "$PASTA/LEIAME.txt" <<EOF
@@ -102,7 +105,10 @@ mkdir -p "$PASTA/tools" "$PASTA/windows-tray"
 
 install -m 644 "$AQUI/tools/sysmon_nucleo.py" "$PASTA/tools/"
 install -m 755 "$AQUI/tools/sysmon-dash.py"   "$PASTA/tools/"
+install -m 755 "$AQUI/tools/sysmon-web.py"    "$PASTA/tools/"
 install -m 755 "$AQUI/tools/sysmon-cli.py"    "$PASTA/tools/"
+install -d -m 755 "$PASTA/tools/web"
+install -m 644 "$AQUI"/tools/web/* "$PASTA/tools/web/"
 for f in traymon.py traymon.vbs config.example.json requirements.txt \
          instalar-autostart.ps1 desinstalar-autostart.ps1; do
     install -m 644 "$AQUI/windows-tray/$f" "$PASTA/windows-tray/"
@@ -118,6 +124,14 @@ novo; o dashboard do terminal nao precisa de mais nada.
 Preencha primeiro o config: copie windows-tray/config.example.json para
 config.json e liste seus hosts com url e token (o install.sh de cada host
 imprimiu os dois). Se voce usou o deploy.sh, ele ja gerou esse arquivo pronto.
+
+Dashboard no browser (Windows ou Linux) - gauges, temperatura e SMART por disco:
+
+    python3 tools/sysmon-web.py --config config.json
+
+Ele sobe um servidor local e abre a pagina. Os tokens ficam no servidor: o
+browser recebe so a telemetria. Por padrao escuta apenas em 127.0.0.1, porque
+a pagina nao tem senha.
 
 Dashboard no terminal (Linux, ou WSL):
 

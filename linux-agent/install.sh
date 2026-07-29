@@ -124,6 +124,11 @@ if [[ $EH_PVE -eq 0 ]]; then
 fi
 install -m 644 "$AQUI/sysmon-thinpool.service" /etc/systemd/system/
 install -m 644 "$AQUI/sysmon-thinpool.timer"   /etc/systemd/system/
+if [[ -f "$AQUI/sysmon-smart.sh" ]]; then
+    install -m 755 "$AQUI/sysmon-smart.sh" "$DESTINO/"
+    install -m 644 "$AQUI/sysmon-smart.service" /etc/systemd/system/
+    install -m 644 "$AQUI/sysmon-smart.timer"   /etc/systemd/system/
+fi
 
 systemctl daemon-reload
 systemctl enable --now sysmon-agent.service
@@ -137,6 +142,20 @@ else
     echo "    sem thin pool LVM, timer nao ativado"
 fi
 
+# SMART precisa de root, entao roda num timer isolado - o agente exposto a
+# rede continua sem executar nada. Sem smartmontools, o campo vem null.
+if [[ -f /etc/systemd/system/sysmon-smart.timer ]]; then
+    if command -v smartctl >/dev/null; then
+        systemctl enable --now sysmon-smart.timer
+        systemctl start sysmon-smart.service 2>/dev/null || true
+        verde "    smartctl encontrado, coleta de SMART ativada"
+    else
+        echo "    smartmontools nao instalado; desgaste e horas dos discos ficam"
+        echo "    indisponiveis. Para ativar: apt install smartmontools &&"
+        echo "    systemctl enable --now sysmon-smart.timer"
+    fi
+fi
+
 echo "==> Sensores"
 if ! ls /sys/class/hwmon/hwmon*/temp*_input >/dev/null 2>&1; then
     amarelo "    nenhum sensor de temperatura exposto pelo kernel."
@@ -144,6 +163,16 @@ if ! ls /sys/class/hwmon/hwmon*/temp*_input >/dev/null 2>&1; then
     echo "    (o agente funciona sem isso; a temperatura vem null)"
 else
     verde "    $(ls /sys/class/hwmon/hwmon*/temp*_input 2>/dev/null | wc -l) sensores encontrados"
+fi
+
+# drivetemp expoe a temperatura de discos SATA; NVMe ja aparece sem modulo.
+if ls /sys/block/sd* >/dev/null 2>&1 && ! lsmod 2>/dev/null | grep -q '^drivetemp'; then
+    if modprobe drivetemp 2>/dev/null; then
+        echo "drivetemp" > /etc/modules-load.d/sysmon-drivetemp.conf
+        verde "    drivetemp carregado (temperatura dos discos SATA)"
+    else
+        echo "    sem drivetemp: discos SATA ficam sem temperatura (normal em kernel antigo)"
+    fi
 fi
 
 # ---------------------------------------------------------------- teste

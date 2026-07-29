@@ -216,6 +216,174 @@ func TestRaidDetectaDegradado(t *testing.T) {
 	}
 }
 
+func TestInfoBlocoNVMe(t *testing.T) {
+	// Esta maquina de build nao tem NVMe; o sysfs falso cobre o caminho.
+	f := fake(t, map[string]string{
+		"/sys/block/nvme0n1/size":                  "3907029168",
+		"/sys/block/nvme0n1/queue/rotational":      "0",
+		"/sys/class/nvme/nvme0/model":              "Samsung SSD 990 PRO 2TB",
+		"/sys/class/nvme/nvme0/hwmon3/temp1_input": "52000",
+		"/sys/class/nvme/nvme0/hwmon3/temp1_label": "Composite",
+	})
+	b := f.InfoBloco("nvme0n1")
+
+	if b.Tipo != "nvme" {
+		t.Errorf("tipo: esperava nvme, veio %q", b.Tipo)
+	}
+	if b.Modelo != "Samsung SSD 990 PRO 2TB" {
+		t.Errorf("modelo veio do controlador? veio %q", b.Modelo)
+	}
+	if b.Tamanho != 3907029168*512 {
+		t.Errorf("tamanho: veio %d", b.Tamanho)
+	}
+	if b.TempC == nil || *b.TempC != 52.0 {
+		t.Errorf("temperatura do hwmon do controlador: veio %v", b.TempC)
+	}
+}
+
+func TestInfoBlocoNVMeComHwmonNoDevice(t *testing.T) {
+	// Kernel mais novo pendura o hwmon no proprio device do namespace.
+	f := fake(t, map[string]string{
+		"/sys/block/nvme1n1/size":                      "1000215216",
+		"/sys/block/nvme1n1/device/model":              "WD_BLACK SN850X 1TB",
+		"/sys/block/nvme1n1/device/hwmon5/temp1_input": "44000",
+	})
+	b := f.InfoBloco("nvme1n1")
+	if b.Modelo != "WD_BLACK SN850X 1TB" {
+		t.Errorf("modelo: veio %q", b.Modelo)
+	}
+	if b.TempC == nil || *b.TempC != 44.0 {
+		t.Errorf("temperatura: veio %v", b.TempC)
+	}
+}
+
+func TestInfoBlocoSATA(t *testing.T) {
+	f := fake(t, map[string]string{
+		"/sys/block/sda/size":             "468862128",
+		"/sys/block/sda/queue/rotational": "0",
+		"/sys/block/sda/device/model":     "WDC WDS240G2G0A-  ",
+		"/sys/block/sda/device/vendor":    "ATA     ",
+	})
+	b := f.InfoBloco("sda")
+	if b.Tipo != "ssd" {
+		t.Errorf("rotational=0 e nao-nvme deveria ser ssd, veio %q", b.Tipo)
+	}
+	if b.Modelo != "WDC WDS240G2G0A-" || b.Fabricante != "ATA" {
+		t.Errorf("espacos do sysfs nao foram aparados: %q / %q", b.Modelo, b.Fabricante)
+	}
+	// Sem o modulo drivetemp nao ha sensor: precisa ser null, nao 0 graus.
+	if b.TempC != nil {
+		t.Errorf("temperatura deveria ser nil, veio %v", *b.TempC)
+	}
+}
+
+func TestInfoBlocoHDD(t *testing.T) {
+	f := fake(t, map[string]string{
+		"/sys/block/sdb/size":                      "15628053168",
+		"/sys/block/sdb/queue/rotational":          "1",
+		"/sys/block/sdb/device/model":              "ST8000VN004-3CP1",
+		"/sys/block/sdb/device/hwmon9/temp1_input": "38000", // drivetemp
+	})
+	b := f.InfoBloco("sdb")
+	if b.Tipo != "hdd" {
+		t.Errorf("rotational=1 deveria ser hdd, veio %q", b.Tipo)
+	}
+	if b.TempC == nil || *b.TempC != 38.0 {
+		t.Errorf("drivetemp deveria dar temperatura, veio %v", b.TempC)
+	}
+}
+
+func TestCtrlNVMe(t *testing.T) {
+	casos := map[string]string{
+		"nvme0n1":   "nvme0",
+		"nvme10n1":  "nvme10",
+		"nvme0n1p2": "nvme0",
+		"sda":       "",
+		"sdb1":      "",
+	}
+	for dev, esperado := range casos {
+		if got := ctrlNVMe(dev); got != esperado {
+			t.Errorf("%s: esperava %q, veio %q", dev, esperado, got)
+		}
+	}
+}
+
+func TestSmartNVMe(t *testing.T) {
+	f := fake(t, map[string]string{
+		"/run/sysmon/smart.json": `{"nvme0n1":{
+			"smart_status":{"passed":true},
+			"nvme_smart_health_information_log":{
+				"percentage_used":7,"available_spare":100,
+				"media_errors":0,"power_on_hours":4211}}}`,
+	})
+	s := SmartDe(f.Extras(), "nvme0n1")
+	if s == nil {
+		t.Fatal("deveria ter lido o smart")
+	}
+	if s.Saude != "ok" {
+		t.Errorf("saude: veio %q", s.Saude)
+	}
+	if s.DesgastePercent == nil || *s.DesgastePercent != 7 {
+		t.Errorf("desgaste: veio %v", s.DesgastePercent)
+	}
+	if s.SpareRestante == nil || *s.SpareRestante != 100 {
+		t.Errorf("spare: veio %v", s.SpareRestante)
+	}
+	if s.HorasLigado == nil || *s.HorasLigado != 4211 {
+		t.Errorf("horas: veio %v", s.HorasLigado)
+	}
+}
+
+func TestSmartSATATraduzAtributos(t *testing.T) {
+	// SATA reporta desgaste como vida RESTANTE (100 a 0) num atributo cujo id
+	// varia por fabricante; o desgaste e o complemento.
+	f := fake(t, map[string]string{
+		"/run/sysmon/smart.json": `{"sda":{
+			"smart_status":{"passed":false},
+			"power_on_time":{"hours":18320},
+			"ata_smart_attributes":{"table":[
+				{"id":5,"name":"Reallocated_Sector_Ct","value":100,"raw":{"value":12}},
+				{"id":233,"name":"Media_Wearout_Indicator","value":88,"raw":{"value":88}}]}}}`,
+	})
+	s := SmartDe(f.Extras(), "sda")
+	if s == nil {
+		t.Fatal("deveria ter lido o smart")
+	}
+	if s.Saude != "falha" {
+		t.Errorf("passed:false deveria virar falha, veio %q", s.Saude)
+	}
+	if s.Realocados == nil || *s.Realocados != 12 {
+		t.Errorf("realocados: veio %v", s.Realocados)
+	}
+	if s.HorasLigado == nil || *s.HorasLigado != 18320 {
+		t.Errorf("horas: veio %v", s.HorasLigado)
+	}
+	if s.DesgastePercent == nil || *s.DesgastePercent != 12 {
+		t.Errorf("value 88 = 12%% consumido, veio %v", s.DesgastePercent)
+	}
+}
+
+func TestSmartAusente(t *testing.T) {
+	// Sem smartmontools instalado o campo tem que ser nil, nao zeros.
+	if s := SmartDe(map[string]Extra{}, "sda"); s != nil {
+		t.Errorf("sem extras deveria ser nil, veio %+v", s)
+	}
+	f := fake(t, map[string]string{"/run/sysmon/smart.json": `{"sda":{}}`})
+	if s := SmartDe(f.Extras(), "nvme9n1"); s != nil {
+		t.Errorf("disco fora do snapshot deveria ser nil, veio %+v", s)
+	}
+}
+
+func TestSmartCarregaIdade(t *testing.T) {
+	f := fake(t, map[string]string{
+		"/run/sysmon/smart.json": `{"sda":{"smart_status":{"passed":true}}}`,
+	})
+	s := SmartDe(f.Extras(), "sda")
+	if s == nil || s.IdadeS == nil {
+		t.Fatal("idade do snapshot deveria ser propagada para o cliente")
+	}
+}
+
 func TestRaidAusente(t *testing.T) {
 	if got := fake(t, nil).Raid(); len(got) != 0 {
 		t.Errorf("sem /proc/mdstat deveria vir lista vazia, veio %+v", got)

@@ -87,7 +87,7 @@ func TestMetricsDevolveJSONValido(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, campo := range []string{"host", "cpu_temp", "cpu_crit", "mem", "discos",
-		"temps", "fans", "load", "uptime_s", "idade_s", "net", "diskio"} {
+		"temps", "fans", "load", "uptime_s", "idade_s", "net", "blocos"} {
 		if _, tem := cru[campo]; !tem {
 			t.Errorf("campo %q sumiu do contrato com o cliente", campo)
 		}
