@@ -30,6 +30,7 @@ Distribuicao: `make bundle` empacota isto num unico sysmon.pyz, que roda com
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import threading
 import time
@@ -50,7 +51,7 @@ from sysmon_nucleo import (  # noqa: E402
     ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 
 PORTA_PADRAO = 9110
 
@@ -76,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="forcar o browser em vez da janela nativa")
     p.add_argument("--oculto", action="store_true",
                    help="abrir minimizado na bandeja (usado pelo autostart)")
+    p.add_argument("--nao-oculto", action="store_true",
+                   help=argparse.SUPPRESS)   # usado pelo atalho, vence --oculto
+    p.add_argument("--sem-update", action="store_true",
+                   help="nao verificar atualizacao")
     p.add_argument("--version", action="version", version=__version__)
 
     sub = p.add_subparsers(dest="cmd")
@@ -158,8 +163,20 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
     frota = Frota(cfg)
     modo = "app" if app else "browser"
 
-    if not web:
-        modo = "browser"
+    # Atualizacao silenciosa: verifica no arranque e a cada N horas, baixa em
+    # segundo plano e deixa pronto. A troca acontece no proximo arranque,
+    # feita pelo lancador - ver sysmon_update.
+    atualizador = None
+    if not getattr(args, "sem_update", False):
+        try:
+            import sysmon_update
+            horas = float(cfg.extra.get("horas_entre_updates", 6))
+            atualizador = sysmon_update.Atualizador(
+                __version__, intervalo=horas * 3600 if horas > 0 else 0)
+            atualizador.iniciar()
+        except Exception:  # noqa: BLE001 - update nunca impede o monitor de subir
+            atualizador = None
+
     servidor = None
     if web:
         if endereco[0] not in ("127.0.0.1", "::1", "localhost"):
@@ -168,7 +185,9 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
                   file=sys.stderr)
         try:
             import sysmon_web
-            servidor = sysmon_web.servidor(frota, *endereco, modo=modo)
+            servidor = sysmon_web.servidor(
+                frota, *endereco, modo=modo, atualizador=atualizador,
+                reiniciar=(lambda: _reiniciar(app)) if app else None)
         except OSError as e:
             print(f"erro: nao consegui escutar em {endereco[0]}:{endereco[1]}: {e}",
                   file=sys.stderr)
@@ -190,7 +209,8 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
     try:
         if app:
             com_bandeja = _bandeja_junto(frota, cfg, app)
-            oculto = bool(getattr(args, "oculto", False))
+            oculto = bool(getattr(args, "oculto", False)) and \
+                not getattr(args, "nao_oculto", False)
             if oculto and not com_bandeja:
                 # Sem bandeja nao existe caminho de volta para uma janela
                 # oculta: o usuario ficaria com um processo invisivel.
@@ -213,6 +233,25 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
     finally:
         encerrar()
     return 0
+
+
+def _reiniciar(app) -> None:
+    """Fecha a janela e pede ao lancador para subir de novo.
+
+    Quem troca o sysmon.pyz e o lancador, antes do Python abrir o arquivo.
+    Aqui so encerramos e disparamos o lancador de novo; se ele nao existir,
+    fecha mesmo assim e o usuario reabre - a atualizacao entra igual.
+    """
+    import subprocess
+    lancador = Path(sys.argv[0]).resolve().parent / "sysmon.vbs"
+    try:
+        if os.name == "nt" and lancador.is_file():
+            subprocess.Popen(["wscript.exe", str(lancador)],
+                             cwd=str(lancador.parent),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:  # noqa: BLE001 - fechar mesmo assim e melhor que travar
+        pass
+    app.fechar()
 
 
 def _bandeja_junto(frota, cfg, app) -> bool:

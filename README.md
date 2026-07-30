@@ -45,49 +45,25 @@ comando externo e roda sem root. Os clientes são Python stdlib puro.
 ### Pacote pronto (sem compilar nada)
 
 Os releases trazem o agente empacotado: binário estático, units e instalador.
-Não precisa de Go, Python nem internet no host de destino.
-
-**Este repositório é privado**, então os assets do release exigem token — não
-existe download anônimo. O caminho mais simples é baixar na sua máquina, onde
-você já está autenticado, e mandar por `scp`:
+Não precisa de Go, Python nem nada além de `curl` no host de destino.
 
 ```bash
-# na sua máquina
-gh release download v2.3.0 -p 'sysmon-agent-2.3.0-linux-amd64.tar.gz'
-scp sysmon-agent-2.3.0-linux-amd64.tar.gz root@192.168.0.10:/tmp/
-
-# no host
-cd /tmp && tar xzf sysmon-agent-2.3.0-linux-amd64.tar.gz
-cd sysmon-agent-2.3.0-linux-amd64
+# no host a ser monitorado
+curl -fLO https://github.com/9LEVEL/sysmon/releases/latest/download/sysmon-agent-2.4.0-linux-amd64.tar.gz
+tar xzf sysmon-agent-2.4.0-linux-amd64.tar.gz
+cd sysmon-agent-2.4.0-linux-amd64
 sudo ./install.sh 192.168.0.10          # IP da LAN ou do túnel
 ```
 
-Para puxar direto do host, é preciso um token com leitura neste repositório.
-A URL de browser (`/releases/download/...`) devolve 404 mesmo com token; use o
-endpoint de API do asset:
+Para ARM, troque `amd64` por `arm64`. Confira as somas com o `SHA256SUMS` do
+release.
 
-```bash
-# no host, com GH_TOKEN exportado
-ASSET=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-  https://api.github.com/repos/9LEVEL/sysmon/releases/tags/v2.3.0 \
-  | grep -B2 '"name": "sysmon-agent-2.3.0-linux-amd64.tar.gz"' \
-  | grep '"id":' | head -1 | tr -dc 0-9)
+Os clientes vêm em `sysmon.pyz` (arquivo único) ou no pacote
+`sysmon-clientes-<versão>.zip`, que traz também os scripts de autostart.
 
-curl -fL -H "Authorization: Bearer $GH_TOKEN" \
-     -H "Accept: application/octet-stream" \
-     -o sysmon-agent.tar.gz \
-     "https://api.github.com/repos/9LEVEL/sysmon/releases/assets/$ASSET"
-```
-
-Se o repositório se tornar público, o `curl -fLO` na URL de browser passa a
-funcionar sem nada disso.
-
-Os clientes vêm em `sysmon-clientes-<versão>.zip` (Windows) ou `.tar.gz`.
-Confira as somas com o `SHA256SUMS` do release.
-
-Para gerar os pacotes você mesmo, sem passar pelo GitHub: `make pacote` (roda a
-suite de testes antes). E note que o **`deploy.sh` já faz tudo isso por SSH** —
-compila, copia e instala em N hosts, sem release nem token no meio.
+Para gerar os pacotes você mesmo: `make pacote` (roda a suíte de testes antes).
+E o **`deploy.sh` faz tudo por SSH** — compila, copia e instala em N hosts, sem
+passar por release nenhum.
 
 ### Vários hosts de uma vez (recomendado)
 
@@ -209,6 +185,30 @@ Atualizar é substituir o `sysmon.pyz`. O `config.json` fica.
 
 Rodando do repositório em vez do `.pyz`, troque `sysmon.pyz` por `sysmon.py` —
 os argumentos são os mesmos.
+
+### Atualização automática
+
+O sysmon verifica se há versão nova ao iniciar e a cada 6 horas, baixa em
+segundo plano e **confere o SHA256 contra o `SHA256SUMS` do release**. Quando
+está pronto, aparece um botão discreto no cabeçalho:
+
+```
+Atualizar para v2.5.0
+```
+
+Clicar reinicia já na versão nova. A troca em si é feita pelo lançador
+(`sysmon.vbs`), não pelo app: no Windows um processo não consegue sobrescrever
+com segurança o próprio `.pyz` que tem aberto. O download vai para
+`sysmon-novo.pyz` e o lançador promove antes do Python abrir o arquivo.
+
+Se o SHA não bater, ou o download não for um zipapp válido, **nada é trocado** —
+o erro fica registrado e a versão atual continua. Falha de rede também nunca
+derruba o monitoramento.
+
+Para desligar: `--sem-update`, ou `"horas_entre_updates": 0` no `config.json`.
+
+Rodando do repositório (`sysmon.py` em vez de `sysmon.pyz`) o auto-update fica
+inativo — ali quem atualiza é o `git`.
 
 ### A janela
 

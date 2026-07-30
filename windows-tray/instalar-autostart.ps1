@@ -53,6 +53,24 @@ Register-ScheduledTask -TaskName "sysmon" -Action $acao -Trigger $gatilho `
 # ficarem duas instancias disputando a mesma porta.
 Unregister-ScheduledTask -TaskName "traymon" -Confirm:$false -ErrorAction SilentlyContinue
 
+# Atalho na area de trabalho: abrir sem terminal e sem procurar a pasta.
+try {
+    $desktop  = [Environment]::GetFolderPath("Desktop")
+    $atalho   = Join-Path $desktop "sysmon.lnk"
+    $ws       = New-Object -ComObject WScript.Shell
+    $lnk      = $ws.CreateShortcut($atalho)
+    $lnk.TargetPath       = "wscript.exe"
+    # Sem --oculto: clicar no atalho e pedir a janela agora.
+    $lnk.Arguments        = "`"$vbs`" --nao-oculto"
+    $lnk.WorkingDirectory = $pasta
+    $lnk.Description      = "Monitor da frota Linux"
+    $lnk.IconLocation     = "$((Get-Command python).Source),0"
+    $lnk.Save()
+    Write-Host "==> Atalho criado na area de trabalho." -ForegroundColor Green
+} catch {
+    Write-Host "    (nao consegui criar o atalho: $_)" -ForegroundColor Yellow
+}
+
 Write-Host "==> Tarefa 'sysmon' registrada (inicia 30s apos o login)." -ForegroundColor Green
 Write-Host "    Dashboard        : http://127.0.0.1:9110/"
 Write-Host "    Iniciar agora    : schtasks /run /tn sysmon"

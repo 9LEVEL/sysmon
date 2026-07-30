@@ -130,6 +130,22 @@ button.icone[aria-pressed="true"] {
 button.icone[aria-pressed="true"] svg { transform: rotate(-45deg); }
 button.icone svg { transition: transform 0.15s; }
 
+/* Aviso de versao nova: presente mas discreto - nao e alerta de host, e a
+   unica coisa na tela que nao fala do estado da frota. */
+button.acao.nova-versao {
+  border-color: color-mix(in srgb, var(--serie-1) 55%, transparent);
+  background: color-mix(in srgb, var(--serie-1) 16%, var(--superficie-2));
+  color: #cfe3ff;
+}
+button.acao.nova-versao:hover { color: #eaf3ff; }
+button.acao.nova-versao[disabled] {
+  opacity: 0.6;
+  cursor: default;
+  border-color: var(--borda);
+  background: var(--superficie-2);
+  color: var(--tinta-3);
+}
+
 @media (max-width: 720px) {
   .rotulo-botao { display: none; }
 }

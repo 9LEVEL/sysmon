@@ -104,7 +104,7 @@ done
 # scripts soltos - que era a principal reclamacao de manutencao.
 PALCO="$DIST/.palco"
 mkdir -p "$PALCO/web"
-for m in sysmon_nucleo sysmon_web sysmon_dash sysmon_local sysmon_tray sysmon_app; do
+for m in sysmon_nucleo sysmon_web sysmon_dash sysmon_local sysmon_tray sysmon_app sysmon_update; do
     install -m 644 "$AQUI/tools/$m.py" "$PALCO/"
 done
 install -m 644 "$AQUI/sysmon.py" "$PALCO/"
@@ -203,9 +203,16 @@ fi
 rm -rf "$PASTA"
 
 # ---------------------------------------------------------------- somas
+# O .pyz PRECISA estar aqui: o auto-update confere o download contra esta
+# lista antes de trocar o binario. Sem a entrada, ele recusa a atualizacao.
 # nullglob para que a ausencia do zip (sem o utilitario instalado) nao passe
 # o padrao literal para o sha256sum e derrube o script pelo set -e.
-( shopt -s nullglob; cd "$DIST" && sha256sum ./*.tar.gz ./*.zip | sed 's|\./||' > SHA256SUMS )
+( shopt -s nullglob; cd "$DIST" && sha256sum ./*.tar.gz ./*.zip ./*.pyz \
+    | sed 's|\./||' > SHA256SUMS )
+grep -q ' sysmon.pyz$' "$DIST/SHA256SUMS" || {
+    echo "ERRO: SHA256SUMS sem sysmon.pyz - o auto-update ficaria quebrado." >&2
+    exit 1
+}
 verde "    SHA256SUMS"
 
 echo

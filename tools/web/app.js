@@ -383,6 +383,7 @@ async function buscar() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const frota = await r.json();
     render(frota);
+    mostrarAtualizacao(frota.update);
     if (frota.modo === 'app') mostrarControlesDeJanela();
   } catch (e) {
     document.getElementById('relogio').textContent = `sem o servidor (${e.message})`;
@@ -441,6 +442,35 @@ async function mostrarControlesDeJanela() {
 }
 
 window.addEventListener('pywebviewready', mostrarControlesDeJanela);
+
+/* ------------------------------------------------------------ atualizacao
+ * O download acontece sozinho em segundo plano; aqui so aparece quando ja
+ * esta baixado e conferido. Um aviso que pede acao antes de ter o arquivo
+ * pronto seria so ansiedade.
+ */
+function mostrarAtualizacao(u) {
+  const botao = document.getElementById('atualizacao');
+  if (!u || !u.pronta || !u.disponivel) { botao.hidden = true; return; }
+
+  botao.hidden = false;
+  botao.textContent = `Atualizar para ${u.disponivel}`;
+  botao.title = u.notas
+    ? `${u.notas} — baixado e verificado; clique para reiniciar já atualizado`
+    : 'Baixado e verificado; clique para reiniciar já atualizado';
+
+  if (botao.dataset.ligado) return;
+  botao.dataset.ligado = '1';
+  botao.addEventListener('click', async () => {
+    botao.disabled = true;
+    botao.textContent = 'Reiniciando...';
+    const r = await fetch('/api/reiniciar', { cache: 'no-store' }).catch(() => null);
+    if (!r || !r.ok) {
+      // Sem reinicio automatico (modo browser, por exemplo): explica o passo.
+      botao.textContent = 'Feche e abra o sysmon';
+      botao.title = 'A versão nova já está baixada; ela entra no próximo início.';
+    }
+  });
+}
 
 buscar();
 setInterval(buscar, 3000);
