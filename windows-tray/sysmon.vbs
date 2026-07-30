@@ -24,6 +24,12 @@ If fso.FileExists(novo) Then
     On Error GoTo 0
 End If
 
+' Sem o Agendador de Tarefas nao ha atraso de inicio configurado, entao a
+' espera vem daqui: no logon o Windows ainda esta subindo rede e servicos, e
+' comecar a sondar host nesse momento so gera "offline" que se resolve sozinho.
+' Nao vale para abertura manual, que passa argumento.
+If WScript.Arguments.Count = 0 Then WScript.Sleep 20000
+
 ' Argumentos extras da linha de comando passam adiante; sem eles, --oculto:
 ' no logon a janela sobe minimizada na bandeja em vez de pular na frente.
 If WScript.Arguments.Count > 0 Then

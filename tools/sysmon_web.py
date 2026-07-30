@@ -27,7 +27,7 @@ from sysmon_nucleo import (
     ErroConfig, Frota, achar_config, avisar_permissao, carregar_config, como_dict,
 )
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 # Lista fixa em vez de montar caminho com o que o cliente mandou: nenhuma
 # requisicao consegue sair deste conjunto, entao nao existe travessia de path.

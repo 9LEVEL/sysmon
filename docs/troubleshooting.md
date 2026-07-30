@@ -223,6 +223,36 @@ gera tentativa a cada 5s indefinidamente.
 
 ## Windows
 
+### `Register-ScheduledTask : Acesso negado` (HRESULT 0x80070005)
+
+Registrar tarefa na raiz da biblioteca do Agendador exige administrador. Por
+isso o instalador usa a **pasta Inicializar** por padrão, que não exige nada:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
+```
+
+O `-Agendador` é opcional e só funciona num PowerShell aberto como
+administrador. A única coisa que se ganha com ele é reinício automático se o
+processo cair.
+
+Para registrar o autostart na mão, sem script:
+
+```powershell
+$p = (Get-Location).Path
+$ws = New-Object -ComObject WScript.Shell
+$lnk = $ws.CreateShortcut("$([Environment]::GetFolderPath('Startup'))\sysmon.lnk")
+$lnk.TargetPath = "wscript.exe"; $lnk.Arguments = "`"$p\sysmon.vbs`""
+$lnk.WorkingDirectory = $p; $lnk.Save()
+```
+
+### `sysmon.pyz nao encontrado nesta pasta`
+
+Você provavelmente baixou o **código-fonte** (`sysmon-main.zip`), que não traz
+o binário. Baixe `sysmon-clientes-<versão>.zip` da
+[página de releases](https://github.com/9LEVEL/sysmon/releases) — ele já vem
+com o `sysmon.pyz`, o `sysmon.vbs` e os scripts, todos na mesma pasta.
+
 ### `pythonw sysmon.pyz` não abre nada
 
 `pythonw.exe` roda sem console: `stdout` e `stderr` vão para o vazio. Qualquer

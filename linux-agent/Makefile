@@ -5,7 +5,7 @@
 # de o agente ter saido do Python na v2 - instalar num host novo virou copiar
 # um arquivo.
 
-VERSAO  ?= 2.4.0
+VERSAO  ?= 2.4.1
 SAIDA   ?= bin
 LDFLAGS := -s -w -X main.versao=$(VERSAO)
 GOFLAGS := -trimpath

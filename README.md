@@ -291,9 +291,23 @@ Autostart:
 powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
 ```
 
-Registra uma tarefa que sobe tudo 30s após o login, sem janela de console e
-**minimizado na bandeja** — no login a janela não pula na frente do que você
-está fazendo; clique no ícone para abrir.
+**Não precisa de administrador.** Ele cria um atalho na pasta Inicializar e
+outro na área de trabalho. No login o sysmon sobe **minimizado na bandeja**,
+após 20s de espera (para a rede estabilizar) — a janela não pula na frente do
+que você está fazendo. Clique no ícone da bandeja, ou no atalho da área de
+trabalho, para abrir.
+
+Se preferir o Agendador de Tarefas (que reinicia o processo se ele cair), rode
+**como administrador** com `-Agendador`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1 -Agendador
+```
+
+Registrar tarefa na raiz da biblioteca do Agendador exige elevação — é por isso
+que a pasta Inicializar é o padrão.
+
+Remover: `desinstalar-autostart.ps1`.
 
 ## Configuração dos clientes
 

@@ -51,7 +51,7 @@ from sysmon_nucleo import (  # noqa: E402
     ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 PORTA_PADRAO = 9110
 
