@@ -2,16 +2,19 @@
 #
 #   powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
 #   powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1 -Agendador
+#   powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1 -Inicializar
 #
-# Por padrao usa a pasta Inicializar, que NAO exige administrador. O Agendador
-# de Tarefas so entra com -Agendador: registrar tarefa na raiz da biblioteca
-# pede elevacao, e um monitor de bandeja nao deveria precisar disso.
+# Por padrao tenta o Agendador de Tarefas (como sempre foi) e, se nao houver
+# permissao, cai na pasta Inicializar - que nao exige administrador. Seja qual
+# for o caminho, o outro e removido: os dois ativos fariam duas instancias
+# subirem no logon e uma morrer disputando a porta.
 #
 # Um processo so: sobe o dashboard e, se pystray/Pillow estiverem instalados,
 # o icone de bandeja junto.
 param(
-    [switch]$Agendador,   # usa o Agendador de Tarefas (precisa de admin)
-    [int]$AtrasoSeg = 20  # espera antes de subir, para a rede estabilizar
+    [switch]$Agendador,    # exige o Agendador; falha se nao houver admin
+    [switch]$Inicializar,  # forca a pasta Inicializar, sem tentar o Agendador
+    [int]$AtrasoSeg = 20   # espera antes de subir, para a rede estabilizar
 )
 
 # Sem "Stop" global: um passo opcional que falhe nao pode abortar os demais.
@@ -88,43 +91,63 @@ try {
 # ---------------------------------------------------------------- autostart
 $inicializar = Join-Path ([Environment]::GetFolderPath("Startup")) "sysmon.lnk"
 
-if ($Agendador) {
-    Write-Host "==> Agendador de Tarefas" -ForegroundColor Cyan
-    $admin = ([Security.Principal.WindowsPrincipal] `
-              [Security.Principal.WindowsIdentity]::GetCurrent()
-             ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    if (-not $admin) {
-        Erro "    -Agendador exige PowerShell como administrador."
-        Erro "    Sem admin, rode sem esse parametro: o autostart vai pela"
-        Erro "    pasta Inicializar, que funciona igual bem."
-        exit 1
+# Duas formas de iniciar no logon, e SO UMA pode ficar ativa: se as duas
+# dispararem, a segunda instancia briga pela porta 9110 e morre em silencio.
+#
+#   Agendador de Tarefas  - como sempre foi; reinicia o processo se cair,
+#                           mas registrar tarefa na raiz exige administrador
+#   pasta Inicializar     - nao exige nada, sem reinicio automatico
+#
+# O padrao tenta o Agendador primeiro e cai na pasta Inicializar se nao houver
+# permissao. Os parametros forcam um dos dois.
+Write-Host "==> Autostart" -ForegroundColor Cyan
+
+function Remover-Tarefa($nome) {
+    if (Get-ScheduledTask -TaskName $nome -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName $nome -Confirm:$false -ErrorAction SilentlyContinue
+        return $?
     }
+    return $true
+}
+
+function Registrar-Tarefa {
+    $acao = New-ScheduledTaskAction -Execute "wscript.exe" `
+            -Argument "`"$vbs`"" -WorkingDirectory $pasta
+    $gatilho = New-ScheduledTaskTrigger -AtLogOn
+    $gatilho.Delay = "PT$($AtrasoSeg)S"
+    $cfg = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
+           -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 `
+           -RestartInterval (New-TimeSpan -Minutes 1)
+    Register-ScheduledTask -TaskName "sysmon" -Action $acao -Trigger $gatilho `
+                           -Settings $cfg -Force -ErrorAction Stop `
+                           -Description "Monitor da frota Linux" | Out-Null
+}
+
+$metodo = $null
+
+if (-not $Inicializar) {
     try {
-        $acao = New-ScheduledTaskAction -Execute "wscript.exe" `
-                -Argument "`"$vbs`"" -WorkingDirectory $pasta
-        $gatilho = New-ScheduledTaskTrigger -AtLogOn
-        $gatilho.Delay = "PT$($AtrasoSeg)S"
-        $cfg = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
-               -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 `
-               -RestartInterval (New-TimeSpan -Minutes 1)
-        Register-ScheduledTask -TaskName "sysmon" -Action $acao -Trigger $gatilho `
-                               -Settings $cfg -Force -ErrorAction Stop `
-                               -Description "Monitor da frota Linux" | Out-Null
-        Ok "tarefa 'sysmon' registrada (inicia $AtrasoSeg s apos o login)"
-        # Evita subir duas vezes se a pasta Inicializar tambem tiver o atalho.
-        Remove-Item $inicializar -ErrorAction SilentlyContinue
+        Registrar-Tarefa
+        $metodo = "agendador"
+        Ok "tarefa 'sysmon' registrada (inicia $AtrasoSeg s apos o login, com reinicio automatico)"
     } catch {
-        Erro "    falhou: $($_.Exception.Message)"
-        Erro "    Rode sem -Agendador para usar a pasta Inicializar."
-        exit 1
+        if ($Agendador) {
+            Erro "    nao consegui registrar a tarefa: $($_.Exception.Message)"
+            Erro "    Registrar tarefa na raiz da biblioteca exige PowerShell como"
+            Erro "    administrador. Rode elevado, ou use -Inicializar."
+            exit 1
+        }
+        Aviso "sem permissao para o Agendador de Tarefas (precisa de admin)"
+        Aviso "usando a pasta Inicializar, que nao exige nada"
     }
-} else {
-    Write-Host "==> Autostart (pasta Inicializar, sem admin)" -ForegroundColor Cyan
+}
+
+if (-not $metodo) {
     try {
-        # Com --oculto: no logon a janela sobe minimizada na bandeja, em vez de
-        # pular na frente do que voce estava fazendo.
+        # Com --oculto (padrao do vbs): no logon sobe minimizado na bandeja.
         Criar-Atalho $inicializar "`"$vbs`"" "Monitor da frota Linux (inicio automatico)"
-        Ok "registrado para iniciar no seu login"
+        $metodo = "inicializar"
+        Ok "registrado na pasta Inicializar"
     } catch {
         Erro "    nao consegui criar o atalho em $inicializar"
         Erro "    $($_.Exception.Message)"
@@ -132,9 +155,40 @@ if ($Agendador) {
     }
 }
 
-# Tarefas de versoes anteriores, para nao ficarem duas instancias na mesma porta.
-foreach ($t in @("traymon")) {
-    Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue
+# --------------------------------------------------- garantir UM so caminho
+# O que nao foi escolhido tem que sair, inclusive resquicio de instalacao
+# anterior que usava o outro metodo.
+if ($metodo -eq "agendador") {
+    if (Test-Path $inicializar) {
+        Remove-Item $inicializar -Force -ErrorAction SilentlyContinue
+        Ok "atalho antigo da pasta Inicializar removido"
+    }
+} else {
+    if (Get-ScheduledTask -TaskName "sysmon" -ErrorAction SilentlyContinue) {
+        if (Remover-Tarefa "sysmon") {
+            Ok "tarefa 'sysmon' antiga removida"
+        } else {
+            Aviso "ha uma tarefa 'sysmon' no Agendador que eu nao consigo remover"
+            Aviso "sem admin. Ela e a pasta Inicializar vao subir DUAS instancias."
+            Aviso "Remova elevado:  schtasks /delete /tn sysmon /f"
+        }
+    }
+}
+
+# Tarefa das versoes ate a 2.1, que chamava outro script.
+Remover-Tarefa "traymon" | Out-Null
+
+# --------------------------------------------------------------- conferencia
+$temTarefa = [bool](Get-ScheduledTask -TaskName "sysmon" -ErrorAction SilentlyContinue)
+$temAtalho = Test-Path $inicializar
+if ($temTarefa -and $temAtalho) {
+    Aviso ""
+    Aviso "ATENCAO: os dois metodos estao ativos. Duas instancias vao tentar"
+    Aviso "subir no logon e uma vai morrer disputando a porta. Remova um:"
+    Aviso "  schtasks /delete /tn sysmon /f        (remove a tarefa)"
+    Aviso "  del `"$inicializar`"                  (remove o atalho)"
+} elseif (-not $temTarefa -and -not $temAtalho) {
+    Aviso "nenhum autostart ficou ativo - reveja as mensagens acima"
 }
 
 Write-Host ""

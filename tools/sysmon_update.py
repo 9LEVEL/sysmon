@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 
 REPO = "9LEVEL/sysmon"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"

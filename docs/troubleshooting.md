@@ -223,10 +223,31 @@ gera tentativa a cada 5s indefinidamente.
 
 ## Windows
 
+### Duas instâncias subindo no logon
+
+Acontece se o Agendador de Tarefas **e** a pasta Inicializar ficarem os dois
+registrados — resquício de instalação anterior. A segunda instância encontra a
+porta 9110 ocupada e, desde a 2.4.2, pede para a primeira aparecer e sai limpa;
+antes disso ela morria em silêncio sob `pythonw`.
+
+Conferir e limpar:
+
+```powershell
+Get-ScheduledTask -TaskName sysmon -ErrorAction SilentlyContinue   # tem tarefa?
+dir "$([Environment]::GetFolderPath('Startup'))\sysmon.lnk"        # tem atalho?
+
+schtasks /delete /tn sysmon /f                                     # remove a tarefa
+del "$([Environment]::GetFolderPath('Startup'))\sysmon.lnk"        # remove o atalho
+```
+
+Rodar o `instalar-autostart.ps1` de novo também resolve: ele deixa só um.
+
 ### `Register-ScheduledTask : Acesso negado` (HRESULT 0x80070005)
 
-Registrar tarefa na raiz da biblioteca do Agendador exige administrador. Por
-isso o instalador usa a **pasta Inicializar** por padrão, que não exige nada:
+Registrar tarefa na raiz da biblioteca do Agendador exige administrador. O
+instalador tenta o Agendador primeiro e cai sozinho na **pasta Inicializar**
+quando não há permissão — o aviso amarelo no meio da saída é isso, e não é
+erro. Para forçar um dos dois:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1

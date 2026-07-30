@@ -27,7 +27,7 @@ from sysmon_nucleo import (
     ErroConfig, Frota, achar_config, avisar_permissao, carregar_config, como_dict,
 )
 
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 
 # Lista fixa em vez de montar caminho com o que o cliente mandou: nenhuma
 # requisicao consegue sair deste conjunto, entao nao existe travessia de path.
@@ -61,6 +61,7 @@ class Handler(BaseHTTPRequestHandler):
     modo = "browser"      # "app" quando servindo a janela nativa
     atualizador = None    # sysmon_update.Atualizador, quando ha bundle
     reiniciar = None      # callable que fecha o app para o lancador trocar
+    mostrar = None        # callable que traz a janela para a frente
 
     def _responder(self, codigo: int, corpo: bytes, tipo: str) -> None:
         self.send_response(codigo)
@@ -100,6 +101,13 @@ class Handler(BaseHTTPRequestHandler):
             self.frota.atualizar_agora()
             return self._responder(200, b'{"ok":true}', "application/json")
 
+        if caminho == "/api/mostrar":
+            # Chamado por uma SEGUNDA instancia que encontrou a porta ocupada:
+            # em vez de morrer disputando, ela pede para esta aparecer e sai.
+            if self.mostrar:
+                threading.Thread(target=self.mostrar, daemon=True).start()
+            return self._responder(200, b'{"ok":true}', "application/json")
+
         if caminho == "/api/reiniciar":
             # A troca do .pyz e feita pelo lancador no proximo arranque: no
             # Windows nao da para sobrescrever com seguranca um arquivo que
@@ -126,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def servidor(frota: Frota, host: str = "127.0.0.1", porta: int = 9110,
              modo: str = "browser", atualizador=None,
-             reiniciar=None) -> ThreadingHTTPServer:
+             reiniciar=None, mostrar=None) -> ThreadingHTTPServer:
     """Cria o servidor ja ligado na porta. Quem chama decide quando servir.
 
     Separado do laco para o sysmon.py poder subir o dashboard e a janela no
@@ -137,6 +145,7 @@ def servidor(frota: Frota, host: str = "127.0.0.1", porta: int = 9110,
         "frota": frota, "modo": modo,
         "atualizador": atualizador,
         "reiniciar": staticmethod(reiniciar) if reiniciar else None,
+        "mostrar": staticmethod(mostrar) if mostrar else None,
     })
     srv = ThreadingHTTPServer((host, porta), classe)
     srv.daemon_threads = True

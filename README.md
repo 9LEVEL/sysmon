@@ -291,23 +291,30 @@ Autostart:
 powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
 ```
 
-**Não precisa de administrador.** Ele cria um atalho na pasta Inicializar e
-outro na área de trabalho. No login o sysmon sobe **minimizado na bandeja**,
-após 20s de espera (para a rede estabilizar) — a janela não pula na frente do
-que você está fazendo. Clique no ícone da bandeja, ou no atalho da área de
-trabalho, para abrir.
+Ele tenta o **Agendador de Tarefas** e, se não houver permissão de
+administrador, cai na **pasta Inicializar** — que não exige nada. Os dois
+funcionam; o Agendador dá a mais o reinício automático se o processo cair.
 
-Se preferir o Agendador de Tarefas (que reinicia o processo se ele cair), rode
-**como administrador** com `-Agendador`:
+Seja qual for o caminho, **o outro é removido**: se os dois ficassem ativos,
+duas instâncias subiriam no logon e uma morreria disputando a porta. O script
+avisa se detectar os dois.
+
+Para forçar um deles:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1 -Agendador
+... -Agendador      # exige admin; falha em vez de cair no outro
+... -Inicializar    # nem tenta o Agendador
 ```
 
-Registrar tarefa na raiz da biblioteca do Agendador exige elevação — é por isso
-que a pasta Inicializar é o padrão.
+No login o sysmon sobe **minimizado na bandeja**, após 20s de espera (para a
+rede estabilizar). Clique no ícone da bandeja, ou no atalho da área de
+trabalho, para abrir.
 
-Remover: `desinstalar-autostart.ps1`.
+Abrir uma segunda vez com o sysmon já rodando **traz a janela existente para a
+frente** em vez de tentar subir de novo — vale para o duplo clique no atalho e
+para autostart duplicado.
+
+Remover: `desinstalar-autostart.ps1` (limpa os dois caminhos).
 
 ## Configuração dos clientes
 

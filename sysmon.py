@@ -51,7 +51,7 @@ from sysmon_nucleo import (  # noqa: E402
     ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 
 PORTA_PADRAO = 9110
 
@@ -187,12 +187,19 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
             import sysmon_web
             servidor = sysmon_web.servidor(
                 frota, *endereco, modo=modo, atualizador=atualizador,
-                reiniciar=(lambda: _reiniciar(app)) if app else None)
-        except OSError as e:
-            print(f"erro: nao consegui escutar em {endereco[0]}:{endereco[1]}: {e}",
+                reiniciar=(lambda: _reiniciar(app)) if app else None,
+                mostrar=(lambda: app.mostrar()) if app else None)
+        except OSError:
+            # Porta ocupada quase sempre significa "ja esta rodando" - o caso
+            # do duplo clique no atalho, ou de autostart duplicado. Em vez de
+            # morrer em silencio sob pythonw, pede para a instancia existente
+            # aparecer e sai limpo.
+            if _pedir_para_aparecer(url):
+                print("sysmon ja esta rodando; trouxe a janela para a frente.")
+                return 0
+            print(f"erro: a porta {endereco[1]} esta ocupada por outro programa.",
                   file=sys.stderr)
-            print("Ja ha um sysmon rodando? Use --porta para escolher outra.",
-                  file=sys.stderr)
+            print("Use --porta para escolher outra.", file=sys.stderr)
             return 1
 
     frota.iniciar()
@@ -233,6 +240,16 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
     finally:
         encerrar()
     return 0
+
+
+def _pedir_para_aparecer(url: str) -> bool:
+    """Confirma que quem ocupa a porta e um sysmon, e pede a janela dele."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url + "api/mostrar", timeout=2) as r:
+            return r.status == 200
+    except Exception:  # noqa: BLE001 - nao e um sysmon, ou nao respondeu
+        return False
 
 
 def _reiniciar(app) -> None:
