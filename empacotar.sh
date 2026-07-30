@@ -129,8 +129,8 @@ mkdir -p "$PASTA"
 
 # O pacote de clientes agora e so o .pyz + o que ajuda a instalar.
 install -m 755 "$DIST/sysmon.pyz" "$PASTA/"
-for f in config.example.json requirements.txt sysmon.vbs \
-         instalar-autostart.ps1 desinstalar-autostart.ps1; do
+for f in config.example.json requirements.txt sysmon.vbs sysmon.bat \
+         instalar-autostart.ps1 desinstalar-autostart.ps1 limpar.ps1; do
     install -m 644 "$AQUI/windows-tray/$f" "$PASTA/"
 done
 rmdir "$PASTA/tools" "$PASTA/windows-tray" 2>/dev/null || true
@@ -142,20 +142,29 @@ sysmon - clientes $VERSAO
 Vai para a maquina de onde voce OLHA os hosts. Sao dois arquivos: o sysmon.pyz
 e o seu config.json. Precisa de Python 3.9 ou mais novo, e nada alem disso.
 
-1) Config: copie config.example.json para config.json e liste seus hosts com
-   url e token (o install.sh de cada host imprimiu os dois). Se voce usou o
-   deploy.sh, ele ja gerou esse arquivo pronto.
+1) Duplo clique em sysmon.bat
 
-2) Rode:
+   Ele abre com console, entao qualquer erro aparece na tela. Na primeira vez
+   a interface abre na TELA DE CONFIGURACAO: preencha apelido, url e token de
+   cada host, clique em Testar e salve. Nao precisa editar arquivo nenhum.
 
-    python sysmon.pyz
+   A url e o token sao os que o install.sh imprimiu em cada host monitorado.
+   Se voce usou o deploy.sh, ele ja gerou um hosts.json com tudo - basta
+   renomear para config.json e deixar aqui.
 
-Isso sobe o dashboard web e abre o browser. No Windows, se pystray e Pillow
-estiverem instalados, o icone de bandeja sobe junto no mesmo processo.
+2) Funcionando, registre o inicio automatico:
+
+    powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
+
+   A partir dai use o atalho da area de trabalho, sem console.
+
+Deu errado alguma tentativa anterior? Limpe tudo e recomece:
+
+    powershell -ExecutionPolicy Bypass -File limpar.ps1
 
 Outros modos:
 
-    python sysmon.pyz web           # so o dashboard
+    python sysmon.pyz web           # so serve a pagina, nao abre janela
     python sysmon.pyz term          # tabela no terminal
     python sysmon.pyz term --once   # imprime uma vez e sai (script/cron)
     python sysmon.pyz tray          # so a bandeja

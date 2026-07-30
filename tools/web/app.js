@@ -382,7 +382,9 @@ async function buscar() {
     const r = await fetch('/api/frota', { cache: 'no-store' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const frota = await r.json();
+    if (configAberta) return;          // nao redesenha por cima do formulario
     render(frota);
+    talvezAbrirConfig(frota);
     mostrarAtualizacao(frota.update);
     if (frota.modo === 'app') mostrarControlesDeJanela();
   } catch (e) {
@@ -472,5 +474,158 @@ function mostrarAtualizacao(u) {
   });
 }
 
+
+/* ==========================================================================
+ * Tela de configuração
+ *
+ * Aparece sozinha quando não há host configurado. Antes disso o programa nem
+ * subia — e sob pythonw o motivo era invisível, o que fazia parecer que "não
+ * funciona" quando na verdade faltava o config.json.
+ * ====================================================================== */
+const painelConfig = document.getElementById('config');
+const listaHosts = document.getElementById('lista-hosts');
+const recado = document.getElementById('config-recado');
+let configAberta = false;
+let primeiraVez = true;
+
+function campo(valor, marcador, tipo = 'text') {
+  return el('input', { type: tipo, value: valor || '', placeholder: marcador,
+    spellcheck: 'false', autocapitalize: 'off', autocorrect: 'off' });
+}
+
+function linhaHost(h = {}) {
+  const nome = campo(h.nome, 'apelido (ex: pve)');
+  const url = campo(h.url, 'http://192.168.0.10:9109/metrics');
+  const token = campo('', h.tem_token ? '(token guardado — deixe vazio para manter)' : 'token do host');
+  const estado = el('div', { class: 'estado' });
+
+  const testar = el('button', { class: 'acao', type: 'button', text: 'Testar' });
+  const remover = el('button', { class: 'acao remover', type: 'button', text: 'Remover',
+    title: 'Remover este host' });
+
+  const linha = el('div', { class: 'host-form' }, [
+    nome, url,
+    el('span', {}, [testar, ' ', remover]),
+    el('div', { class: 'campo-largo' }, [token]),
+    estado,
+  ]);
+  linha._campos = { nome, url, token, temToken: !!h.tem_token };
+
+  remover.addEventListener('click', () => linha.remove());
+
+  // Testar antes de salvar troca "adivinhar" por "saber": errar um dígito no
+  // IP ou colar meio token dá exatamente o mesmo sintoma de host desligado.
+  testar.addEventListener('click', async () => {
+    estado.className = 'estado';
+    estado.textContent = 'testando...';
+    testar.disabled = true;
+    try {
+      const r = await fetch('/api/testar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url.value.trim(), token: token.value.trim() }),
+      });
+      const d = await r.json();
+      estado.className = `estado ${d.ok ? 'ok' : 'falha'}`;
+      estado.textContent = d.ok ? `respondeu: ${d.mensagem}` : `falhou: ${d.mensagem}`;
+    } catch (e) {
+      estado.className = 'estado falha';
+      estado.textContent = `falhou: ${e.message}`;
+    } finally {
+      testar.disabled = false;
+    }
+  });
+
+  return linha;
+}
+
+async function abrirConfig(forcado) {
+  const r = await fetch('/api/config', { cache: 'no-store' }).catch(() => null);
+  const d = r && r.ok ? await r.json() : { hosts: [], editavel: false };
+
+  listaHosts.replaceChildren(...(d.hosts.length ? d.hosts.map(linhaHost) : [linhaHost()]));
+
+  const vazio = d.hosts.length === 0;
+  document.getElementById('config-titulo').textContent =
+    vazio ? 'Vamos configurar seus hosts' : 'Configurar hosts';
+  document.getElementById('config-ajuda').textContent = d.editavel
+    ? (vazio
+      ? 'Cada host Linux monitorado tem uma URL e um token próprios, que o instalador do agente imprimiu. Preencha, clique em Testar e salve.'
+      : `Salvo em ${d.arquivo}`)
+    : 'A configuração veio do ambiente e não pode ser editada por aqui.';
+
+  document.getElementById('config-salvar').disabled = !d.editavel;
+  document.getElementById('config-cancelar').hidden = vazio && !forcado;
+
+  painelConfig.hidden = false;
+  document.getElementById('frota').hidden = true;
+  document.getElementById('alertas').hidden = true;
+  configAberta = true;
+}
+
+function fecharConfig() {
+  painelConfig.hidden = true;
+  document.getElementById('frota').hidden = false;
+  configAberta = false;
+  recado.hidden = true;
+  buscar();
+}
+
+function mostrarRecado(texto, ok) {
+  recado.hidden = false;
+  recado.className = `recado ${ok ? 'ok' : 'falha'}`;
+  recado.textContent = texto;
+}
+
+document.getElementById('add-host').addEventListener('click', () => {
+  listaHosts.append(linhaHost());
+});
+document.getElementById('configurar').addEventListener('click', () => {
+  configAberta ? fecharConfig() : abrirConfig(true);
+});
+document.getElementById('config-cancelar').addEventListener('click', fecharConfig);
+
+document.getElementById('config-salvar').addEventListener('click', async () => {
+  const botao = document.getElementById('config-salvar');
+  const hosts = [];
+  for (const linha of listaHosts.children) {
+    const c = linha._campos;
+    const url = c.url.value.trim();
+    if (!url && !c.nome.value.trim()) continue;   // linha em branco: ignora
+    const h = { nome: c.nome.value.trim(), url };
+    const t = c.token.value.trim();
+    // Token vazio = manter o que já está salvo; o servidor resolve por nome.
+    if (t) h.token = t;
+    hosts.push(h);
+  }
+  if (!hosts.length) return mostrarRecado('Adicione pelo menos um host.', false);
+
+  botao.disabled = true;
+  try {
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hosts }),
+    });
+    const d = await r.json();
+    if (!r.ok) return mostrarRecado(d.erro || `erro ${r.status}`, false);
+    mostrarRecado(`Salvo: ${d.hosts} host(s). Buscando...`, true);
+    setTimeout(fecharConfig, 900);
+  } catch (e) {
+    mostrarRecado(`Não consegui salvar: ${e.message}`, false);
+  } finally {
+    botao.disabled = false;
+  }
+});
+
+// Frota vazia na primeira carga = ainda não configurado: abre a tela sozinha.
+function talvezAbrirConfig(frota) {
+  if (!primeiraVez || configAberta) return;
+  primeiraVez = false;
+  if (!frota.hosts || frota.hosts.length === 0) abrirConfig(false);
+}
+
+// Sobe por ultimo: buscar() toca em coisas declaradas acima com const/let, e
+// chamar antes deixaria elas na zona morta temporal.
 buscar();
 setInterval(buscar, 3000);

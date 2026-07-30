@@ -35,11 +35,56 @@
     <!-- Aparece só quando há versão nova já baixada e conferida. -->
     <button class="acao nova-versao" id="atualizacao" type="button" hidden></button>
 
+    <button class="acao" id="configurar" type="button" title="Configurar hosts">
+      Hosts
+    </button>
+
     <button class="acao" id="atualizar" type="button" title="Atualizar agora (Ctrl+R)">
       Atualizar
     </button>
   </div>
 </header>
+
+<!-- Tela de configuração. Aparece sozinha quando não há host configurado, e
+     pelo botão "Hosts" a qualquer momento. -->
+<section class="config" id="config" hidden>
+  <div class="caixa">
+    <h1 id="config-titulo">Configurar hosts</h1>
+    <p class="ajuda" id="config-ajuda"></p>
+
+    <div id="lista-hosts"></div>
+
+    <div class="linha-acoes">
+      <button class="acao" id="add-host" type="button">+ Adicionar host</button>
+      <span class="crescer"></span>
+      <button class="acao" id="config-cancelar" type="button" hidden>Cancelar</button>
+      <button class="acao primaria" id="config-salvar" type="button">Salvar</button>
+    </div>
+
+    <p class="recado" id="config-recado" hidden></p>
+
+    <details class="dica">
+      <summary>Onde encontro a URL e o token?</summary>
+      <p>
+        No host monitorado, o <code>install.sh</code> imprime os dois no final.
+        Para consultar depois, rode <strong>no host</strong>:
+      </p>
+      <pre>sudo sed -n 's/^SYSMON_TOKEN=//p' /etc/sysmon/token.env
+ss -lntp | grep 9109        # mostra o IP onde ele escuta</pre>
+      <p>
+        A URL é <code>http://&lt;IP_QUE_APARECEU&gt;:9109/metrics</code> — o mesmo
+        IP que você passou ao instalador. O agente escuta <em>só</em> nesse IP;
+        testar em <code>localhost</code> no host dá conexão recusada, e isso é
+        esperado.
+      </p>
+      <p>
+        Se você usou o <code>deploy.sh</code>, ele já gerou um
+        <code>hosts.json</code> com tudo preenchido — copie para junto do
+        <code>sysmon.pyz</code> com o nome <code>config.json</code>.
+      </p>
+    </details>
+  </div>
+</section>
 
 <section class="alertas" id="alertas" hidden>
   <ul id="lista-alertas"></ul>

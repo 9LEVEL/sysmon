@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-__version__ = "2.4.2"
+__version__ = "2.5.0"
 
 # ------------------------------------------------------------------ severidade
 OK, AVISO, CRITICO, OFFLINE = 0, 1, 2, 3
@@ -100,8 +100,16 @@ def carregar_config(caminho: Path) -> Config:
     esquecido de um teste antigo sequestraria a configuracao inteira sem deixar
     pista nenhuma de por que o cliente esta olhando para o host errado.
     """
-    bruto = _ler_arquivo(caminho)
+    return carregar_config_de(_ler_arquivo(caminho))
 
+
+def carregar_config_de(bruto: dict) -> Config:
+    """Valida um dicionario de configuracao ja lido.
+
+    Separado de carregar_config para a tela de configuracao poder validar o
+    que o usuario preencheu ANTES de gravar - salvar algo invalido deixaria o
+    programa sem subir no proximo arranque.
+    """
     entradas = bruto.get("hosts")
     if not entradas:
         # Formato v1: url e token soltos na raiz. Continua funcionando.
@@ -148,6 +156,46 @@ def carregar_config(caminho: Path) -> Config:
         timeout=float(bruto.get("timeout", 4)),
         extra=bruto,
     )
+
+
+def salvar_config(caminho: Path, cfg_bruto: dict) -> None:
+    """Grava o config.json, preservando as chaves que a tela nao edita.
+
+    Escreve num temporario e troca: uma queda no meio da gravacao nao pode
+    deixar o usuario sem configuracao nenhuma.
+    """
+    caminho = Path(caminho)
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    tmp = caminho.with_suffix(caminho.suffix + ".tmp")
+    tmp.write_text(json.dumps(cfg_bruto, indent=2, ensure_ascii=False) + "\n",
+                   encoding="utf-8")
+    os.replace(tmp, caminho)
+    if os.name == "posix":
+        # Contem os tokens de todos os hosts.
+        try:
+            caminho.chmod(0o600)
+        except OSError:
+            pass
+
+
+def testar_host(url: str, token: str, timeout: float = 4.0) -> tuple[bool, str]:
+    """Bate no agente e devolve (ok, mensagem) - usado pela tela de configuracao.
+
+    Sem isso, configurar e adivinhar: errar um digito no IP ou colar meio token
+    da exatamente o mesmo resultado visual de host desligado.
+    """
+    if not url.startswith(("http://", "https://")):
+        return False, "a url precisa comecar com http:// ou https://"
+    m = Monitor(Host("teste", url, token), intervalo=1, timeout=timeout)
+    m.buscar()
+    e = m.estado
+    if e.erro:
+        return False, e.erro
+    d = e.dados or {}
+    partes = [d.get("host") or "?"]
+    if (d.get("so") or {}).get("nome"):
+        partes.append(d["so"]["nome"])
+    return True, " · ".join(partes)
 
 
 def _ler_arquivo(caminho: Path) -> dict:
@@ -325,12 +373,31 @@ class Frota:
     def __init__(self, cfg: Config,
                  ao_mudar: Callable[[str, Estado], None] | None = None) -> None:
         self.cfg = cfg
+        self.ao_mudar = ao_mudar
         self.monitores = [Monitor(h, cfg.intervalo, cfg.timeout, ao_mudar)
                           for h in cfg.hosts]
+        self._rodando = False
 
     def iniciar(self) -> None:
+        self._rodando = True
         for m in self.monitores:
             m.iniciar()
+
+    def trocar(self, cfg: Config) -> None:
+        """Substitui a configuracao sem reiniciar o programa.
+
+        E o que permite salvar a configuracao pela tela e ver o resultado na
+        hora, em vez de pedir para fechar e abrir.
+        """
+        antigos = self.monitores
+        self.cfg = cfg
+        self.monitores = [Monitor(h, cfg.intervalo, cfg.timeout, self.ao_mudar)
+                          for h in cfg.hosts]
+        if self._rodando:
+            for m in self.monitores:
+                m.iniciar()
+        for m in antigos:
+            m.parar()
 
     def parar(self) -> None:
         for m in self.monitores:

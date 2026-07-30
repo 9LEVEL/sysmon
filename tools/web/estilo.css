@@ -36,6 +36,11 @@
 
 * { box-sizing: border-box; }
 
+/* [hidden] do navegador e so `display:none` sem !important, entao qualquer
+   regra nossa com display (grid, inline-flex...) o vence pela especificidade.
+   Sem isto, botao escondido aparece. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--plano);
@@ -399,4 +404,119 @@ footer {
 
 @media (prefers-reduced-motion: reduce) {
   .preenche { transition: none; }
+}
+
+/* ---------------------------------------------------------------- config
+ * Tela de configuracao. Aparece sozinha quando nao ha host - antes disso o
+ * programa simplesmente nao subia, e sob pythonw o motivo era invisivel.
+ */
+.config {
+  padding: 32px 24px;
+  display: flex;
+  justify-content: center;
+}
+.config .caixa {
+  width: 100%;
+  max-width: 720px;
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 24px 26px 22px;
+}
+.config h1 {
+  margin: 0 0 6px;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.config .ajuda { margin: 0 0 20px; color: var(--tinta-2); font-size: 13px; }
+
+.host-form {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--grade);
+}
+.host-form:first-child { border-top: none; }
+.host-form .campo-largo { grid-column: 1 / -1; }
+.host-form .estado {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--tinta-3);
+  min-height: 16px;
+}
+.host-form .estado.ok    { color: var(--ok); }
+.host-form .estado.falha { color: var(--critico); }
+
+.config input {
+  background: var(--plano);
+  border: 1px solid var(--borda);
+  border-radius: 7px;
+  color: var(--tinta);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  min-width: 0;
+}
+.config input:focus {
+  outline: none;
+  border-color: var(--serie-1);
+}
+.config input::placeholder { color: var(--tinta-3); }
+
+.linha-acoes {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--grade);
+}
+.crescer { flex: 1; }
+
+button.acao.primaria {
+  background: color-mix(in srgb, var(--serie-1) 30%, var(--superficie-2));
+  border-color: color-mix(in srgb, var(--serie-1) 65%, transparent);
+  color: #eaf3ff;
+  font-weight: 600;
+}
+button.acao.primaria:hover { background: color-mix(in srgb, var(--serie-1) 42%, var(--superficie-2)); }
+button.acao.remover:hover { color: var(--critico); border-color: var(--critico); }
+
+.recado {
+  margin: 14px 0 0;
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--borda);
+  background: var(--superficie-2);
+}
+.recado.ok    { border-color: color-mix(in srgb, var(--ok) 50%, transparent); color: #b8e6b8; }
+.recado.falha { border-color: color-mix(in srgb, var(--critico) 50%, transparent); color: #f0b8b8; }
+
+.dica {
+  margin-top: 20px;
+  font-size: 12.5px;
+  color: var(--tinta-2);
+  border-top: 1px solid var(--grade);
+  padding-top: 14px;
+}
+.dica summary { cursor: pointer; color: var(--tinta-3); }
+.dica summary:hover { color: var(--tinta); }
+.dica p { margin: 10px 0; }
+.dica code { color: var(--tinta); background: var(--plano); padding: 1px 5px; border-radius: 4px; }
+.dica pre {
+  background: var(--plano);
+  border: 1px solid var(--borda);
+  border-radius: 7px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 12px;
+  color: var(--tinta-2);
+}
+
+@media (max-width: 560px) {
+  .host-form { grid-template-columns: 1fr; }
 }

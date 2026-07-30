@@ -48,10 +48,10 @@ else:
     sys.path.insert(0, str(_AQUI))
 
 from sysmon_nucleo import (  # noqa: E402
-    ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
+    Config, ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "2.4.2"
+__version__ = "2.5.0"
 
 PORTA_PADRAO = 9110
 
@@ -136,8 +136,18 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
     try:
         cfg = carregar_config(caminho)
     except ErroConfig as e:
-        print(f"erro: {e}", file=sys.stderr)
-        return 2
+        # Sem configuracao valida NAO morremos: subimos com a frota vazia e a
+        # interface abre na tela de configuracao. Morrer aqui era o pior caso
+        # possivel - sob pythonw a mensagem ia para lugar nenhum e o usuario
+        # via apenas uma janela que nao abria.
+        if web:
+            print(f"sem configuracao ainda ({e.args[0].splitlines()[0]})",
+                  file=sys.stderr)
+            print("abrindo a tela de configuracao...", file=sys.stderr)
+            cfg = Config(hosts=[])
+        else:
+            print(f"erro: {e}", file=sys.stderr)
+            return 2
     if aviso := avisar_permissao(caminho):
         print(f"aviso: {aviso}", file=sys.stderr)
 
@@ -188,7 +198,8 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
             servidor = sysmon_web.servidor(
                 frota, *endereco, modo=modo, atualizador=atualizador,
                 reiniciar=(lambda: _reiniciar(app)) if app else None,
-                mostrar=(lambda: app.mostrar()) if app else None)
+                mostrar=(lambda: app.mostrar()) if app else None,
+                caminho_config=caminho)
         except OSError:
             # Porta ocupada quase sempre significa "ja esta rodando" - o caso
             # do duplo clique no atalho, ou de autostart duplicado. Em vez de

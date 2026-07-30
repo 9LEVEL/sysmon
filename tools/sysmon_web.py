@@ -24,10 +24,11 @@ from importlib.resources import files
 from pathlib import Path
 
 from sysmon_nucleo import (
-    ErroConfig, Frota, achar_config, avisar_permissao, carregar_config, como_dict,
+    ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
+    carregar_config_de, como_dict, salvar_config, testar_host,
 )
 
-__version__ = "2.4.2"
+__version__ = "2.5.0"
 
 # Lista fixa em vez de montar caminho com o que o cliente mandou: nenhuma
 # requisicao consegue sair deste conjunto, entao nao existe travessia de path.
@@ -62,6 +63,7 @@ class Handler(BaseHTTPRequestHandler):
     atualizador = None    # sysmon_update.Atualizador, quando ha bundle
     reiniciar = None      # callable que fecha o app para o lancador trocar
     mostrar = None        # callable que traz a janela para a frente
+    caminho_config = None # Path do config.json, para a tela de configuracao
 
     def _responder(self, codigo: int, corpo: bytes, tipo: str) -> None:
         self.send_response(codigo)
@@ -84,8 +86,113 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(corpo)
 
+    # ---------------------------------------------------------------- POST
+    def _corpo_json(self) -> dict | None:
+        """Le e valida um corpo JSON de requisicao local.
+
+        Exigir Content-Type application/json e recusar Origin de fora e o que
+        impede uma pagina qualquer da internet de escrever no seu config: um
+        POST cross-origin com esse content-type dispara preflight, e nos nao
+        respondemos OPTIONS com CORS permissivo.
+        """
+        origem = self.headers.get("Origin")
+        if origem and origem not in (f"http://{self.headers.get('Host')}",
+                                     f"https://{self.headers.get('Host')}"):
+            return None
+        if "application/json" not in (self.headers.get("Content-Type") or ""):
+            return None
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None
+        if n <= 0 or n > 1 << 20:
+            return None
+        try:
+            dados = json.loads(self.rfile.read(n).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        return dados if isinstance(dados, dict) else None
+
+    def do_POST(self) -> None:  # noqa: N802
+        caminho = self.path.split("?", 1)[0]
+        if caminho not in ("/api/config", "/api/testar"):
+            return self._responder(404, b"nao encontrado", "text/plain; charset=utf-8")
+
+        dados = self._corpo_json()
+        if dados is None:
+            return self.escreverJSON(400, {"erro": "requisicao invalida"})
+
+        if caminho == "/api/testar":
+            ok, msg = testar_host(str(dados.get("url") or ""),
+                                  str(dados.get("token") or ""))
+            return self.escreverJSON(200, {"ok": ok, "mensagem": msg})
+
+        return self._salvar_config(dados)
+
+    def escreverJSON(self, codigo: int, v) -> None:  # noqa: N802
+        self._responder(codigo, json.dumps(v, ensure_ascii=False).encode(),
+                        "application/json; charset=utf-8")
+
+    def _salvar_config(self, dados: dict) -> None:
+        if not self.caminho_config:
+            return self.escreverJSON(409, {"erro": "sem arquivo de configuracao"})
+
+        # Preserva o que a tela nao edita (opacidade, porta_web, etc).
+        try:
+            bruto = json.loads(Path(self.caminho_config).read_text(encoding="utf-8"))
+            if not isinstance(bruto, dict):
+                bruto = {}
+        except (OSError, json.JSONDecodeError):
+            bruto = {}
+
+        bruto.pop("url", None)    # formato v1 daria conflito com hosts[]
+        bruto.pop("token", None)
+
+        # Campo de token em branco significa "mantem o que ja estava", nao
+        # "apaga": a tela nunca exibe o token de volta, entao exigir redigitar
+        # a cada edicao seria pedir para o usuario perder o acesso.
+        atuais = {h.nome: h.token for h in self.frota.cfg.hosts}
+        novos = []
+        for h in dados.get("hosts") or []:
+            if not isinstance(h, dict):
+                continue
+            h = {k: v for k, v in h.items() if k in ("nome", "url", "token")}
+            if not h.get("token") and h.get("nome") in atuais:
+                h["token"] = atuais[h["nome"]]
+            novos.append(h)
+        bruto["hosts"] = novos
+        for chave in ("intervalo", "timeout"):
+            if chave in dados:
+                bruto[chave] = dados[chave]
+
+        try:
+            cfg = carregar_config_de(bruto)
+        except ErroConfig as e:
+            return self.escreverJSON(400, {"erro": str(e)})
+
+        try:
+            salvar_config(Path(self.caminho_config), bruto)
+        except OSError as e:
+            return self.escreverJSON(500, {"erro": f"nao consegui gravar: {e}"})
+
+        self.frota.trocar(cfg)
+        return self.escreverJSON(200, {"ok": True, "hosts": len(cfg.hosts)})
+
     def do_GET(self) -> None:  # noqa: N802
         caminho = self.path.split("?", 1)[0]
+
+        if caminho == "/api/config":
+            # Devolve a configuracao SEM os tokens: a tela mostra se ha token
+            # guardado, mas nao precisa exibi-lo de volta.
+            hosts = [{"nome": h.nome, "url": h.url, "tem_token": bool(h.token)}
+                     for h in self.frota.cfg.hosts]
+            return self.escreverJSON(200, {
+                "hosts": hosts,
+                "intervalo": self.frota.cfg.intervalo,
+                "timeout": self.frota.cfg.timeout,
+                "arquivo": str(self.caminho_config or ""),
+                "editavel": bool(self.caminho_config),
+            })
 
         if caminho == "/api/frota":
             # O modo vai no payload para a pagina saber se ha janela nativa em
@@ -134,7 +241,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def servidor(frota: Frota, host: str = "127.0.0.1", porta: int = 9110,
              modo: str = "browser", atualizador=None,
-             reiniciar=None, mostrar=None) -> ThreadingHTTPServer:
+             reiniciar=None, mostrar=None,
+             caminho_config=None) -> ThreadingHTTPServer:
     """Cria o servidor ja ligado na porta. Quem chama decide quando servir.
 
     Separado do laco para o sysmon.py poder subir o dashboard e a janela no
@@ -146,6 +254,7 @@ def servidor(frota: Frota, host: str = "127.0.0.1", porta: int = 9110,
         "atualizador": atualizador,
         "reiniciar": staticmethod(reiniciar) if reiniciar else None,
         "mostrar": staticmethod(mostrar) if mostrar else None,
+        "caminho_config": caminho_config,
     })
     srv = ThreadingHTTPServer((host, porta), classe)
     srv.daemon_threads = True

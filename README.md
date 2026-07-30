@@ -158,12 +158,30 @@ python3 sysmon.py term --config config.json --once
 
 ## Os clientes
 
-Tudo roda a partir de **um arquivo**. Baixe o `sysmon.pyz` do release, ponha o
-`config.json` ao lado, e:
+O dashboard roda **na sua máquina**, não num servidor. Ele serve a página em
+`127.0.0.1:9110` e é ele quem busca os dados nos agentes remotos — `localhost`
+aqui é o próprio processo local, e é o esperado:
 
-```bash
-python sysmon.pyz
 ```
+ host monitorado                sua máquina
+┌──────────────────┐          ┌────────────────────────────┐
+│  sysmon-agent    │◄─────────┤  sysmon.pyz                │
+│  porta 9109      │  busca   │  serve em 127.0.0.1:9110   │
+└──────────────────┘          │        ▲                   │
+                              │   a janela lê daqui        │
+                              └────────────────────────────┘
+```
+
+Tudo roda a partir de **um arquivo**. Baixe o `sysmon.pyz` do release, ponha-o
+numa pasta, e:
+
+**Windows:** duplo clique em `sysmon.bat` (abre com console, então qualquer
+erro aparece). **Linux:** `python3 sysmon.pyz`.
+
+Na primeira vez a interface abre na **tela de configuração** — preencha
+apelido, URL e token de cada host, clique em **Testar** e salve. Não precisa
+editar arquivo nenhum. Depois, o botão **Hosts** no cabeçalho reabre essa tela
+a qualquer momento.
 
 Isso abre uma **janela do sistema** com o dashboard dentro — sem barra de
 endereço, sem aba de browser — e o ícone de bandeja junto, no mesmo processo.
