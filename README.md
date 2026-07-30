@@ -36,6 +36,7 @@ comando externo e roda sem root. Os clientes são Python stdlib puro.
 | `tools/sysmon_nucleo.py` | clientes | config, polling e regras de alerta (compartilhado) |
 | `tools/sysmon_web.py` + `tools/web/` | sua máquina | dashboard no browser (gauges, discos, SMART) |
 | `tools/sysmon_dash.py` | sua máquina | dashboard de N hosts no terminal |
+| `tools/sysmon_win.py` | sua máquina | **janela nativa (Tkinter), o padrão** |
 | `tools/sysmon_tray.py` | Windows | ícone de bandeja + overlay multi-host |
 | `tools/sysmon_local.py` | um host | leitor local de sensores, sem rede nem token |
 | `windows-tray/instalar-autostart.ps1` | Windows | registra no Agendador de Tarefas |
@@ -204,7 +205,7 @@ Atualizar é substituir o `sysmon.pyz`. O `config.json` fica.
 |---|---|
 | `python sysmon.pyz` | janela nativa + bandeja (padrão) |
 | `python sysmon.pyz --oculto` | sobe minimizado na bandeja (autostart) |
-| `python sysmon.pyz --browser` | força o browser em vez da janela |
+| `python sysmon.pyz --web` | o dashboard web, mais rico |
 | `python sysmon.pyz web` | só serve a página, não abre nada |
 | `python sysmon.pyz term` | tabela no terminal, atualiza sozinha |
 | `python sysmon.pyz term --once` | imprime uma vez e sai (script/cron) |
@@ -241,33 +242,36 @@ inativo — ali quem atualiza é o `git`.
 
 ### A janela
 
-Gauges de temperatura, CPU e RAM por host, cada disco físico com modelo,
-temperatura, taxa de I/O e vida consumida do SMART, filesystems, thin pool,
-rede e RAID.
-
-Sem framework e sem CDN: HTML, CSS e SVG puros. A janela usa o motor web que o
-sistema já tem — **WebView2** no Windows (vem com o Edge), **WebKitGTK** no
-Linux. Nada de Chromium embutido.
-
-**Sempre no topo**: o botão **Fixar** no cabeçalho mantém a janela sobre todas
-as outras, e o estado sobrevive ao fechar. Isso é propriedade da janela do
-sistema — nenhuma página web consegue fazer isso sozinha, e é a razão de
-existir a janela nativa em vez de uma aba.
-
-A posição e o tamanho ficam em `%APPDATA%\sysmon\janela.json` (ou
-`~/.config/sysmon/janela.json`) — **fora** do seu `config.json`, que o programa
-nunca reescreve.
-
-Sem `pywebview` instalado, cai no browser e diz o motivo:
+Uma janela nativa no estilo do **Open Hardware Monitor**: árvore de sensores
+por host, com Uso, Temperaturas, Ventoinhas, Discos, Armazenamento e Rede.
+Valores em vermelho e âmbar conforme a severidade, alertas na faixa de baixo.
 
 ```
-pip install pywebview
+┌ sysmon ─────────────────────────────────────────────────────────┐
+│ ☐ Sempre no topo   3 hosts · 1 offline    [Dashboard][Atualizar]│
+├─────────────────────────────────────────────────────────────────┤
+│ Sensor                       Valor   Limite / detalhe           │
+│ ▾ pve-lab                      78C   Proxmox VE 8.2             │
+│   ▾ Uso                                                         │
+│       CPU                      71%   16 núcleos · Ryzen 9 5950X │
+│       Memória                  85%   54G de 64G                 │
+│   ▾ Discos                                                      │
+│       nvme0n1                  63C   Samsung 990 PRO · 7% usada │
+│       sda                      39C   ST8000VN004 · SMART REPROVOU│
+├─────────────────────────────────────────────────────────────────┤
+│ ! pve-lab: CPU em 78C                                           │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Os tokens não chegam ao browser.** O polling acontece no processo local e a
-página recebe apenas telemetria. Por isso ele escuta só em `127.0.0.1`: a
-página não tem autenticação, então expor na rede entregaria a telemetria da
-frota inteira. Para mudar mesmo assim, `--host 0.0.0.0` (com aviso no terminal).
+**Não depende de nada.** É Tkinter, que vem junto com o Python do python.org —
+sem `pip`, sem WebView2, sem motor de navegador. "Sempre no topo" é a caixinha
+no canto.
+
+O botão **Hosts...** abre a configuração ali mesmo: apelido, URL, token e um
+botão **Testar** que bate no agente na hora.
+
+O botão **Dashboard** abre a versão web, com gauges e gráficos, para quando
+você quiser olhar com mais calma.
 
 ### Dashboard no terminal
 

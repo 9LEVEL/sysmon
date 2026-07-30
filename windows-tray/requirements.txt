@@ -1,12 +1,9 @@
-# Camadas opcionais. O dashboard funciona sem nenhuma delas - o que muda e a
-# moldura em volta:
+# NENHUM destes e obrigatorio. A janela principal usa Tkinter, que ja vem
+# com o Python do python.org.
 #
-#   sem nada          -> abre no browser
-#   com pywebview     -> janela do sistema, sem barra de endereco,
-#                        com "sempre no topo"
-#   com pystray+PIL   -> icone de bandeja junto, com notificacao
+#   pystray + pillow   icone de bandeja (recomendado)
+#   pywebview          janela para o dashboard web, com `sysmon.pyz --web`
 #
-# Instale as duas linhas para a experiencia completa:
-pywebview>=5.0
 pystray>=0.19.5
 pillow>=10.0.0
+pywebview>=5.0

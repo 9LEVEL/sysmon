@@ -1,7 +1,6 @@
 @echo off
 REM Inicia o sysmon COM console: tudo que der errado aparece na tela.
-REM Duplo clique aqui. Para o dia a dia sem janela preta, use o atalho da
-REM area de trabalho.
+REM Duplo clique aqui. Para o dia a dia sem janela preta, use o atalho.
 setlocal
 cd /d "%~dp0"
 
@@ -21,29 +20,25 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM O app de verdade e janela + bandeja. Sem estes pacotes o sysmon ainda
-REM funciona, mas cai no browser - que nao e o que se quer aqui.
-python -c "import webview, pystray, PIL" >nul 2>&1
+REM A janela nao precisa de nada: Tkinter vem com o Python. Estes dois sao so
+REM para o icone de bandeja, e sao opcionais.
+python -c "import tkinter" >nul 2>&1
 if errorlevel 1 (
     echo.
-    echo   Faltam os componentes da janela e da bandeja.
-    echo   Sem eles o sysmon abre no navegador em vez de virar um app.
+    echo   Este Python veio sem Tkinter - provavelmente e o da Microsoft Store.
+    echo   Instale o oficial de https://python.org
     echo.
-    set /p RESP="   Instalar agora? [S/n] "
-    if /i "%RESP%"=="n" goto :rodar
-    echo.
-    python -m pip install --disable-pip-version-check pywebview pystray pillow
-    echo.
-    python -c "import webview, pystray, PIL" >nul 2>&1
-    if errorlevel 1 (
-        echo   A instalacao nao completou. O sysmon vai abrir no navegador.
-        echo   Tente manualmente:  python -m pip install pywebview pystray pillow
-        echo.
-        pause
-    )
+    pause
+    exit /b 1
 )
 
-:rodar
+python -c "import pystray, PIL" >nul 2>&1
+if errorlevel 1 (
+    echo   Instalando o icone de bandeja (opcional, uma vez so)...
+    python -m pip install --disable-pip-version-check --quiet pystray pillow
+    echo.
+)
+
 python "sysmon.pyz" %*
 
 echo.

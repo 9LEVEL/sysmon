@@ -50,19 +50,26 @@ if (-not $python) {
     exit 1
 }
 
-# Sem estes pacotes o autostart subiria no navegador todo dia, em vez do app.
-Write-Host "==> Componentes do app" -ForegroundColor Cyan
-& $python.Source -c "import webview, pystray, PIL" 2>$null
+# A janela nao precisa de pacote nenhum: Tkinter vem com o Python. So o icone
+# de bandeja precisa, e ele e opcional.
+Write-Host "==> Componentes" -ForegroundColor Cyan
+& $python.Source -c "import tkinter" 2>$null
 if ($LASTEXITCODE -ne 0) {
-    Aviso "faltam pywebview / pystray / pillow - sem eles abre no navegador"
-    Write-Host "    instalando..." -ForegroundColor Cyan
-    & $python.Source -m pip install --disable-pip-version-check pywebview pystray pillow
-    & $python.Source -c "import webview, pystray, PIL" 2>$null
+    Erro "    este Python veio sem Tkinter - provavelmente o da Microsoft Store."
+    Erro "    Instale o oficial de https://python.org"
+    exit 1
+}
+Ok "Tkinter presente (a janela nao depende de mais nada)"
+
+& $python.Source -c "import pystray, PIL" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "    instalando o icone de bandeja (opcional)..." -ForegroundColor Cyan
+    & $python.Source -m pip install --disable-pip-version-check --quiet pystray pillow
+    & $python.Source -c "import pystray, PIL" 2>$null
     if ($LASTEXITCODE -ne 0) {
-        Aviso "nao consegui instalar; o sysmon vai abrir no navegador"
-        Aviso "tente manualmente: python -m pip install pywebview pystray pillow"
-    } else { Ok "instalados" }
-} else { Ok "janela e bandeja disponiveis" }
+        Aviso "sem icone de bandeja; a janela funciona igual"
+    } else { Ok "icone de bandeja instalado" }
+} else { Ok "icone de bandeja disponivel" }
 
 # Teste rapido antes de registrar: falhar aqui e melhor que falhar no boot.
 # Em modo --browser --nao-abrir para nao piscar janela na tela; o que se quer

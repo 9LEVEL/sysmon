@@ -2,26 +2,25 @@
 """
 sysmon - ponto de entrada unico dos clientes.
 
-    python3 sysmon.py                 # JANELA NATIVA do dashboard (padrao)
+    python3 sysmon.py                 # JANELA NATIVA (Tkinter, estilo OHM)
     python3 sysmon.py --oculto        # sobe minimizado na bandeja (autostart)
-    python3 sysmon.py --browser       # forcar o browser em vez da janela
+    python3 sysmon.py --web           # o dashboard web, mais rico
     python3 sysmon.py web             # so serve a pagina, sem abrir nada
     python3 sysmon.py term            # tabela no terminal
     python3 sysmon.py term --once     # imprime uma vez e sai (para script/cron)
     python3 sysmon.py tray            # so a bandeja, com o overlay antigo
     python3 sysmon.py local           # sensores DESTA maquina, sem rede
 
-Sem subcomando abre uma JANELA do sistema - sem barra de endereco e sem aba de
-browser - com o dashboard dentro, e o icone de bandeja junto no mesmo processo.
-Um autostart, um processo.
+Sem subcomando abre uma janela nativa em Tkinter, no estilo do Open Hardware
+Monitor: arvore de sensores por host, "sempre no topo" numa caixinha, e o
+icone de bandeja junto no mesmo processo. Tkinter vem com o Python, entao esse
+caminho nao depende de pip nem de componente do sistema.
 
 Camadas opcionais, todas degradando com aviso em vez de impedir o programa de
 subir:
 
-    pywebview        janela nativa e "sempre no topo"; sem ele, cai no browser
     pystray, Pillow  icone de bandeja; sem eles, so a janela
-
-O dashboard em si nao precisa de nada alem da stdlib.
+    pywebview        janela para o dashboard web (--web); sem ele, navegador
 
 Distribuicao: `make bundle` empacota isto num unico sysmon.pyz, que roda com
 `python sysmon.pyz` sem instalar nada.
@@ -51,7 +50,7 @@ from sysmon_nucleo import (  # noqa: E402
     Config, ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "2.7.0"
+__version__ = "3.0.0"
 
 PORTA_PADRAO = 9110
 
@@ -73,8 +72,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="IP de bind do dashboard (padrao 127.0.0.1; nao tem senha)")
     p.add_argument("--nao-abrir", action="store_true",
                    help="no modo browser, nao abrir a aba automaticamente")
+    p.add_argument("--web", action="store_true",
+                   help="usar o dashboard web (janela do webview ou navegador)")
     p.add_argument("--browser", action="store_true",
-                   help="forcar o browser em vez da janela nativa")
+                   help="com --web, forcar o navegador em vez do webview")
     p.add_argument("--oculto", action="store_true",
                    help="abrir minimizado na bandeja (usado pelo autostart)")
     p.add_argument("--nao-oculto", action="store_true",
@@ -87,11 +88,13 @@ def main(argv: list[str] | None = None) -> int:
 
     sub = p.add_subparsers(dest="cmd")
 
-    web = sub.add_parser("web", help="so o dashboard web")
+    web = sub.add_parser("web", help="so serve a pagina, nao abre janela")
     _comuns(web)
     web.add_argument("--porta", type=int, default=PORTA_PADRAO)
     web.add_argument("--host", default="127.0.0.1")
     web.add_argument("--nao-abrir", action="store_true")
+    web.add_argument("--web", action="store_true", default=True,
+                     help=argparse.SUPPRESS)
     web.add_argument("--browser", action="store_true", default=True,
                      help=argparse.SUPPRESS)
 
@@ -159,9 +162,24 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
 
     # Decide a interface ANTES de abrir a porta, porque o modo vai no payload
     # que a pagina consome para saber se mostra os controles de janela.
+    # A janela padrao e a nativa em Tkinter: vem com o Python, nao depende de
+    # pip nem de motor de navegador do sistema. O dashboard web continua
+    # disponivel em --web, e e mais rico, mas depende de coisas que faltam em
+    # maquina real com frequencia demais para ser o padrao.
+    nativa = None
     app = None
-    if janela and not getattr(args, "browser", False):
-        app = _abrir_janela(args)
+    if janela:
+        if getattr(args, "web", False):
+            app = _abrir_janela(args)
+        else:
+            try:
+                import sysmon_win
+                nativa = sysmon_win
+            except ImportError as e:
+                print(f"Tkinter indisponivel ({e}); usando o dashboard web.",
+                      file=sys.stderr)
+                print("  No Debian/Ubuntu: apt install python3-tk", file=sys.stderr)
+                app = _abrir_janela(args)
 
     frota = Frota(cfg)
     modo = "app" if app else "browser"
@@ -218,6 +236,8 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
     print(f"sysmon {__version__}   {len(cfg.hosts)} host(s)   {url}")
 
     try:
+        if nativa:
+            return _rodar_nativa(nativa, frota, caminho, cfg, url, args)
         if app:
             com_bandeja = _bandeja_junto(frota, cfg, app)
             oculto = bool(getattr(args, "oculto", False)) and \
@@ -366,6 +386,38 @@ def _reiniciar(app) -> None:
     except Exception:  # noqa: BLE001 - fechar mesmo assim e melhor que travar
         pass
     app.fechar()
+
+
+def _rodar_nativa(nativa, frota, caminho, cfg, url, args) -> int:
+    """Janela Tkinter na thread principal, bandeja e servidor em threads."""
+    def com_bandeja(janela) -> bool:
+        try:
+            import sysmon_tray
+        except ImportError:
+            return False
+        try:
+            icone = sysmon_tray.icone_simples(frota, {
+                "mostrar": lambda: janela.pedir("mostrar"),
+                "alternar_topo": lambda: janela.pedir("topo"),
+                # Consulta direto: leitura de BooleanVar de outra thread e
+                # inofensiva, e o menu precisa do valor na hora de desenhar.
+                "no_topo": lambda: bool(janela.no_topo.get()),
+                "atualizar": lambda: janela.pedir("atualizar"),
+                "sair": lambda: janela.pedir("sair"),
+            })
+            sysmon_tray.acompanhar(icone, frota)
+            print("bandeja ativa; fechar a janela nao encerra")
+            return True
+        except Exception as e:  # noqa: BLE001
+            print(f"bandeja indisponivel ({e}); seguindo so com a janela.",
+                  file=sys.stderr)
+            return False
+
+    import webbrowser as wb
+    nativa.rodar(frota, caminho, intervalo=max(2.0, cfg.intervalo),
+                 abrir_web=lambda: wb.open(url), com_bandeja=com_bandeja,
+                 oculto=bool(getattr(args, "oculto", False)))
+    return 0
 
 
 def _bandeja_junto(frota, cfg, app) -> bool:
