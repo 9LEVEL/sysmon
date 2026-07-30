@@ -2,19 +2,26 @@
 """
 sysmon - ponto de entrada unico dos clientes.
 
-    python3 sysmon.py                 # dashboard web + bandeja, tudo junto
-    python3 sysmon.py web             # so o dashboard web
+    python3 sysmon.py                 # JANELA NATIVA do dashboard (padrao)
+    python3 sysmon.py --oculto        # sobe minimizado na bandeja (autostart)
+    python3 sysmon.py --browser       # forcar o browser em vez da janela
+    python3 sysmon.py web             # so serve a pagina, sem abrir nada
     python3 sysmon.py term            # tabela no terminal
     python3 sysmon.py term --once     # imprime uma vez e sai (para script/cron)
-    python3 sysmon.py tray            # so o icone de bandeja (Windows)
+    python3 sysmon.py tray            # so a bandeja, com o overlay antigo
     python3 sysmon.py local           # sensores DESTA maquina, sem rede
 
-Sem subcomando ele sobe o servidor web e, se pystray estiver instalado, o icone
-de bandeja no mesmo processo - um autostart so, um processo so.
+Sem subcomando abre uma JANELA do sistema - sem barra de endereco e sem aba de
+browser - com o dashboard dentro, e o icone de bandeja junto no mesmo processo.
+Um autostart, um processo.
 
-O dashboard web nao precisa de nada alem da stdlib. A bandeja precisa de
-pystray e Pillow; sem eles o resto continua funcionando e o motivo aparece no
-terminal, em vez de o programa simplesmente nao subir.
+Camadas opcionais, todas degradando com aviso em vez de impedir o programa de
+subir:
+
+    pywebview        janela nativa e "sempre no topo"; sem ele, cai no browser
+    pystray, Pillow  icone de bandeja; sem eles, so a janela
+
+O dashboard em si nao precisa de nada alem da stdlib.
 
 Distribuicao: `make bundle` empacota isto num unico sysmon.pyz, que roda com
 `python sysmon.pyz` sem instalar nada.
@@ -43,7 +50,7 @@ from sysmon_nucleo import (  # noqa: E402
     ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 PORTA_PADRAO = 9110
 
@@ -57,14 +64,18 @@ def main(argv: list[str] | None = None) -> int:
         prog="sysmon",
         description="Monitor de varios hosts Linux: web, terminal e bandeja.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Sem subcomando: sobe o dashboard web e a bandeja juntos.",
+        epilog="Sem subcomando: abre a janela nativa com a bandeja junto.",
     )
     _comuns(p)
     p.add_argument("--porta", type=int, default=PORTA_PADRAO)
     p.add_argument("--host", default="127.0.0.1",
                    help="IP de bind do dashboard (padrao 127.0.0.1; nao tem senha)")
-    p.add_argument("--nao-abrir", action="store_true", help="nao abrir o browser")
-    p.add_argument("--sem-bandeja", action="store_true", help="nao iniciar o icone")
+    p.add_argument("--nao-abrir", action="store_true",
+                   help="no modo browser, nao abrir a aba automaticamente")
+    p.add_argument("--browser", action="store_true",
+                   help="forcar o browser em vez da janela nativa")
+    p.add_argument("--oculto", action="store_true",
+                   help="abrir minimizado na bandeja (usado pelo autostart)")
     p.add_argument("--version", action="version", version=__version__)
 
     sub = p.add_subparsers(dest="cmd")
@@ -74,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
     web.add_argument("--porta", type=int, default=PORTA_PADRAO)
     web.add_argument("--host", default="127.0.0.1")
     web.add_argument("--nao-abrir", action="store_true")
+    web.add_argument("--browser", action="store_true", default=True,
+                     help=argparse.SUPPRESS)
 
     term = sub.add_parser("term", help="tabela no terminal")
     _comuns(term)
@@ -100,14 +113,20 @@ def main(argv: list[str] | None = None) -> int:
         import sysmon_dash
         return sysmon_dash.main(args)
     if args.cmd == "web":
-        return _subir(args, bandeja=False)
+        # `web` e explicitamente o modo browser: serve a pagina e nao abre janela.
+        return _subir(args, janela=False)
     if args.cmd == "tray":
-        return _subir(args, web=False)
+        return _subir(args, web=False, janela=False)
     return _subir(args)
 
 
-def _subir(args, web: bool = True, bandeja: bool = True) -> int:
-    """Sobe servidor web e/ou bandeja no mesmo processo."""
+def _subir(args, web: bool = True, janela: bool = True) -> int:
+    """Sobe o servidor local e a interface, tudo no mesmo processo.
+
+    A interface preferida e a JANELA NATIVA (pywebview): sem barra de endereco,
+    sem aba de browser, e com "sempre no topo" - que so a janela do sistema
+    consegue fazer. Sem pywebview instalado, cai no browser e diz por que.
+    """
     caminho = achar_config(args.config)
     try:
         cfg = carregar_config(caminho)
@@ -117,19 +136,39 @@ def _subir(args, web: bool = True, bandeja: bool = True) -> int:
     if aviso := avisar_permissao(caminho):
         print(f"aviso: {aviso}", file=sys.stderr)
 
-    frota = Frota(cfg)
-    servidor = None
+    endereco = (getattr(args, "host", "127.0.0.1") or "127.0.0.1",
+                getattr(args, "porta", PORTA_PADRAO))
+    url = f"http://{endereco[0]}:{endereco[1]}/"
 
+    # Decide a interface ANTES de abrir a porta, porque o modo vai no payload
+    # que a pagina consome para saber se mostra os controles de janela.
+    app = None
+    if janela and not getattr(args, "browser", False):
+        try:
+            import sysmon_app
+            if sysmon_app.disponivel():
+                app = sysmon_app
+            else:
+                print("Sem motor de janela nesta maquina (WebView2 no Windows, "
+                      "WebKitGTK no Linux); abrindo no browser.", file=sys.stderr)
+        except ImportError:
+            print("Janela nativa indisponivel: pip install pywebview\n"
+                  "Abrindo no browser por enquanto.", file=sys.stderr)
+
+    frota = Frota(cfg)
+    modo = "app" if app else "browser"
+
+    if not web:
+        modo = "browser"
+    servidor = None
     if web:
-        import sysmon_web
-        endereco = (getattr(args, "host", "127.0.0.1") or "127.0.0.1",
-                    getattr(args, "porta", PORTA_PADRAO))
         if endereco[0] not in ("127.0.0.1", "::1", "localhost"):
             print(f"AVISO: dashboard escutando em {endereco[0]}. A pagina nao tem "
                   "autenticacao e mostra a telemetria de todos os hosts.",
                   file=sys.stderr)
         try:
-            servidor = sysmon_web.servidor(frota, *endereco)
+            import sysmon_web
+            servidor = sysmon_web.servidor(frota, *endereco, modo=modo)
         except OSError as e:
             print(f"erro: nao consegui escutar em {endereco[0]}:{endereco[1]}: {e}",
                   file=sys.stderr)
@@ -137,48 +176,83 @@ def _subir(args, web: bool = True, bandeja: bool = True) -> int:
                   file=sys.stderr)
             return 1
 
-    # A bandeja e opcional de proposito: no Linux quase ninguem instala pystray,
-    # e o dashboard web sozinho ja resolve. Sem ela, avisa e segue.
-    tray = None
-    if bandeja:
-        try:
-            import sysmon_tray
-            sysmon_tray.preparar(frota, cfg)
-            tray = sysmon_tray
-        except ImportError as e:
-            if not web:
-                print(f"erro: a bandeja precisa de pystray e Pillow ({e}).\n"
-                      "  pip install pystray pillow", file=sys.stderr)
-                return 1
-            print(f"bandeja indisponivel ({e}); seguindo so com o dashboard.",
-                  file=sys.stderr)
-
     frota.iniciar()
-
-    url = f"http://{getattr(args, 'host', '127.0.0.1')}:{getattr(args, 'porta', PORTA_PADRAO)}/"
     if servidor:
         threading.Thread(target=servidor.serve_forever, name="web", daemon=True).start()
-        print(f"sysmon {__version__}  ->  {url}   ({len(cfg.hosts)} host(s))")
-        if not getattr(args, "nao_abrir", False):
-            threading.Timer(0.6, lambda: webbrowser.open(url)).start()
-    if tray:
-        print("bandeja ativa")
-    print("Ctrl+C para sair")
 
-    try:
-        if tray:
-            # pystray precisa do loop dele na thread principal no Windows, e o
-            # tkinter do overlay tambem - por isso a bandeja manda aqui.
-            tray.rodar(frota)
-        else:
-            while True:
-                time.sleep(3600)
-    except KeyboardInterrupt:
-        print()
-    finally:
+    def encerrar() -> None:
         frota.parar()
         if servidor:
             servidor.shutdown()
+
+    print(f"sysmon {__version__}   {len(cfg.hosts)} host(s)   {url}")
+
+    try:
+        if app:
+            com_bandeja = _bandeja_junto(frota, cfg, app)
+            oculto = bool(getattr(args, "oculto", False))
+            if oculto and not com_bandeja:
+                # Sem bandeja nao existe caminho de volta para uma janela
+                # oculta: o usuario ficaria com um processo invisivel.
+                print("--oculto ignorado: sem bandeja nao haveria como reabrir "
+                      "a janela.", file=sys.stderr)
+                oculto = False
+            print("janela nativa; Ctrl+C aqui tambem encerra")
+            app.rodar(url, ao_fechar=encerrar, oculto=oculto)
+            return 0
+        if not web:
+            # `sysmon.py tray`: bandeja com overlay, sem servidor.
+            return _so_bandeja(frota, cfg)
+        if not getattr(args, "nao_abrir", False):
+            threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        print("Ctrl+C para sair")
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        print()
+    finally:
+        encerrar()
+    return 0
+
+
+def _bandeja_junto(frota, cfg, app) -> bool:
+    """Icone de bandeja ao lado da janela nativa, se pystray existir.
+
+    Modo reduzido: sem o overlay do tkinter, que seria redundante com a janela
+    e disputaria a thread principal com ela. Falha silenciosa de proposito - a
+    bandeja e um extra, e nao deve impedir a janela de abrir.
+    """
+    try:
+        import sysmon_tray
+    except ImportError:
+        return False
+    try:
+        icone = sysmon_tray.icone_simples(frota, {
+            "mostrar": lambda: app.mostrar(),
+            "alternar_topo": lambda: app.alternar_topo(),
+            "no_topo": lambda: app.no_topo(),
+            "atualizar": lambda: frota.atualizar_agora(),
+            "sair": lambda: app.fechar(),
+        })
+        sysmon_tray.acompanhar(icone, frota)
+        print("bandeja ativa")
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"bandeja indisponivel ({e}); seguindo so com a janela.",
+              file=sys.stderr)
+        return False
+
+
+def _so_bandeja(frota, cfg) -> int:
+    try:
+        import sysmon_tray
+    except ImportError as e:
+        print(f"erro: a bandeja precisa de pystray e Pillow ({e}).\n"
+              "  pip install pystray pillow", file=sys.stderr)
+        return 1
+    sysmon_tray.preparar(frota, cfg)
+    print("bandeja ativa (sem dashboard: use `sysmon.py` para os dois juntos)")
+    sysmon_tray.rodar(frota)
     return 0
 
 

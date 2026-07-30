@@ -27,7 +27,7 @@ from sysmon_nucleo import (
     ErroConfig, Frota, achar_config, avisar_permissao, carregar_config, como_dict,
 )
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 # Lista fixa em vez de montar caminho com o que o cliente mandou: nenhuma
 # requisicao consegue sair deste conjunto, entao nao existe travessia de path.
@@ -58,6 +58,7 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 15
     frota: Frota
+    modo = "browser"   # "app" quando servindo a janela nativa
 
     def _responder(self, codigo: int, corpo: bytes, tipo: str) -> None:
         self.send_response(codigo)
@@ -84,8 +85,11 @@ class Handler(BaseHTTPRequestHandler):
         caminho = self.path.split("?", 1)[0]
 
         if caminho == "/api/frota":
-            corpo = json.dumps(como_dict(self.frota), ensure_ascii=False,
-                               default=str).encode()
+            # O modo vai no payload para a pagina saber se ha janela nativa em
+            # volta - e o que decide mostrar os controles de janela. A pagina
+            # nao tem como descobrir isso sozinha de forma confiavel.
+            dados = como_dict(self.frota) | {"modo": self.modo}
+            corpo = json.dumps(dados, ensure_ascii=False, default=str).encode()
             return self._responder(200, corpo, "application/json; charset=utf-8")
 
         if caminho == "/api/atualizar":
@@ -106,15 +110,15 @@ class Handler(BaseHTTPRequestHandler):
         pass  # o dashboard e local; log de acesso so polui o terminal
 
 
-def servidor(frota: Frota, host: str = "127.0.0.1",
-             porta: int = 9110) -> ThreadingHTTPServer:
+def servidor(frota: Frota, host: str = "127.0.0.1", porta: int = 9110,
+             modo: str = "browser") -> ThreadingHTTPServer:
     """Cria o servidor ja ligado na porta. Quem chama decide quando servir.
 
-    Separado do laco para o sysmon.py poder subir o dashboard e a bandeja no
+    Separado do laco para o sysmon.py poder subir o dashboard e a janela no
     mesmo processo, e para o erro de porta ocupada aparecer antes de qualquer
     thread comecar.
     """
-    classe = type("HandlerLigado", (Handler,), {"frota": frota})
+    classe = type("HandlerLigado", (Handler,), {"frota": frota, "modo": modo})
     srv = ThreadingHTTPServer((host, porta), classe)
     srv.daemon_threads = True
     return srv

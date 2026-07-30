@@ -39,7 +39,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import pystray
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 BASE = Path(__file__).resolve().parent
 LOG_PATH = Path(os.environ.get("TEMP", BASE)) / "traymon.log"
@@ -402,6 +402,51 @@ def notificar(icone: pystray.Icon, texto: str) -> None:
         icone.notify(texto[:250], "sysmon")
     except Exception:
         logging.info("notificacao nao suportada: %s", texto)
+
+
+def icone_simples(frota: Frota, acoes: dict):
+    """Icone de bandeja sem overlay, para acompanhar a janela nativa.
+
+    Quando existe janela nativa, ela e a interface - o overlay do tkinter seria
+    redundante, e as duas coisas nao podem disputar a thread principal. Aqui
+    sobra o que a bandeja faz de unico: presenca permanente, cor de status,
+    notificacao e um caminho de volta para a janela.
+    """
+    def cabecalho(item) -> str:
+        n = len(frota.cfg.hosts)
+        alertas = len(frota.alertas())
+        base = f"{n} host{'s' if n != 1 else ''}"
+        return base if not alertas else f"{base} - {alertas} alerta(s)"
+
+    menu = pystray.Menu(
+        pystray.MenuItem(cabecalho, lambda i, it: None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Mostrar janela", lambda i, it: acoes["mostrar"](),
+                         default=True),
+        pystray.MenuItem("Sempre no topo", lambda i, it: acoes["alternar_topo"](),
+                         checked=lambda item: acoes["no_topo"]()),
+        pystray.MenuItem("Atualizar agora", lambda i, it: acoes["atualizar"]()),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Sair", lambda i, it: acoes["sair"]()),
+    )
+    return pystray.Icon("sysmon", desenhar_icone(frota), "sysmon", menu)
+
+
+def acompanhar(icone, frota: Frota, notificar_mudanca: bool = True) -> None:
+    """Mantem o icone e o tooltip em dia, numa thread propria."""
+    import time as _time
+
+    def laco() -> None:
+        while True:
+            try:
+                icone.icon = desenhar_icone(frota)
+                icone.title = titulo_tray(frota)
+            except Exception:  # noqa: BLE001 - redesenho nunca derruba nada
+                logging.exception("falha ao redesenhar o icone")
+            _time.sleep(2)
+
+    threading.Thread(target=laco, name="icone", daemon=True).start()
+    threading.Thread(target=icone.run, name="tray", daemon=True).start()
 
 
 def preparar(frota: Frota, cfg):

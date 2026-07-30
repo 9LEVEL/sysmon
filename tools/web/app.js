@@ -381,16 +381,66 @@ async function buscar() {
   try {
     const r = await fetch('/api/frota', { cache: 'no-store' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    render(await r.json());
+    const frota = await r.json();
+    render(frota);
+    if (frota.modo === 'app') mostrarControlesDeJanela();
   } catch (e) {
     document.getElementById('relogio').textContent = `sem o servidor (${e.message})`;
   }
 }
 
-document.getElementById('atualizar').addEventListener('click', async () => {
+async function atualizarAgora() {
+  const b = document.getElementById('atualizar');
+  b.disabled = true;
   await fetch('/api/atualizar', { cache: 'no-store' }).catch(() => {});
-  setTimeout(buscar, 400);
+  setTimeout(() => { buscar(); b.disabled = false; }, 400);
+}
+
+document.getElementById('atualizar').addEventListener('click', atualizarAgora);
+
+// Ctrl+R recarregaria a pagina inteira; aqui ele significa "buscar agora".
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') {
+    e.preventDefault();
+    atualizarAgora();
+  }
 });
+
+/* ---------------------------------------------------------- janela nativa
+ * "Sempre no topo" e propriedade da janela do sistema operacional: nenhuma
+ * pagina web consegue se manter sobre as outras janelas por conta propria.
+ * Por isso o botao so aparece quando ha janela nativa em volta (modo 'app'),
+ * e o clique atravessa a ponte do pywebview para o Python.
+ */
+let janelaPronta = false;
+
+function api() {
+  return window.pywebview && window.pywebview.api;
+}
+
+async function mostrarControlesDeJanela() {
+  if (janelaPronta) return;
+  const botao = document.getElementById('fixar');
+  if (!api()) return;      // a ponte injeta em instantes; a proxima volta pega
+  janelaPronta = true;
+  botao.hidden = false;
+
+  const marcar = (ligado) => {
+    botao.setAttribute('aria-pressed', ligado ? 'true' : 'false');
+    botao.querySelector('.rotulo-botao').textContent = ligado ? 'Fixado' : 'Fixar';
+    botao.title = ligado
+      ? 'A janela está sobre as outras — clique para soltar'
+      : 'Manter a janela sempre sobre as outras';
+  };
+
+  try { marcar(await api().no_topo()); } catch { marcar(false); }
+
+  botao.addEventListener('click', async () => {
+    try { marcar(await api().alternar_topo()); } catch { /* ponte sumiu */ }
+  });
+}
+
+window.addEventListener('pywebviewready', mostrarControlesDeJanela);
 
 buscar();
 setInterval(buscar, 3000);

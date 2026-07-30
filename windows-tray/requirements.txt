@@ -1,4 +1,12 @@
-# Opcional: so para o icone de bandeja. O dashboard web nao precisa de nada
-# alem do Python - se voce nao instalar isto, o sysmon sobe so o dashboard.
+# Camadas opcionais. O dashboard funciona sem nenhuma delas - o que muda e a
+# moldura em volta:
+#
+#   sem nada          -> abre no browser
+#   com pywebview     -> janela do sistema, sem barra de endereco,
+#                        com "sempre no topo"
+#   com pystray+PIL   -> icone de bandeja junto, com notificacao
+#
+# Instale as duas linhas para a experiencia completa:
+pywebview>=5.0
 pystray>=0.19.5
 pillow>=10.0.0

@@ -68,7 +68,7 @@ header {
 }
 .marca span { color: var(--tinta-3); font-weight: 400; }
 
-.resumo { display: flex; gap: 18px; margin-left: auto; align-items: center; }
+.resumo { display: flex; gap: 10px; margin-left: auto; align-items: center; }
 
 .pilula {
   display: inline-flex;
@@ -79,6 +79,7 @@ header {
   white-space: nowrap;
 }
 .pilula b { color: var(--tinta); font-weight: 600; }
+.pilula.fraca { color: var(--tinta-3); }
 
 .ponto {
   width: 8px;
@@ -100,6 +101,38 @@ button.acao {
 }
 button.acao:hover { color: var(--tinta); border-color: var(--tinta-3); }
 button.acao:active { transform: translateY(1px); }
+button.acao:focus-visible,
+button.icone:focus-visible { outline: 2px solid var(--serie-1); outline-offset: 2px; }
+
+/* Alfinete "sempre no topo". O estado ligado precisa ser obvio sem depender de
+   cor: alem do fundo azul, o rotulo muda de "Fixar" para "Fixado" e o
+   aria-pressed conta a mesma coisa para leitor de tela. */
+button.icone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--superficie-2);
+  color: var(--tinta-3);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+button.icone:hover { color: var(--tinta); border-color: var(--tinta-3); }
+button.icone[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--serie-1) 22%, var(--superficie-2));
+  border-color: color-mix(in srgb, var(--serie-1) 60%, transparent);
+  color: #cfe3ff;
+}
+button.icone[aria-pressed="true"] svg { transform: rotate(-45deg); }
+button.icone svg { transition: transform 0.15s; }
+
+@media (max-width: 720px) {
+  .rotulo-botao { display: none; }
+}
 
 /* ---------------------------------------------------------------- alertas */
 .alertas {

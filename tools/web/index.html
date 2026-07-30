@@ -11,11 +11,30 @@
 <body>
 
 <header>
-  <div class="marca">sysmon <span id="versao"></span></div>
+  <div class="marca">sysmon</div>
+  <span class="pilula" id="contagem"></span>
+
   <div class="resumo">
-    <span class="pilula" id="contagem"></span>
-    <span class="pilula" id="relogio"></span>
-    <button class="acao" id="atualizar" type="button">Atualizar</button>
+    <span class="pilula fraca" id="relogio"></span>
+
+    <!-- Só aparecem quando há janela nativa em volta: numa aba de browser
+         nenhum dos dois faria sentido. -->
+    <button class="icone" id="fixar" type="button" hidden
+            title="Manter a janela sempre sobre as outras"
+            aria-pressed="false">
+      <svg viewBox="0 0 20 20" aria-hidden="true" width="15" height="15">
+        <path d="M12.3 2.1 17.9 7.7a1 1 0 0 1-.5 1.7l-2.2.5-4.3 4.3.5 2.2a1 1 0 0 1-1.7.5L4.1 11.3a1 1 0 0 1 .5-1.7l2.2-.5 4.3-4.3-.5-2.2a1 1 0 0 1 1.7-.5Z"
+              fill="none" stroke="currentColor" stroke-width="1.6"
+              stroke-linejoin="round"/>
+        <path d="M6.5 13.5 2.6 17.4" fill="none" stroke="currentColor"
+              stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <span class="rotulo-botao">Fixar</span>
+    </button>
+
+    <button class="acao" id="atualizar" type="button" title="Atualizar agora (Ctrl+R)">
+      Atualizar
+    </button>
   </div>
 </header>
 

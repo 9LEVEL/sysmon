@@ -18,8 +18,8 @@ comando externo e roda sem root. Os clientes são Python stdlib puro.
                                   │
                  ┌────────────────┴─────────────────┐
         ┌────────┴─────────┐              ┌─────────┴────────┐
-        │  dashboard web   │              │    bandeja +     │
-        │  + terminal      │              │   notificações   │
+        │  janela nativa   │              │    bandeja +     │
+        │  (ou terminal)   │              │   notificações   │
         └──────────────────┘              └──────────────────┘
 ```
 
@@ -53,12 +53,12 @@ você já está autenticado, e mandar por `scp`:
 
 ```bash
 # na sua máquina
-gh release download v2.1.0 -p 'sysmon-agent-2.1.0-linux-amd64.tar.gz'
-scp sysmon-agent-2.1.0-linux-amd64.tar.gz root@192.168.0.10:/tmp/
+gh release download v2.3.0 -p 'sysmon-agent-2.3.0-linux-amd64.tar.gz'
+scp sysmon-agent-2.3.0-linux-amd64.tar.gz root@192.168.0.10:/tmp/
 
 # no host
-cd /tmp && tar xzf sysmon-agent-2.1.0-linux-amd64.tar.gz
-cd sysmon-agent-2.1.0-linux-amd64
+cd /tmp && tar xzf sysmon-agent-2.3.0-linux-amd64.tar.gz
+cd sysmon-agent-2.3.0-linux-amd64
 sudo ./install.sh 192.168.0.10          # IP da LAN ou do túnel
 ```
 
@@ -69,8 +69,8 @@ endpoint de API do asset:
 ```bash
 # no host, com GH_TOKEN exportado
 ASSET=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-  https://api.github.com/repos/9LEVEL/sysmon/releases/tags/v2.1.0 \
-  | grep -B2 '"name": "sysmon-agent-2.1.0-linux-amd64.tar.gz"' \
+  https://api.github.com/repos/9LEVEL/sysmon/releases/tags/v2.3.0 \
+  | grep -B2 '"name": "sysmon-agent-2.3.0-linux-amd64.tar.gz"' \
   | grep '"id":' | head -1 | tr -dc 0-9)
 
 curl -fL -H "Authorization: Bearer $GH_TOKEN" \
@@ -189,16 +189,18 @@ Tudo roda a partir de **um arquivo**. Baixe o `sysmon.pyz` do release, ponha o
 python sysmon.pyz
 ```
 
-Isso sobe o dashboard web, abre o browser e — se `pystray` e `Pillow`
-estiverem instalados — o ícone de bandeja **no mesmo processo**. Um autostart
-só, um processo só.
+Isso abre uma **janela do sistema** com o dashboard dentro — sem barra de
+endereço, sem aba de browser — e o ícone de bandeja junto, no mesmo processo.
+Um autostart, um processo.
 
 Atualizar é substituir o `sysmon.pyz`. O `config.json` fica.
 
 | Comando | O que faz |
 |---|---|
-| `python sysmon.pyz` | dashboard web + bandeja (padrão) |
-| `python sysmon.pyz web` | só o dashboard |
+| `python sysmon.pyz` | janela nativa + bandeja (padrão) |
+| `python sysmon.pyz --oculto` | sobe minimizado na bandeja (autostart) |
+| `python sysmon.pyz --browser` | força o browser em vez da janela |
+| `python sysmon.pyz web` | só serve a página, não abre nada |
 | `python sysmon.pyz term` | tabela no terminal, atualiza sozinha |
 | `python sysmon.pyz term --once` | imprime uma vez e sai (script/cron) |
 | `python sysmon.pyz term --host pve` | detalhe completo de um host |
@@ -208,14 +210,30 @@ Atualizar é substituir o `sysmon.pyz`. O `config.json` fica.
 Rodando do repositório em vez do `.pyz`, troque `sysmon.pyz` por `sysmon.py` —
 os argumentos são os mesmos.
 
-### O dashboard no browser
+### A janela
 
-`http://127.0.0.1:9110/` — gauges de temperatura, CPU e RAM por host, cada
-disco físico com modelo, temperatura, taxa de I/O e vida consumida do SMART,
-filesystems, thin pool, rede e RAID.
+Gauges de temperatura, CPU e RAM por host, cada disco físico com modelo,
+temperatura, taxa de I/O e vida consumida do SMART, filesystems, thin pool,
+rede e RAID.
 
-Sem framework e sem CDN: HTML, CSS e SVG puros servidos por Python stdlib.
-Funciona offline.
+Sem framework e sem CDN: HTML, CSS e SVG puros. A janela usa o motor web que o
+sistema já tem — **WebView2** no Windows (vem com o Edge), **WebKitGTK** no
+Linux. Nada de Chromium embutido.
+
+**Sempre no topo**: o botão **Fixar** no cabeçalho mantém a janela sobre todas
+as outras, e o estado sobrevive ao fechar. Isso é propriedade da janela do
+sistema — nenhuma página web consegue fazer isso sozinha, e é a razão de
+existir a janela nativa em vez de uma aba.
+
+A posição e o tamanho ficam em `%APPDATA%\sysmon\janela.json` (ou
+`~/.config/sysmon/janela.json`) — **fora** do seu `config.json`, que o programa
+nunca reescreve.
+
+Sem `pywebview` instalado, cai no browser e diz o motivo:
+
+```
+pip install pywebview
+```
 
 **Os tokens não chegam ao browser.** O polling acontece no processo local e a
 página recebe apenas telemetria. Por isso ele escuta só em `127.0.0.1`: a
@@ -239,18 +257,33 @@ A tabela descarta colunas conforme o terminal estreita. `--once` e `--host`
 saem com código 1 quando há host crítico ou offline, então dá para usar em
 cron ou health check.
 
-### Bandeja do Windows
+### Camadas opcionais
 
-Opcional — precisa de `pip install pystray pillow`. Sem isso o dashboard sobe
-normalmente e o motivo aparece no terminal.
+Nenhuma delas impede o programa de subir; o que muda é a moldura em volta:
+
+| Instalado | O que você ganha |
+|---|---|
+| nada | dashboard abre no browser |
+| `pywebview` | janela do sistema, sem barra de endereço, com **Fixar** |
+| `pystray` + `pillow` | ícone de bandeja junto, com notificação |
+
+```
+pip install pywebview pystray pillow
+```
+
+### Bandeja
+
+Opcional. Sem ela o dashboard sobe normalmente e o motivo aparece no terminal.
 
 O ícone mostra a temperatura do **host mais quente**, colorido pelo **pior
 host**: verde abaixo de 75% do crítico do sensor, amarelo entre 75% e 90%,
 vermelho acima, cinza se algum host está offline. Um ponto vermelho no canto
 acende para qualquer alerta.
 
-Menu: **Abrir dashboard**, um submenu por host, overlay liga/desliga, modo
-compacto, cliques atravessam, atualizar todos, copiar JSON, sair.
+Ao lado da janela nativa o menu é enxuto: **Mostrar janela**, **Sempre no
+topo**, atualizar, sair. O overlay do tkinter seria redundante com a janela —
+para tê-lo, use `sysmon.pyz tray`, que traz o modo antigo com submenu por host,
+modo compacto e cliques atravessando.
 
 Autostart:
 
@@ -258,7 +291,9 @@ Autostart:
 powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
 ```
 
-Registra uma tarefa que sobe tudo 30s após o login, sem janela de console.
+Registra uma tarefa que sobe tudo 30s após o login, sem janela de console e
+**minimizado na bandeja** — no login a janela não pula na frente do que você
+está fazendo; clique no ícone para abrir.
 
 ## Configuração dos clientes
 

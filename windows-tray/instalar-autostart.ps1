@@ -22,8 +22,10 @@ if (-not (Test-Path (Join-Path $pasta "config.json"))) {
 }
 
 # Teste rapido antes de registrar: falhar aqui e melhor que falhar no boot.
+# Em modo --browser --nao-abrir para nao piscar janela na tela do usuario; o
+# que se quer verificar aqui e config e porta, que e onde as coisas falham.
 Write-Host "==> Testando (6s)..." -ForegroundColor Cyan
-$p = Start-Process python -ArgumentList "`"$pyz`"", "--nao-abrir" `
+$p = Start-Process python -ArgumentList "`"$pyz`"", "--browser", "--nao-abrir" `
      -WorkingDirectory $pasta -PassThru -WindowStyle Hidden
 Start-Sleep 6
 if ($p.HasExited) {
