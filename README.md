@@ -288,18 +288,23 @@ cron ou health check.
 
 ### É um app de bandeja
 
-Com `pywebview`, `pystray` e `pillow` instalados — o `sysmon.bat` e o
-instalador cuidam disso na primeira execução — o sysmon se comporta como
-qualquer app de bandeja do Windows:
+Com `pywebview`, `pystray` e `pillow` instalados — **o próprio programa
+instala na primeira execução**, seja qual for o jeito que você o inicie — o
+sysmon se comporta como qualquer app de bandeja do Windows:
 
 - **fechar a janela não encerra o programa**: ele fica no ícone da bandeja, e
   a janela reabre pelo ícone ou pelo atalho
 - **Sair** no menu da bandeja é o que encerra de verdade
 - o ícone muda de cor conforme o pior host, e notifica quando algo muda
 
-Sem esses pacotes nada quebra — o dashboard abre no navegador e a própria
-página diz por quê, com o comando para instalar. Mas o navegador é o plano B,
-não o normal.
+Se a instalação automática não der certo (sem rede, sem permissão), nada
+quebra: o dashboard abre no navegador e a própria página diz por quê, com o
+comando. Mas o navegador é o plano B, não o normal.
+
+Abrir no navegador com `pywebview` já instalado significa que falta o motor de
+janela do sistema. No Windows é o **WebView2**, que vem com o Edge — se faltar,
+instale de
+[go.microsoft.com/fwlink/p/?LinkId=2124703](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
 
 ```
 python -m pip install pywebview pystray pillow

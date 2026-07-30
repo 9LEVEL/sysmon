@@ -51,7 +51,7 @@ from sysmon_nucleo import (  # noqa: E402
     Config, ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "2.6.2"
+__version__ = "2.7.0"
 
 PORTA_PADRAO = 9110
 
@@ -81,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
                    help=argparse.SUPPRESS)   # usado pelo atalho, vence --oculto
     p.add_argument("--sem-update", action="store_true",
                    help="nao verificar atualizacao")
+    p.add_argument("--sem-instalar", action="store_true",
+                   help="nao instalar componentes faltando automaticamente")
     p.add_argument("--version", action="version", version=__version__)
 
     sub = p.add_subparsers(dest="cmd")
@@ -159,16 +161,7 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
     # que a pagina consome para saber se mostra os controles de janela.
     app = None
     if janela and not getattr(args, "browser", False):
-        try:
-            import sysmon_app
-            if sysmon_app.disponivel():
-                app = sysmon_app
-            else:
-                print("Sem motor de janela nesta maquina (WebView2 no Windows, "
-                      "WebKitGTK no Linux); abrindo no browser.", file=sys.stderr)
-        except ImportError:
-            print("Janela nativa indisponivel: pip install pywebview\n"
-                  "Abrindo no browser por enquanto.", file=sys.stderr)
+        app = _abrir_janela(args)
 
     frota = Frota(cfg)
     modo = "app" if app else "browser"
@@ -255,6 +248,95 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
     finally:
         encerrar()
     return 0
+
+
+# Marcador de "ja tentei instalar": evita laco de instalacao a cada arranque
+# quando o pip nao resolve (sem rede, sem permissao, wheel indisponivel).
+def _marcador_instalacao() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData/Roaming")
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    return base / "sysmon" / f"componentes-{__version__}.tentado"
+
+
+def _instalar_componentes() -> bool:
+    """Instala pywebview/pystray/pillow com o pip do proprio interpretador.
+
+    O usuario pediu um app, nao um site: cair no navegador porque falta um
+    pacote e detalhe de instalacao virando defeito de produto. E como o
+    programa pode ser iniciado pelo atalho, pelo agendador ou pelo .bat, o
+    unico lugar que cobre todos os casos e aqui dentro.
+    """
+    import subprocess
+    marcador = _marcador_instalacao()
+    if marcador.exists():
+        return False
+    try:
+        marcador.parent.mkdir(parents=True, exist_ok=True)
+        marcador.touch()
+    except OSError:
+        pass
+
+    print("Instalando os componentes do app (janela e bandeja)...", file=sys.stderr)
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
+             "pywebview", "pystray", "pillow"],
+            capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"  nao consegui rodar o pip: {e}", file=sys.stderr)
+        return False
+    if r.returncode != 0:
+        print("  o pip falhou. Instale manualmente:", file=sys.stderr)
+        print("  python -m pip install pywebview pystray pillow", file=sys.stderr)
+        for linha in (r.stderr or "").strip().splitlines()[-3:]:
+            print(f"    {linha}", file=sys.stderr)
+        return False
+    print("  instalados.", file=sys.stderr)
+    return True
+
+
+def _abrir_janela(args):
+    """Devolve o modulo da janela nativa, ou None para cair no navegador.
+
+    Tenta instalar o que falta uma vez antes de desistir - reiniciando o
+    processo em seguida, porque um pacote instalado depois do arranque nao
+    entra no interpretador ja em execucao.
+    """
+    import importlib
+
+    def tentar():
+        try:
+            mod = importlib.import_module("sysmon_app")
+            if mod.disponivel():
+                return mod
+            print("pywebview instalado, mas sem motor de janela nesta maquina.",
+                  file=sys.stderr)
+            if os.name == "nt":
+                print("  No Windows isso costuma ser o WebView2 ausente - ele vem "
+                      "com o Edge; instale de https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+                      file=sys.stderr)
+            return None
+        except ImportError:
+            return "faltando"
+
+    r = tentar()
+    if r != "faltando":
+        return r
+
+    if getattr(args, "sem_instalar", False) or not _instalar_componentes():
+        print("Abrindo no navegador. Para a janela do app:", file=sys.stderr)
+        print("  python -m pip install pywebview pystray pillow", file=sys.stderr)
+        return None
+
+    # Reinicia para que os pacotes recem-instalados sejam importaveis.
+    print("Reiniciando com a janela do app...", file=sys.stderr)
+    try:
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except OSError:
+        pass   # nao deu: segue no navegador, ja avisado acima
+    return None
 
 
 def _pedir_para_aparecer(url: str) -> bool:
