@@ -3,9 +3,9 @@
 $ErrorActionPreference = "Continue"
 
 # Pasta Inicializar (o padrao, sem admin).
-$inicializar = Join-Path ([Environment]::GetFolderPath("Startup")) "sysmon.lnk"
-if (Test-Path $inicializar) {
-    Remove-Item $inicializar -Force
+$atalhoInicio = Join-Path ([Environment]::GetFolderPath("Startup")) "sysmon.lnk"
+if (Test-Path $atalhoInicio) {
+    Remove-Item $atalhoInicio -Force
     Write-Host "    atalho de inicializacao removido" -ForegroundColor Green
 }
 

@@ -29,7 +29,7 @@ from pathlib import Path
 
 import webview  # pywebview
 
-__version__ = "2.6.0"
+__version__ = "2.6.1"
 
 TITULO = "sysmon"
 

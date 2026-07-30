@@ -103,7 +103,10 @@ try {
 }
 
 # ---------------------------------------------------------------- autostart
-$inicializar = Join-Path ([Environment]::GetFolderPath("Startup")) "sysmon.lnk"
+# Nome diferente do parametro [switch]$Inicializar de proposito: PowerShell
+# nao diferencia maiusculas em nome de variavel, entao "$atalhoInicio = ..."
+# tentaria atribuir uma string ao switch e estouraria.
+$atalhoInicio = Join-Path ([Environment]::GetFolderPath("Startup")) "sysmon.lnk"
 
 # Duas formas de iniciar no logon, e SO UMA pode ficar ativa: se as duas
 # dispararem, a segunda instancia briga pela porta 9110 e morre em silencio.
@@ -159,11 +162,11 @@ if (-not $Inicializar) {
 if (-not $metodo) {
     try {
         # Com --oculto (padrao do vbs): no logon sobe minimizado na bandeja.
-        Criar-Atalho $inicializar "`"$vbs`"" "Monitor da frota Linux (inicio automatico)"
+        Criar-Atalho $atalhoInicio "`"$vbs`"" "Monitor da frota Linux (inicio automatico)"
         $metodo = "inicializar"
         Ok "registrado na pasta Inicializar"
     } catch {
-        Erro "    nao consegui criar o atalho em $inicializar"
+        Erro "    nao consegui criar o atalho em $atalhoInicio"
         Erro "    $($_.Exception.Message)"
         exit 1
     }
@@ -173,8 +176,8 @@ if (-not $metodo) {
 # O que nao foi escolhido tem que sair, inclusive resquicio de instalacao
 # anterior que usava o outro metodo.
 if ($metodo -eq "agendador") {
-    if (Test-Path $inicializar) {
-        Remove-Item $inicializar -Force -ErrorAction SilentlyContinue
+    if (Test-Path $atalhoInicio) {
+        Remove-Item $atalhoInicio -Force -ErrorAction SilentlyContinue
         Ok "atalho antigo da pasta Inicializar removido"
     }
 } else {
@@ -194,13 +197,13 @@ Remover-Tarefa "traymon" | Out-Null
 
 # --------------------------------------------------------------- conferencia
 $temTarefa = [bool](Get-ScheduledTask -TaskName "sysmon" -ErrorAction SilentlyContinue)
-$temAtalho = Test-Path $inicializar
+$temAtalho = Test-Path $atalhoInicio
 if ($temTarefa -and $temAtalho) {
     Aviso ""
     Aviso "ATENCAO: os dois metodos estao ativos. Duas instancias vao tentar"
     Aviso "subir no logon e uma vai morrer disputando a porta. Remova um:"
     Aviso "  schtasks /delete /tn sysmon /f        (remove a tarefa)"
-    Aviso "  del `"$inicializar`"                  (remove o atalho)"
+    Aviso "  del `"$atalhoInicio`"                  (remove o atalho)"
 } elseif (-not $temTarefa -and -not $temAtalho) {
     Aviso "nenhum autostart ficou ativo - reveja as mensagens acima"
 }
