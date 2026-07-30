@@ -123,97 +123,106 @@ chmod 755 "$DIST/sysmon.pyz"
 verde "    sysmon.pyz  ($(du -h "$DIST/sysmon.pyz" | cut -f1))"
 
 # ---------------------------------------------------------------- clientes
-NOME="sysmon-clientes-$VERSAO"
+# Um pacote por sistema, com o nome dizendo para quem e. Antes era um so
+# chamado "clientes", e ninguem adivinha que o .zip e o do Windows.
+
+# --- Windows: .pyz + lancadores + scripts de instalacao
+NOME="sysmon-windows-$VERSAO"
 PASTA="$DIST/$NOME"
 mkdir -p "$PASTA"
-
-# O pacote de clientes agora e so o .pyz + o que ajuda a instalar.
 install -m 755 "$DIST/sysmon.pyz" "$PASTA/"
 for f in config.example.json requirements.txt sysmon.vbs sysmon.bat \
          instalar-autostart.ps1 desinstalar-autostart.ps1 limpar.ps1; do
     install -m 644 "$AQUI/windows-tray/$f" "$PASTA/"
 done
-rmdir "$PASTA/tools" "$PASTA/windows-tray" 2>/dev/null || true
 install -m 644 "$AQUI/LICENSE" "$PASTA/"
 
 cat > "$PASTA/LEIAME.txt" <<EOF
-sysmon - clientes $VERSAO
+sysmon para Windows $VERSAO
 
-Vai para a maquina de onde voce OLHA os hosts. Sao dois arquivos: o sysmon.pyz
-e o seu config.json. Precisa de Python 3.9 ou mais novo, e nada alem disso.
+E ESTE o pacote do Windows. Extraia numa pasta sua (nao dentro de Downloads) e:
 
 1) Duplo clique em sysmon.bat
 
-   Na primeira vez ele instala os componentes do app (janela e bandeja) - sao
-   tres pacotes do pip. Sem eles o sysmon abre no navegador, que funciona mas
-   nao e o que se quer aqui.
+   Na primeira vez ele instala os componentes do app - janela e bandeja - que
+   sao tres pacotes do pip. Sem eles o sysmon abre no navegador, que funciona
+   mas nao e o que se quer aqui.
 
-   Ele abre com console, entao qualquer erro aparece na tela. Na primeira vez
-   a interface abre na TELA DE CONFIGURACAO: preencha apelido, url e token de
-   cada host, clique em Testar e salve. Nao precisa editar arquivo nenhum.
+   Abre com console, entao qualquer erro aparece na tela. A interface abre na
+   TELA DE CONFIGURACAO: preencha apelido, url e token de cada host Linux,
+   clique em Testar e salve. Nao precisa editar arquivo nenhum.
 
    A url e o token sao os que o install.sh imprimiu em cada host monitorado.
-   Se voce usou o deploy.sh, ele ja gerou um hosts.json com tudo - basta
-   renomear para config.json e deixar aqui.
 
 2) Funcionando, registre o inicio automatico:
 
     powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
 
-   A partir dai use o atalho da area de trabalho, sem console.
+   A partir dai use o atalho da area de trabalho, sem console. Fechar a janela
+   nao encerra: o programa fica na bandeja. Sair e pelo menu do icone.
 
 Deu errado alguma tentativa anterior? Limpe tudo e recomece:
 
     powershell -ExecutionPolicy Bypass -File limpar.ps1
 
-Outros modos:
-
-    python sysmon.pyz web           # so serve a pagina, nao abre janela
-    python sysmon.pyz term          # tabela no terminal
-    python sysmon.pyz term --once   # imprime uma vez e sai (script/cron)
-    python sysmon.pyz tray          # so a bandeja
-    python sysmon.pyz local         # sensores DESTA maquina, sem rede
-
-Bandeja no Windows (opcional):
-
-    python -m pip install -r requirements.txt
-    powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
-
-Os tokens ficam no servidor local: o browser recebe so telemetria. Por padrao
-escuta apenas em 127.0.0.1, porque a pagina nao tem senha.
-
-O config.json manda. Nada do ambiente sobrescreve valor presente nele; o
-ambiente so preenche o que faltar:
-
-    SYSMON_CONFIG          -> qual arquivo carregar
-    SYSMON_TOKEN_<NOME>    -> so se aquele host nao tiver token no arquivo
-    SYSMON_URL/_TOKEN      -> so se o arquivo nao definir host nenhum
-
 O config.json guarda os tokens de TODOS os hosts em texto claro. Proteja:
 
-    Windows : icacls config.json /inheritance:r /grant:r "%USERNAME%:R"
-    Linux   : chmod 600 config.json
+    icacls config.json /inheritance:r /grant:r "%USERNAME%:R"
 
-Atualizar: substitua o sysmon.pyz. So isso - o config.json fica.
+Atualizar: o proprio programa avisa e troca sozinho. Manualmente, basta
+substituir o sysmon.pyz - o config.json fica.
 
-Documentacao completa: https://github.com/9LEVEL/sysmon
+Documentacao: https://github.com/9LEVEL/sysmon
 EOF
 
-( cd "$DIST" && tar czf "$NOME.tar.gz" "$NOME" )
-verde "    $NOME.tar.gz"
-
-# Zip tambem: o Windows abre sem instalar nada, e tar.gz nao e obvio la.
-# Cai no Python quando o utilitario zip nao existe na maquina de build.
+( cd "$DIST" && tar czf "$NOME.tar.gz" "$NOME" >/dev/null 2>&1 || true )
+rm -f "$DIST/$NOME.tar.gz"
 if command -v zip >/dev/null; then
     ( cd "$DIST" && zip -qr "$NOME.zip" "$NOME" )
-elif command -v python3 >/dev/null; then
+else
     ( cd "$DIST" && python3 -c "
 import shutil, sys
 shutil.make_archive(sys.argv[1], 'zip', '.', sys.argv[1])
 " "$NOME" )
 fi
-[[ -f "$DIST/$NOME.zip" ]] && verde "    $NOME.zip"
 rm -rf "$PASTA"
+verde "    $NOME.zip"
+
+# --- Linux/macOS: .pyz + exemplo de config, sem os scripts do Windows
+NOME="sysmon-linux-$VERSAO"
+PASTA="$DIST/$NOME"
+mkdir -p "$PASTA"
+install -m 755 "$DIST/sysmon.pyz" "$PASTA/"
+install -m 644 "$AQUI/windows-tray/config.example.json" "$PASTA/"
+install -m 644 "$AQUI/LICENSE" "$PASTA/"
+
+cat > "$PASTA/LEIAME.txt" <<EOF
+sysmon para Linux/macOS $VERSAO
+
+Cliente para acompanhar seus hosts. Precisa de Python 3.9 ou mais novo.
+
+    cp config.example.json config.json    # preencha url e token de cada host
+    chmod 600 config.json
+    python3 sysmon.pyz term               # tabela no terminal
+    python3 sysmon.pyz                    # dashboard (janela, ou navegador)
+
+Sem config, a interface grafica abre na tela de configuracao. O modo terminal
+exige o arquivo pronto.
+
+Para a janela nativa em vez do navegador:  pip install pywebview
+
+Outros modos:
+
+    python3 sysmon.pyz term --once        # imprime uma vez e sai (cron)
+    python3 sysmon.pyz term --host pve    # detalhe de um host
+    python3 sysmon.pyz local              # sensores DESTA maquina, sem rede
+
+Documentacao: https://github.com/9LEVEL/sysmon
+EOF
+
+( cd "$DIST" && tar czf "$NOME.tar.gz" "$NOME" )
+rm -rf "$PASTA"
+verde "    $NOME.tar.gz"
 
 # ---------------------------------------------------------------- somas
 # O .pyz PRECISA estar aqui: o auto-update confere o download contra esta

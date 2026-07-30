@@ -58,8 +58,19 @@ sudo ./install.sh 192.168.0.10          # IP da LAN ou do túnel
 Para ARM, troque `amd64` por `arm64`. Confira as somas com o `SHA256SUMS` do
 release.
 
-Os clientes vêm em `sysmon.pyz` (arquivo único) ou no pacote
-`sysmon-clientes-<versão>.zip`, que traz também os scripts de autostart.
+### Qual arquivo do release baixar
+
+| Arquivo | Para que serve |
+|---|---|
+| `sysmon-windows-<v>.zip` | **Windows** — app completo: `.pyz`, lançadores e instaladores |
+| `sysmon-linux-<v>.tar.gz` | **Linux/macOS** — cliente (dashboard e terminal) |
+| `sysmon-agent-<v>-linux-amd64.tar.gz` | agente, em **cada host monitorado** (x86_64) |
+| `sysmon-agent-<v>-linux-arm64.tar.gz` | agente, em **cada host monitorado** (ARM) |
+| `sysmon.pyz` | só o programa, para substituir manualmente |
+| `SHA256SUMS` | conferência |
+
+Repare que são coisas diferentes: o **agente** vai nas máquinas Linux que você
+quer monitorar; o **cliente** vai na máquina de onde você olha.
 
 Para gerar os pacotes você mesmo: `make pacote` (roda a suíte de testes antes).
 E o **`deploy.sh` faz tudo por SSH** — compila, copia e instala em N hosts, sem

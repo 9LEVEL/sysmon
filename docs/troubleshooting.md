@@ -270,9 +270,14 @@ $lnk.WorkingDirectory = $p; $lnk.Save()
 ### `sysmon.pyz nao encontrado nesta pasta`
 
 Você provavelmente baixou o **código-fonte** (`sysmon-main.zip`), que não traz
-o binário. Baixe `sysmon-clientes-<versão>.zip` da
-[página de releases](https://github.com/9LEVEL/sysmon/releases) — ele já vem
-com o `sysmon.pyz`, o `sysmon.vbs` e os scripts, todos na mesma pasta.
+o binário. Da [página de releases](https://github.com/9LEVEL/sysmon/releases),
+baixe:
+
+- **`sysmon-windows-<versão>.zip`** — é este no Windows; vem com o `sysmon.pyz`,
+  o `sysmon.bat`, o `sysmon.vbs` e os scripts, todos na mesma pasta
+- `sysmon-linux-<versão>.tar.gz` — cliente para Linux/macOS
+- `sysmon-agent-<versão>-linux-*.tar.gz` — vai nos hosts **monitorados**, não
+  na sua máquina
 
 ### `pythonw sysmon.pyz` não abre nada
 
