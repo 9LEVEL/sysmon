@@ -242,36 +242,44 @@ inativo — ali quem atualiza é o `git`.
 
 ### A janela
 
-Uma janela nativa no estilo do **Open Hardware Monitor**: árvore de sensores
-por host, com Uso, Temperaturas, Ventoinhas, Discos, Armazenamento e Rede.
-Valores em vermelho e âmbar conforme a severidade, alertas na faixa de baixo.
+Sem moldura, escura, monoespaçada. Nenhum ícone: a hierarquia e a severidade
+saem de tipografia, alinhamento e cor.
 
 ```
-┌ sysmon ─────────────────────────────────────────────────────────┐
-│ ☐ Sempre no topo   3 hosts · 1 offline    [Dashboard][Atualizar]│
-├─────────────────────────────────────────────────────────────────┤
-│ Sensor                       Valor   Limite / detalhe           │
-│ ▾ pve-lab                      78C   Proxmox VE 8.2             │
-│   ▾ Uso                                                         │
-│       CPU                      71%   16 núcleos · Ryzen 9 5950X │
-│       Memória                  85%   54G de 64G                 │
-│   ▾ Discos                                                      │
-│       nvme0n1                  63C   Samsung 990 PRO · 7% usada │
-│       sda                      39C   ST8000VN004 · SMART REPROVOU│
-├─────────────────────────────────────────────────────────────────┤
-│ ! pve-lab: CPU em 78C                                           │
-└─────────────────────────────────────────────────────────────────┘
+ sysmon  3 hosts · 1 offline · 11 alertas        ▲ ↻ ⌂ – ×
+
+ ▾ PVE-LAB                          78C  Proxmox VE 8.2 · Ryzen 9 5950X
+     DESEMPENHO
+       cpu            ███████···  71%  16 nucleos
+       memoria        ████████··  85%  54G / 64G
+       carga                2.41       1.98 5m · 1.76 15m
+     TEMPERATURA
+       cpu                   78C       critico 95C
+     DISCOS
+       nvme0n1               63C       7% usado · 2T · Samsung 990 PRO
+       sda                   39C       SMART REPROVOU · 7T · ST8000VN004
+     ARMAZENAMENTO
+       /var/lib/vz    █████████·  92%  2T / 2T
+     REDE
+       vmbr0              ↓46M/s       ↑9M/s · 10000 Mbit
+
+ ! pve-lab: CPU em 78C
+ ! pve-lab: disco /var/lib/vz em 92%
 ```
+
+**Arrasta pelo cabeçalho**, redimensiona pelo canto inferior direito. O `▲`
+prende sobre as outras janelas. Botão direito no topo abre o menu — inclusive
+para trazer a moldura do sistema de volta, se o seu ambiente preferir.
+
+Cada host é um bloco: nome em destaque, SO e CPU na mesma linha, e abaixo as
+seções em maiúscula. As barras são texto em fonte monoespacada, coloridas pela
+severidade — nada de gráfico nem ícone para decifrar.
 
 **Não depende de nada.** É Tkinter, que vem junto com o Python do python.org —
-sem `pip`, sem WebView2, sem motor de navegador. "Sempre no topo" é a caixinha
-no canto.
+sem `pip`, sem WebView2, sem motor de navegador.
 
-O botão **Hosts...** abre a configuração ali mesmo: apelido, URL, token e um
-botão **Testar** que bate no agente na hora.
-
-O botão **Dashboard** abre a versão web, com gauges e gráficos, para quando
-você quiser olhar com mais calma.
+O `⌂` abre a configuração de hosts ali mesmo, com botão **Testar**. O `◱` abre
+a versão web, com gauges, para olhar com calma.
 
 ### Dashboard no terminal
 

@@ -40,7 +40,7 @@ from sysmon_nucleo import (  # noqa: E402
     fmt_bps, fmt_bytes, fmt_pct, fmt_temp, fmt_uptime, resumo_linhas,
 )
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 
 
 RESET = "\033[0m"

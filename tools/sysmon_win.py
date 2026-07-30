@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-sysmon_win - janela nativa em Tkinter, no estilo Open Hardware Monitor.
+sysmon_win - janela nativa, sem borda, em Tkinter.
 
-Uma arvore de sensores por host, do jeito que CPU-Z e OHM mostram: categoria,
-sensor, valor, limite. Sem navegador, sem WebView2, sem pip.
+Painel escuro e monoespacado: nenhum icone, a hierarquia e a severidade saem de
+tipografia, alinhamento e cor. Cada host e um bloco; dentro dele, secoes em
+maiuscula (DESEMPENHO, TEMPERATURA, DISCOS, ARMAZENAMENTO, REDE) e uma linha
+por medida, com barra de proporcao desenhada em texto.
 
-Por que Tkinter e nao um webview: o Tk vem junto com o Python do python.org.
-Nao ha pacote para instalar, motor de navegador para faltar nem componente do
-sistema para estar ausente - os tres motivos pelos quais a janela do webview
-nao subia em maquina real. "Sempre no topo" aqui e uma linha
-(attributes -topmost), nao uma ponte entre processos.
+Tkinter de proposito: vem junto com o Python do python.org. Sem pip, sem motor
+de navegador, sem componente do sistema para faltar. "Sempre no topo" e uma
+chamada de atributo, nao uma ponte entre processos.
 
-    python sysmon.pyz            # esta janela
-    python sysmon.pyz --web      # o dashboard rico, no navegador ou webview
+A janela nao tem moldura do sistema (overrideredirect): arrasta pelo cabecalho,
+redimensiona pelo canto inferior direito, e a barra de titulo e desenhada aqui.
+O menu do botao direito devolve a moldura, caso o ambiente nao se de bem com
+janela sem decoracao.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ import queue
 import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont
-from tkinter import messagebox, ttk
+from tkinter import ttk
 
 from sysmon_nucleo import (
     AVISO, CRITICO, OFFLINE, OK,
@@ -31,18 +33,35 @@ from sysmon_nucleo import (
     fmt_pct, fmt_temp, fmt_uptime, salvar_config, testar_host,
 )
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 
-# Cores de status sobre fundo claro (o visual nativo de utilitario no Windows).
-# Todas passam 4.5:1 em branco - o valor numerico continua sendo o dado
-# principal, a cor so reforca.
-COR = {
-    OK: "#1a1a1a",
-    AVISO: "#8a5a00",
-    CRITICO: "#b3261e",
-    OFFLINE: "#8a8a8a",
+# Paleta escura. Os tons de status ficam acima de 4.5:1 no fundo, e o valor
+# numerico sempre acompanha - cor reforca, nunca carrega sozinha.
+P = {
+    "fundo":   "#0b0e14",
+    "painel":  "#0f131b",
+    "linha":   "#1b2130",
+    "texto":   "#c9d1d9",
+    "fraco":   "#6b7684",
+    "titulo":  "#58a6ff",
+    "ok":      "#3fb950",
+    "aviso":   "#d29922",
+    "critico": "#f85149",
+    "selecao": "#161b26",
 }
-COR_FUNDO_ALERTA = "#fdf3f2"
+COR_NIVEL = {OK: P["texto"], AVISO: P["aviso"],
+             CRITICO: P["critico"], OFFLINE: P["fraco"]}
+
+# Barra de proporcao em texto: em fonte monoespacada alinha de graca, e nao
+# precisa de widget nem de imagem.
+CHEIO, VAZIO = "█", "·"
+
+
+def barra(pct, largura: int = 10) -> str:
+    if pct is None:
+        return VAZIO * largura
+    n = max(0, min(largura, round(pct / 100 * largura)))
+    return CHEIO * n + VAZIO * (largura - n)
 
 
 def caminho_estado() -> Path:
@@ -69,97 +88,109 @@ def gravar_estado(d: dict) -> None:
         pass
 
 
+def fonte_mono(tam: int, bold: bool = False):
+    """Consolas no Windows; o resto e fallback razoavel por sistema."""
+    for nome in ("Consolas", "DejaVu Sans Mono", "Menlo", "Courier New"):
+        try:
+            f = tkfont.Font(family=nome, size=tam,
+                            weight="bold" if bold else "normal")
+            if f.actual("family").lower().startswith(nome.split()[0].lower()):
+                return f
+        except tk.TclError:
+            continue
+    return tkfont.Font(font="TkFixedFont", size=tam,
+                       weight="bold" if bold else "normal")
+
+
 # ------------------------------------------------------------------ dialogo
 class DialogoHosts(tk.Toplevel):
-    """Configuracao dos hosts, sem sair da janela.
+    """Configuracao dos hosts sem sair do programa - nem para isso ha navegador."""
 
-    Existe para o programa nunca precisar do navegador: sem isto, configurar
-    exigiria abrir a pagina web - justamente o que se quer evitar.
-    """
-
-    def __init__(self, pai, cfg_bruto: dict, ao_salvar) -> None:
+    def __init__(self, pai, cfg_bruto: dict, ao_salvar, mono) -> None:
         super().__init__(pai)
-        self.title("Hosts monitorados")
+        self.title("sysmon · hosts")
+        self.configure(bg=P["fundo"])
         self.transient(pai)
-        self.resizable(True, False)
         self.ao_salvar = ao_salvar
+        self.mono = mono
         self.linhas: list[dict] = []
 
-        ttk.Label(self, text="Cada host Linux tem uma URL e um token próprios, "
-                             "impressos pelo instalador do agente.",
-                  wraplength=560).grid(row=0, column=0, columnspan=2,
-                                       sticky="w", padx=12, pady=(12, 8))
+        tk.Label(self, text="cada host tem url e token proprios, impressos pelo "
+                            "instalador do agente",
+                 bg=P["fundo"], fg=P["fraco"], font=mono, wraplength=620,
+                 justify="left").pack(anchor="w", padx=14, pady=(14, 10))
 
-        self.quadro = ttk.Frame(self)
-        self.quadro.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=12)
-        self.columnconfigure(0, weight=1)
+        self.quadro = tk.Frame(self, bg=P["fundo"])
+        self.quadro.pack(fill="both", expand=True, padx=14)
 
         for h in cfg_bruto.get("hosts") or []:
             self.adicionar(h)
         if not self.linhas:
             self.adicionar({})
 
-        acoes = ttk.Frame(self)
-        acoes.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=12)
-        ttk.Button(acoes, text="+ Adicionar",
-                   command=lambda: self.adicionar({})).pack(side="left")
-        ttk.Button(acoes, text="Salvar", command=self.salvar).pack(side="right")
-        ttk.Button(acoes, text="Cancelar",
-                   command=self.destroy).pack(side="right", padx=(0, 6))
+        acoes = tk.Frame(self, bg=P["fundo"])
+        acoes.pack(fill="x", padx=14, pady=12)
+        self._botao(acoes, "+ ADICIONAR", lambda: self.adicionar({})).pack(side="left")
+        self._botao(acoes, "SALVAR", self.salvar, P["ok"]).pack(side="right")
+        self._botao(acoes, "CANCELAR", self.destroy).pack(side="right", padx=6)
 
-        self.recado = ttk.Label(self, text="", wraplength=560)
-        self.recado.grid(row=3, column=0, columnspan=2, sticky="w",
-                         padx=12, pady=(0, 12))
+        self.recado = tk.Label(self, text="", bg=P["fundo"], fg=P["critico"],
+                               font=mono, anchor="w")
+        self.recado.pack(fill="x", padx=14, pady=(0, 12))
+
+    def _botao(self, pai, texto, comando, cor=None):
+        b = tk.Label(pai, text=f" {texto} ", bg=P["painel"], fg=cor or P["texto"],
+                     font=self.mono, cursor="hand2", padx=6, pady=3)
+        b.bind("<Button-1>", lambda e: comando())
+        b.bind("<Enter>", lambda e: b.configure(bg=P["linha"]))
+        b.bind("<Leave>", lambda e: b.configure(bg=P["painel"]))
+        return b
 
     def adicionar(self, h: dict) -> None:
-        i = len(self.linhas)
-        f = ttk.LabelFrame(self.quadro, text=f"Host {i + 1}")
-        f.grid(row=i, column=0, sticky="ew", pady=4)
+        f = tk.Frame(self.quadro, bg=P["painel"], highlightthickness=1,
+                     highlightbackground=P["linha"])
+        f.pack(fill="x", pady=4)
         f.columnconfigure(1, weight=1)
 
         campos = {}
-        for j, (chave, rotulo, exemplo) in enumerate((
-            ("nome", "Apelido", "pve"),
-            ("url", "URL", "http://192.168.0.10:9109/metrics"),
-            ("token", "Token", "o que o install.sh imprimiu"),
-        )):
-            ttk.Label(f, text=rotulo).grid(row=j, column=0, sticky="w", padx=8, pady=3)
-            e = ttk.Entry(f, width=52)
-            valor = h.get(chave, "")
-            if chave == "token" and valor:
-                e.insert(0, valor)
-            elif chave != "token":
-                e.insert(0, valor)
+        for j, (chave, rotulo) in enumerate((("nome", "APELIDO"), ("url", "URL"),
+                                             ("token", "TOKEN"))):
+            tk.Label(f, text=rotulo, bg=P["painel"], fg=P["fraco"],
+                     font=self.mono, width=8, anchor="w").grid(
+                row=j, column=0, sticky="w", padx=(10, 6), pady=3)
+            e = tk.Entry(f, bg=P["fundo"], fg=P["texto"], font=self.mono,
+                         insertbackground=P["titulo"], relief="flat",
+                         highlightthickness=1, highlightbackground=P["linha"],
+                         highlightcolor=P["titulo"])
+            if h.get(chave):
+                e.insert(0, h[chave])
             e.grid(row=j, column=1, sticky="ew", padx=(0, 8), pady=3)
             campos[chave] = e
-            if chave == "token" and not valor:
-                e.insert(0, "")
-        ttk.Label(f, text=exemplo, foreground="#777").grid(
-            row=1, column=2, sticky="w", padx=(0, 8))
 
-        estado = ttk.Label(f, text="", foreground="#555")
-        estado.grid(row=3, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6))
+        estado = tk.Label(f, text="", bg=P["painel"], fg=P["fraco"],
+                          font=self.mono, anchor="w")
+        estado.grid(row=3, column=0, columnspan=3, sticky="w", padx=10, pady=(2, 8))
 
-        botoes = ttk.Frame(f)
-        botoes.grid(row=0, column=2, sticky="e", padx=(0, 8))
-        ttk.Button(botoes, text="Testar", width=8,
-                   command=lambda: self.testar(campos, estado)).pack(side="left")
-        ttk.Button(botoes, text="Remover", width=8,
-                   command=lambda: self.remover(f, campos)).pack(side="left", padx=4)
+        botoes = tk.Frame(f, bg=P["painel"])
+        botoes.grid(row=0, column=2, rowspan=2, sticky="ne", padx=8, pady=6)
+        self._botao(botoes, "TESTAR",
+                    lambda: self.testar(campos, estado)).pack(pady=(0, 4))
+        self._botao(botoes, "REMOVER",
+                    lambda: self.remover(f, campos), P["critico"]).pack()
 
-        self.linhas.append({"frame": f, "campos": campos, "estado": estado})
+        self.linhas.append({"frame": f, "campos": campos})
 
     def remover(self, frame, campos) -> None:
         frame.destroy()
         self.linhas = [l for l in self.linhas if l["campos"] is not campos]
 
     def testar(self, campos, estado) -> None:
-        estado.configure(text="testando...", foreground="#555")
+        estado.configure(text="testando...", fg=P["fraco"])
         estado.update_idletasks()
         ok, msg = testar_host(campos["url"].get().strip(),
                               campos["token"].get().strip())
-        estado.configure(text=("respondeu: " if ok else "falhou: ") + msg,
-                         foreground="#1a7f37" if ok else "#b3261e")
+        estado.configure(text=("OK  " if ok else "FALHOU  ") + msg,
+                         fg=P["ok"] if ok else P["critico"])
 
     def salvar(self) -> None:
         hosts = []
@@ -170,24 +201,26 @@ class DialogoHosts(tk.Toplevel):
             url = c["url"].get().strip()
             if not url:
                 continue
-            hosts.append({"nome": c["nome"].get().strip() or None,
-                          "url": url, "token": c["token"].get().strip()})
-        hosts = [{k: v for k, v in h.items() if v} for h in hosts]
+            h = {"url": url}
+            if c["nome"].get().strip():
+                h["nome"] = c["nome"].get().strip()
+            if c["token"].get().strip():
+                h["token"] = c["token"].get().strip()
+            hosts.append(h)
         if not hosts:
-            self.recado.configure(text="Preencha ao menos um host.",
-                                  foreground="#b3261e")
+            self.recado.configure(text="preencha ao menos um host")
             return
         try:
             self.ao_salvar(hosts)
         except ErroConfig as e:
-            self.recado.configure(text=str(e).splitlines()[0], foreground="#b3261e")
+            self.recado.configure(text=str(e).splitlines()[0])
             return
         self.destroy()
 
 
 # ------------------------------------------------------------------ janela
 class Janela:
-    """A janela principal: arvore de sensores, uma raiz por host."""
+    LARGURA_BARRA = 10
 
     def __init__(self, frota: Frota, caminho_config: Path,
                  intervalo: float = 3.0, abrir_web=None) -> None:
@@ -196,100 +229,242 @@ class Janela:
         self.intervalo = max(1.0, intervalo)
         self.abrir_web = abrir_web
         self.estado = ler_estado()
-        self.itens: dict[str, str] = {}   # chave logica -> id do Treeview
-        # Tkinter nao e thread-safe. A bandeja roda em outra thread, entao os
-        # comandos dela entram por aqui e sao aplicados no laco principal.
+        self.itens: dict[str, str] = {}
         self.fila: queue.Queue[str] = queue.Queue()
         self.na_bandeja = False
 
         self.root = tk.Tk()
-        self.root.title(f"sysmon {__version__}")
-        self.root.geometry(self.estado.get("geometria", "920x620"))
-        self.root.minsize(560, 320)
-        self._icone()
+        self.root.title("sysmon")
+        self.root.configure(bg=P["fundo"])
+        self.root.geometry(self.estado.get("geometria", "580x620"))
+        self.root.minsize(430, 260)
 
+        self.mono = fonte_mono(9)
+        self.mono_b = fonte_mono(9, bold=True)
+        self.mono_t = fonte_mono(11, bold=True)
+
+        self.sem_borda = tk.BooleanVar(value=self.estado.get("sem_borda", True))
         self.no_topo = tk.BooleanVar(value=bool(self.estado.get("topo")))
-        self.root.attributes("-topmost", self.no_topo.get())
 
-        self._barra()
-        self._arvore()
+        self._icone()
+        self._cabecalho()
+        self._corpo()
         self._rodape()
+        self._aplicar_moldura()
+        self.root.attributes("-topmost", self.no_topo.get())
 
         self.root.protocol("WM_DELETE_WINDOW", self.fechar)
         self.root.bind("<F5>", lambda e: self.atualizar_agora())
         self.root.bind("<Control-r>", lambda e: self.atualizar_agora())
 
+    # -- moldura ----------------------------------------------------------
+    def _aplicar_moldura(self) -> None:
+        """Sem moldura do sistema por padrao; a barra de titulo e nossa.
+
+        Guarda e restaura a geometria em volta: alternar overrideredirect faz
+        alguns gerenciadores de janela reposicionarem a janela.
+        """
+        # Antes da janela ser realizada, geometry() devolve "1x1+0+0"; reaplicar
+        # isso encolhia a janela para o tamanho minimo. So preserva depois de
+        # mapeada, que e quando alternar a moldura de fato reposiciona.
+        mapeada = self.root.winfo_width() > 1
+        geo = self.root.geometry() if mapeada else None
+        self.root.overrideredirect(bool(self.sem_borda.get()))
+        if geo:
+            self.root.geometry(geo)
+        if self.sem_borda.get():
+            self.grip.place(relx=1.0, rely=1.0, anchor="se")
+        else:
+            self.grip.place_forget()
+
     # -- construcao -------------------------------------------------------
     def _icone(self) -> None:
-        # Quadrado colorido como icone da janela: sem arquivo externo, e ja
-        # diz o estado da frota na barra de tarefas.
-        self._img_icone = tk.PhotoImage(width=32, height=32)
-        self.root.iconphoto(True, self._img_icone)
+        self._img = tk.PhotoImage(width=32, height=32)
+        self.root.iconphoto(True, self._img)
         self._pintar_icone(OK)
 
     def _pintar_icone(self, nivel: int) -> None:
-        cor = {OK: "#1a7f37", AVISO: "#c98500", CRITICO: "#b3261e",
-               OFFLINE: "#8a8a8a"}[nivel]
-        self._img_icone.put(cor, to=(0, 0, 32, 32))
+        self._img.put(COR_NIVEL[nivel], to=(0, 0, 32, 32))
 
-    def _barra(self) -> None:
-        barra = ttk.Frame(self.root, padding=(8, 6))
-        barra.pack(fill="x")
+    def _cabecalho(self) -> None:
+        c = tk.Frame(self.root, bg=P["fundo"])
+        c.pack(fill="x", padx=10, pady=(9, 5))
+        self.cabecalho = c
 
-        ttk.Checkbutton(barra, text="Sempre no topo", variable=self.no_topo,
-                        command=self._alternar_topo).pack(side="left")
-        ttk.Button(barra, text="Hosts...", width=10,
-                   command=self.editar_hosts).pack(side="right")
-        ttk.Button(barra, text="Atualizar", width=10,
-                   command=self.atualizar_agora).pack(side="right", padx=6)
+        marca = tk.Label(c, text="sysmon", bg=P["fundo"], fg=P["titulo"],
+                         font=self.mono_t)
+        marca.pack(side="left")
+        self.resumo = tk.Label(c, text="", bg=P["fundo"], fg=P["fraco"],
+                               font=self.mono)
+        self.resumo.pack(side="left", padx=10)
+
+        self._acao(c, "×", self.fechar, "fechar").pack(side="right", padx=(2, 0))
+        self._acao(c, "–", self.minimizar, "minimizar").pack(side="right", padx=2)
+        self._acao(c, "⌂", self.editar_hosts, "hosts").pack(side="right", padx=2)
+        self._acao(c, "↻", self.atualizar_agora, "atualizar  F5").pack(
+            side="right", padx=2)
+        self.btn_topo = self._acao(c, "▲", self.alternar_topo,
+                                   "sempre no topo")
+        self.btn_topo.pack(side="right", padx=2)
         if self.abrir_web:
-            ttk.Button(barra, text="Dashboard", width=11,
-                       command=self.abrir_web).pack(side="right")
+            self._acao(c, "◱", self.abrir_web, "dashboard web").pack(
+                side="right", padx=2)
 
-        self.resumo = ttk.Label(barra, text="")
-        self.resumo.pack(side="left", padx=14)
+        # Arrastar pelo cabecalho, como qualquer janela sem moldura.
+        for w in (c, marca, self.resumo):
+            w.bind("<Button-1>", self._pegar)
+            w.bind("<B1-Motion>", self._arrastar)
+            w.bind("<Button-3>", self._menu)
+        self._pintar_topo()
 
-    def _arvore(self) -> None:
-        quadro = ttk.Frame(self.root)
-        quadro.pack(fill="both", expand=True, padx=8)
+    def _acao(self, pai, texto, comando, dica=""):
+        b = tk.Label(pai, text=texto, bg=P["fundo"], fg=P["fraco"],
+                     font=self.mono_b, cursor="hand2", padx=5)
+        b.bind("<Button-1>", lambda e: comando())
 
-        self.arvore = ttk.Treeview(quadro, columns=("valor", "limite"),
-                                   selectmode="none")
-        self.arvore.heading("#0", text="Sensor", anchor="w")
-        self.arvore.heading("valor", text="Valor", anchor="e")
-        self.arvore.heading("limite", text="Limite / detalhe", anchor="w")
-        self.arvore.column("#0", width=300, minwidth=160, stretch=True)
-        self.arvore.column("valor", width=110, minwidth=70, anchor="e", stretch=False)
-        self.arvore.column("limite", width=250, minwidth=100, stretch=True)
+        def entrar(_e):
+            b.configure(fg=P["texto"])
+            if dica:
+                self._dica(dica)
 
-        for nivel, cor in COR.items():
-            self.arvore.tag_configure(f"n{nivel}", foreground=cor)
-        negrito = tkfont.nametofont("TkDefaultFont").copy()
-        negrito.configure(weight="bold")
-        self.arvore.tag_configure("host", font=negrito)
-        self.arvore.tag_configure("grupo", foreground="#444")
+        def sair(_e):
+            b.configure(fg=P["titulo"] if b is getattr(self, "btn_topo", None)
+                        and self.no_topo.get() else P["fraco"])
+            if dica:
+                self._dica("")
 
-        barra = ttk.Scrollbar(quadro, orient="vertical", command=self.arvore.yview)
-        self.arvore.configure(yscrollcommand=barra.set)
+        b.bind("<Enter>", entrar)
+        b.bind("<Leave>", sair)
+        return b
+
+    def _corpo(self) -> None:
+        quadro = tk.Frame(self.root, bg=P["fundo"])
+        quadro.pack(fill="both", expand=True, padx=10)
+
+        estilo = ttk.Style()
+        # clam e o unico tema que honra cor de fundo no Treeview em todos os
+        # sistemas; o padrao do Windows ignora e volta ao cinza de 1998.
+        try:
+            estilo.theme_use("clam")
+        except tk.TclError:
+            pass
+        estilo.configure("sysmon.Treeview",
+                         background=P["painel"], fieldbackground=P["painel"],
+                         foreground=P["texto"], borderwidth=0, relief="flat",
+                         bordercolor=P["fundo"], lightcolor=P["fundo"],
+                         darkcolor=P["fundo"],
+                         font=self.mono, rowheight=19)
+        estilo.map("sysmon.Treeview",
+                   background=[("selected", P["selecao"])],
+                   foreground=[("selected", P["texto"])])
+        estilo.configure("sysmon.Vertical.TScrollbar",
+                         background=P["linha"], troughcolor=P["fundo"],
+                         bordercolor=P["fundo"], arrowcolor=P["fraco"],
+                         relief="flat")
+
+        self.arvore = ttk.Treeview(quadro, style="sysmon.Treeview",
+                                   columns=("v", "d"), show="tree",
+                                   selectmode="none", takefocus=False)
+        self.arvore.column("#0", width=215, minwidth=130, stretch=True)
+        self.arvore.column("v", width=125, minwidth=95, anchor="e", stretch=False)
+        self.arvore.column("d", width=200, minwidth=60, stretch=True)
+
+        for n, cor in COR_NIVEL.items():
+            self.arvore.tag_configure(f"n{n}", foreground=cor)
+        self.arvore.tag_configure("host", foreground=P["titulo"], font=self.mono_b)
+        self.arvore.tag_configure("sub", foreground=P["fraco"])
+        self.arvore.tag_configure("secao", foreground=P["fraco"], font=self.mono_b)
+
+        rolagem = ttk.Scrollbar(quadro, orient="vertical",
+                                style="sysmon.Vertical.TScrollbar",
+                                command=self.arvore.yview)
+        self.arvore.configure(yscrollcommand=rolagem.set)
         self.arvore.pack(side="left", fill="both", expand=True)
-        barra.pack(side="right", fill="y")
+        rolagem.pack(side="right", fill="y")
 
     def _rodape(self) -> None:
-        # A barra de status vai por ultimo no fundo; os alertas entram acima
-        # dela. Empacotar nesta ordem e o que garante isso.
-        self.status = ttk.Label(self.root, text="", anchor="w", padding=(10, 4),
-                                relief="sunken")
+        self.status = tk.Label(self.root, text="", bg=P["fundo"], fg=P["fraco"],
+                               font=self.mono, anchor="w", padx=10, pady=5)
         self.status.pack(side="bottom", fill="x")
 
-        self.alertas = tk.Text(self.root, height=3, wrap="word", relief="flat",
-                               background=COR_FUNDO_ALERTA, foreground=COR[CRITICO],
-                               padx=10, pady=6, borderwidth=0,
-                               font=tkfont.nametofont("TkDefaultFont"))
-        self.alertas.configure(state="disabled")
+        self.painel_alertas = tk.Frame(self.root, bg=P["fundo"])
+        self.rotulo_alertas = tk.Label(
+            self.painel_alertas, text="", bg=P["fundo"], fg=P["critico"],
+            font=self.mono, anchor="w", justify="left", padx=10)
+        self.rotulo_alertas.pack(fill="x")
 
-    # -- acoes ------------------------------------------------------------
-    def _alternar_topo(self) -> None:
+        # Canto de redimensionar: sem moldura do sistema, ele nao vem de graca.
+        self.grip = tk.Label(self.root, text="◢", bg=P["fundo"],
+                             fg=P["linha"], font=self.mono,
+                             cursor="bottom_right_corner")
+        self.grip.bind("<Button-1>", self._pegar_tamanho)
+        self.grip.bind("<B1-Motion>", self._redimensionar)
+
+    # -- interacao --------------------------------------------------------
+    def _dica(self, texto: str) -> None:
+        if texto:
+            self.status.configure(text=texto)
+        else:
+            self.status.configure(text=getattr(self, "_status_base", ""))
+
+    def _pegar(self, e) -> None:
+        self._off = (e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y())
+
+    def _arrastar(self, e) -> None:
+        self.root.geometry(f"+{e.x_root - self._off[0]}+{e.y_root - self._off[1]}")
+
+    def _pegar_tamanho(self, e) -> None:
+        self._base = (e.x_root, e.y_root, self.root.winfo_width(),
+                      self.root.winfo_height())
+
+    def _redimensionar(self, e) -> None:
+        x0, y0, w, h = self._base
+        self.root.geometry(
+            f"{max(430, w + e.x_root - x0)}x{max(260, h + e.y_root - y0)}")
+
+    def _menu(self, e) -> None:
+        m = tk.Menu(self.root, tearoff=0, bg=P["painel"], fg=P["texto"],
+                    activebackground=P["linha"], activeforeground=P["texto"],
+                    font=self.mono, borderwidth=0)
+        m.add_checkbutton(label="sempre no topo", variable=self.no_topo,
+                          command=self.aplicar_topo)
+        m.add_checkbutton(label="sem moldura", variable=self.sem_borda,
+                          command=self._aplicar_moldura)
+        m.add_separator()
+        m.add_command(label="hosts...", command=self.editar_hosts)
+        if self.abrir_web:
+            m.add_command(label="dashboard web", command=self.abrir_web)
+        m.add_separator()
+        m.add_command(label="sair", command=self.sair)
+        try:
+            m.tk_popup(e.x_root, e.y_root)
+        finally:
+            m.grab_release()
+
+    def alternar_topo(self) -> None:
+        self.no_topo.set(not self.no_topo.get())
+        self.aplicar_topo()
+
+    def aplicar_topo(self) -> None:
         self.root.attributes("-topmost", self.no_topo.get())
+        self._pintar_topo()
+
+    def _pintar_topo(self) -> None:
+        self.btn_topo.configure(fg=P["titulo"] if self.no_topo.get() else P["fraco"])
+
+    def minimizar(self) -> None:
+        if self.na_bandeja:
+            self.root.withdraw()
+            return
+        # iconify nao funciona com overrideredirect: devolve a moldura, minimiza,
+        # e tira de novo quando a janela reaparece.
+        self.root.overrideredirect(False)
+        self.root.iconify()
+        self.root.bind("<Map>", self._remoldar, add="+")
+
+    def _remoldar(self, _e=None) -> None:
+        if self.sem_borda.get():
+            self.root.after(60, self._aplicar_moldura)
 
     def atualizar_agora(self) -> None:
         self.frota.atualizar_agora()
@@ -301,8 +476,8 @@ class Janela:
                           for h in self.frota.cfg.hosts]
 
         def salvar(hosts: list[dict]) -> None:
-            # Token em branco mantem o que ja estava: a caixa nunca deve
-            # exigir redigitar o segredo para mudar um apelido.
+            # Token em branco mantem o que ja havia: mudar um apelido nao deve
+            # exigir redigitar o segredo.
             atuais = {h.nome: h.token for h in self.frota.cfg.hosts}
             for h in hosts:
                 if not h.get("token") and h.get("nome") in atuais:
@@ -313,30 +488,31 @@ class Janela:
             self.frota.trocar(cfg)
             self.root.after(300, self.desenhar)
 
-        DialogoHosts(self.root, bruto, salvar)
+        DialogoHosts(self.root, bruto, salvar, self.mono)
 
     def fechar(self) -> None:
-        """Fechar com bandeja ativa apenas esconde - o programa segue vivo.
-
-        E o comportamento de app de bandeja: sair de verdade e pelo menu do
-        icone. Sem bandeja, fechar encerra, senao sobraria um processo sem
-        nenhuma forma de trazer a janela de volta.
-        """
+        """Com bandeja ativa, fechar so esconde - sair e pelo icone."""
         self._guardar()
         if self.na_bandeja:
             self.root.withdraw()
         else:
             self.root.destroy()
 
+    def sair(self) -> None:
+        self._guardar()
+        self.na_bandeja = False
+        self.root.destroy()
+
     def _guardar(self) -> None:
         try:
             self.estado.update(geometria=self.root.geometry(),
-                               topo=bool(self.no_topo.get()))
+                               topo=bool(self.no_topo.get()),
+                               sem_borda=bool(self.sem_borda.get()))
             gravar_estado(self.estado)
         except tk.TclError:
             pass
 
-    # -- comandos vindos da bandeja (outra thread) -------------------------
+    # -- comandos da bandeja (outra thread) -------------------------------
     def pedir(self, comando: str) -> None:
         self.fila.put(comando)
 
@@ -349,31 +525,23 @@ class Janela:
             if cmd == "mostrar":
                 self.root.deiconify()
                 self.root.lift()
-                self.root.focus_force()
+                self._remoldar()
             elif cmd == "topo":
-                self.no_topo.set(not self.no_topo.get())
-                self._alternar_topo()
+                self.alternar_topo()
             elif cmd == "atualizar":
                 self.atualizar_agora()
             elif cmd == "sair":
-                self._guardar()
-                self.na_bandeja = False
-                self.root.destroy()
+                self.sair()
                 return
 
     # -- desenho ----------------------------------------------------------
-    def _no(self, pai: str, chave: str, texto: str, valor: str = "",
-            limite: str = "", tags: tuple = ()) -> str:
-        """Cria ou atualiza um no, preservando a expansao entre atualizacoes.
-
-        Recriar a arvore a cada ciclo fecharia tudo que o usuario abriu, a cada
-        tres segundos - inutilizavel.
-        """
+    def _no(self, pai, chave, texto, valor="", detalhe="", tags=()):
+        """Atualiza no lugar. Recriar a arvore fecharia o que o usuario abriu."""
         iid = self.itens.get(chave)
         if iid and self.arvore.exists(iid):
-            self.arvore.item(iid, text=texto, values=(valor, limite), tags=tags)
+            self.arvore.item(iid, text=texto, values=(valor, detalhe), tags=tags)
             return iid
-        iid = self.arvore.insert(pai, "end", text=texto, values=(valor, limite),
+        iid = self.arvore.insert(pai, "end", text=texto, values=(valor, detalhe),
                                  tags=tags, open=True)
         self.itens[chave] = iid
         return iid
@@ -381,111 +549,123 @@ class Janela:
     def desenhar(self) -> None:
         vistos: set[str] = set()
         pior = OK
+        b = self.LARGURA_BARRA
 
         for host, estado in self.frota.estados():
             nivel, _ = avaliar(estado)
             pior = max(pior, nivel)
             d = estado.dados or {}
-            raiz_chave = f"h:{host.nome}"
+            hk = f"h:{host.nome}"
+            vistos.add(hk)
+
             so = (d.get("so") or {}).get("nome") or ""
-            resumo = so if estado.dados else (estado.erro or "sem dados")
-            raiz = self._no("", raiz_chave, host.nome,
-                            fmt_temp(d.get("cpu_temp")) if estado.dados else "offline",
-                            resumo, ("host", f"n{nivel}"))
-            vistos.add(raiz_chave)
+            chip = d.get("cpu_modelo") or ""
+            legenda = " · ".join(x for x in (so, chip) if x)
+
+            raiz = self._no(
+                "", hk, host.nome.upper(),
+                fmt_temp(d.get("cpu_temp")) if estado.dados else "OFFLINE",
+                legenda if estado.dados else (estado.erro or "sem dados"),
+                ("host",) if estado.dados else ("host", f"n{OFFLINE}"))
+
             if not estado.dados:
                 continue
 
-            def grupo(nome: str) -> str:
-                c = f"{raiz_chave}/{nome}"
+            def secao(nome: str) -> str:
+                c = f"{hk}/{nome}"
                 vistos.add(c)
-                return self._no(raiz, c, nome, tags=("grupo",))
+                return self._no(raiz, c, "  " + nome, tags=("secao",))
 
-            def item(g: str, chave: str, texto: str, valor: str,
-                     limite: str = "", nivel_item: int = OK) -> None:
-                c = f"{raiz_chave}/{chave}"
+            def linha(pai, chave, rotulo, valor, detalhe="", nv=OK):
+                c = f"{hk}/{chave}"
                 vistos.add(c)
-                self._no(g, c, texto, valor, limite, (f"n{nivel_item}",))
+                self._no(pai, c, "    " + rotulo, valor, detalhe, (f"n{nv}",))
 
-            # --- Uso
-            g = grupo("Uso")
+            # ---- desempenho
+            g = secao("DESEMPENHO")
             mem = d.get("mem") or {}
-            item(g, "cpu", "CPU", fmt_pct(d.get("cpu_percent")),
-                 f"{d.get('cpus', '?')} núcleos · {d.get('cpu_modelo') or ''}".strip(" ·"),
-                 _faixa(d.get("cpu_percent"), 80, 95))
-            item(g, "ram", "Memória", fmt_pct(mem.get("percent")),
-                 f"{fmt_bytes(mem.get('usado'))} de {fmt_bytes(mem.get('total'))}",
-                 _faixa(mem.get("percent"), 90, 97))
+            cpu = d.get("cpu_percent")
+            linha(g, "cpu", "cpu", f"{barra(cpu, b)} {fmt_pct(cpu):>4}",
+                  f"{d.get('cpus', '?')} nucleos", _faixa(cpu, 80, 95))
+            mp = mem.get("percent")
+            linha(g, "mem", "memoria", f"{barra(mp, b)} {fmt_pct(mp):>4}",
+                  f"{fmt_bytes(mem.get('usado'))} / {fmt_bytes(mem.get('total'))}",
+                  _faixa(mp, 90, 97))
             if mem.get("swap_percent"):
-                item(g, "swap", "Swap", fmt_pct(mem.get("swap_percent")),
-                     fmt_bytes(mem.get("swap_usado")))
+                sp = mem["swap_percent"]
+                linha(g, "swap", "swap", f"{barra(sp, b)} {fmt_pct(sp):>4}",
+                      fmt_bytes(mem.get("swap_usado")), _faixa(sp, 50, 80))
             load = d.get("load") or []
             if len(load) == 3:
-                item(g, "load", "Load", f"{load[0]:.2f}",
-                     f"{load[1]:.2f} (5m) · {load[2]:.2f} (15m)")
-            item(g, "up", "Ligado há", fmt_uptime(d.get("uptime_s")))
+                linha(g, "load", "carga", f"{load[0]:.2f}",
+                      f"{load[1]:.2f} 5m · {load[2]:.2f} 15m")
+            linha(g, "up", "no ar", fmt_uptime(d.get("uptime_s")))
 
-            # --- Temperaturas
+            # ---- temperatura
             temps = d.get("temps") or []
             if temps or d.get("cpu_temp") is not None:
-                g = grupo("Temperaturas")
+                g = secao("TEMPERATURA")
                 crit = d.get("cpu_crit")
-                item(g, "t:cpu", "CPU", fmt_temp(d.get("cpu_temp")),
-                     f"crítico {fmt_temp(crit)}" if crit else "",
-                     _nivel_temp(d.get("cpu_temp"), crit))
-                for i, s in enumerate(temps[:12]):
-                    item(g, f"t:{i}", f"{s.get('chip')} · {s.get('label')}",
-                         fmt_temp(s.get("c")),
-                         f"crítico {fmt_temp(s['crit'])}" if s.get("crit") else "",
-                         _nivel_temp(s.get("c"), s.get("crit")))
+                linha(g, "t:cpu", "cpu", fmt_temp(d.get("cpu_temp")),
+                      f"critico {fmt_temp(crit)}" if crit else "",
+                      _nivel_temp(d.get("cpu_temp"), crit))
+                for i, s in enumerate(temps[:10]):
+                    linha(g, f"t:{i}", (s.get("label") or "").lower()[:18],
+                          fmt_temp(s.get("c")), (s.get("chip") or "")[:18],
+                          _nivel_temp(s.get("c"), s.get("crit")))
 
             fans = d.get("fans") or {}
             if fans:
-                g = grupo("Ventoinhas")
-                for nome, rpm in list(fans.items())[:8]:
-                    item(g, f"f:{nome}", nome, f"{rpm} RPM")
+                g = secao("VENTOINHAS")
+                for nome, rpm in list(fans.items())[:6]:
+                    linha(g, f"f:{nome}", nome.split("/")[-1].lower()[:18],
+                          f"{rpm} rpm")
 
-            # --- Discos fisicos
-            blocos = d.get("blocos") or []
-            if blocos:
-                g = grupo("Discos")
-                for b in blocos:
-                    smart = b.get("smart") or {}
-                    extra = [b.get("modelo") or "", fmt_bytes(b.get("tamanho"))]
-                    if smart.get("desgaste_percent") is not None:
-                        extra.append(f"{smart['desgaste_percent']:.0f}% de vida usada")
-                    if smart.get("saude") == "falha":
-                        extra.append("SMART REPROVOU")
-                    item(g, f"b:{b['dev']}", b["dev"],
-                         fmt_temp(b.get("temp_c")), " · ".join(x for x in extra if x),
-                         CRITICO if smart.get("saude") == "falha"
-                         else _faixa(b.get("temp_c"), 60, 70))
+            # ---- discos fisicos
+            for x in d.get("blocos") or []:
+                g = secao("DISCOS")
+                sm = x.get("smart") or {}
+                # Ordem por importancia: o que faz trocar o disco primeiro, o
+                # modelo por ultimo - e ele que cede quando a coluna aperta.
+                det = []
+                if sm.get("saude") == "falha":
+                    det.append("SMART REPROVOU")
+                if sm.get("desgaste_percent") is not None:
+                    det.append(f"{sm['desgaste_percent']:.0f}% usado")
+                det += [fmt_bytes(x.get("tamanho")), (x.get("modelo") or "")[:22]]
+                linha(g, f"b:{x['dev']}", x["dev"], fmt_temp(x.get("temp_c")),
+                      " · ".join(v for v in det if v),
+                      CRITICO if sm.get("saude") == "falha"
+                      else _faixa(x.get("temp_c"), 60, 70))
 
-            # --- Filesystems
+            # ---- armazenamento
             discos = d.get("discos") or []
-            if discos:
-                g = grupo("Armazenamento")
+            tps = d.get("thinpools") or []
+            if discos or tps:
+                g = secao("ARMAZENAMENTO")
                 for x in discos:
-                    item(g, f"d:{x['mount']}", x["mount"], fmt_pct(x.get("percent")),
-                         f"{fmt_bytes(x.get('usado'))} de {fmt_bytes(x.get('total'))}",
-                         _faixa(x.get("percent"), 80, 90))
-            for tp in d.get("thinpools") or []:
-                item(grupo("Armazenamento"), f"tp:{tp['nome']}", tp["nome"],
-                     fmt_pct(tp.get("data_percent")),
-                     f"metadata {fmt_pct(tp.get('meta_percent'))}",
-                     _faixa(tp.get("data_percent"), 80, 90))
+                    p = x.get("percent")
+                    linha(g, f"d:{x['mount']}", x["mount"][:20],
+                          f"{barra(p, b)} {fmt_pct(p):>4}",
+                          f"{fmt_bytes(x.get('usado'))} / {fmt_bytes(x.get('total'))}",
+                          _faixa(p, 80, 90))
+                for t in tps:
+                    p = t.get("data_percent")
+                    linha(g, f"tp:{t['nome']}", t["nome"][:20],
+                          f"{barra(p, b)} {fmt_pct(p):>4}",
+                          f"metadata {fmt_pct(t.get('meta_percent'))}",
+                          _faixa(p, 80, 90))
 
-            # --- Rede
+            # ---- rede
             redes = [n for n in (d.get("net") or []) if n.get("up")]
             if redes:
-                g = grupo("Rede")
+                g = secao("REDE")
                 for n in redes:
-                    item(g, f"n:{n['iface']}", n["iface"],
-                         fmt_bps(n.get("rx_bps")),
-                         f"envio {fmt_bps(n.get('tx_bps'))}"
-                         + (f" · {n['mbps']} Mbit" if n.get("mbps") else ""))
+                    linha(g, f"n:{n['iface']}", n["iface"][:18],
+                          f"↓{fmt_bps(n.get('rx_bps'))}",
+                          f"↑{fmt_bps(n.get('tx_bps'))}"
+                          + (f" · {n['mbps']} Mbit" if n.get("mbps") else ""))
 
-        # Remove o que sumiu da configuracao.
         for chave, iid in list(self.itens.items()):
             if chave not in vistos:
                 if self.arvore.exists(iid):
@@ -498,35 +678,29 @@ class Janela:
     def _resumo(self, pior: int) -> None:
         n = len(self.frota.cfg.hosts)
         offline = sum(1 for _, e in self.frota.estados() if e.erro or not e.dados)
+        alertas = self.frota.alertas()
+
         partes = [f"{n} host{'s' if n != 1 else ''}"]
         if offline:
             partes.append(f"{offline} offline")
-        alertas = self.frota.alertas()
         if alertas:
             partes.append(f"{len(alertas)} alerta{'s' if len(alertas) != 1 else ''}")
-        self.resumo.configure(text=" · ".join(partes), foreground=COR[pior])
+        self.resumo.configure(text=" · ".join(partes), fg=COR_NIVEL[pior])
 
-        self.alertas.configure(state="normal")
-        self.alertas.delete("1.0", "end")
         if alertas:
-            texto = [f"!  {a}" for a in alertas[:5]]
-            if len(alertas) > 5:
-                texto.append(f"   ... e mais {len(alertas) - 5}")
-            self.alertas.insert("1.0", "\n".join(texto))
-            self.alertas.configure(height=min(len(alertas), 5) + (1 if len(alertas) > 5 else 0))
-            if not self.alertas.winfo_ismapped():
-                self.alertas.pack(side="bottom", fill="x")
-        elif self.alertas.winfo_ismapped():
-            self.alertas.pack_forget()
-        self.alertas.configure(state="disabled")
+            txt = "\n".join("! " + a for a in alertas[:4])
+            if len(alertas) > 4:
+                txt += f"\n  + {len(alertas) - 4} outros"
+            self.rotulo_alertas.configure(text=txt)
+            if not self.painel_alertas.winfo_ismapped():
+                self.painel_alertas.pack(side="bottom", fill="x", pady=(4, 0))
+        elif self.painel_alertas.winfo_ismapped():
+            self.painel_alertas.pack_forget()
 
-        if n == 0:
-            self.status.configure(
-                text="Nenhum host configurado — clique em Hosts... para começar.")
-        else:
-            self.status.configure(
-                text=f"Atualiza a cada {self.intervalo:.0f}s · F5 força · "
-                     "a coleta acontece neste processo")
+        self._status_base = ("sem hosts · use ⌂ para configurar" if n == 0
+                             else f"atualiza {self.intervalo:.0f}s · F5 forca"
+                                  " · arraste pelo topo")
+        self.status.configure(text=self._status_base)
 
     # -- ciclo ------------------------------------------------------------
     def _tique(self) -> None:
@@ -536,8 +710,8 @@ class Janela:
                 return
             self.desenhar()
         except tk.TclError:
-            return          # janela fechando
-        except Exception:   # noqa: BLE001 - desenho nunca derruba a janela
+            return
+        except Exception:  # noqa: BLE001 - desenhar nunca derruba a janela
             import logging
             logging.exception("falha ao desenhar")
         self.root.after(int(self.intervalo * 1000), self._tique)
@@ -554,11 +728,7 @@ class Janela:
 def _faixa(v, aviso, critico) -> int:
     if v is None:
         return OFFLINE
-    if v >= critico:
-        return CRITICO
-    if v >= aviso:
-        return AVISO
-    return OK
+    return CRITICO if v >= critico else AVISO if v >= aviso else OK
 
 
 def _nivel_temp(c, crit) -> int:
