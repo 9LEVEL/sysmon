@@ -248,9 +248,9 @@ saem de tipografia, alinhamento e cor.
 ```
  sysmon  3 hosts · 1 offline · 11 alertas        ▲ ↻ ⌂ – ×
 
- ▾ PVE-LAB                          78C  Proxmox VE 8.2 · Ryzen 9 5950X
+ ▾ PVE-LAB      78C · cpu 71% · ram 85%  54G de 64G · Proxmox VE 8.2
      DESEMPENHO
-       cpu            ███████···  71%  16 nucleos
+       cpu            ███████···  71%  16 nucleos · AMD Ryzen 9 5950X
        memoria        ████████··  85%  54G / 64G
        carga                2.41       1.98 5m · 1.76 15m
      TEMPERATURA
@@ -271,9 +271,13 @@ saem de tipografia, alinhamento e cor.
 prende sobre as outras janelas. Botão direito no topo abre o menu — inclusive
 para trazer a moldura do sistema de volta, se o seu ambiente preferir.
 
-Cada host é um bloco: nome em destaque, SO e CPU na mesma linha, e abaixo as
-seções em maiúscula. As barras são texto em fonte monoespacada, coloridas pela
-severidade — nada de gráfico nem ícone para decifrar.
+Cada host é um bloco. A linha do host resume as três medidas que se olha
+primeiro — **temperatura, CPU e memória** — e é colorida **por inteiro** pela
+severidade: vermelha de ponta a ponta quando algo está crítico, âmbar em
+aviso, cinza quando offline. Uma faixa de fundo separa um host do seguinte.
+
+Abaixo vêm as seções em maiúscula. As barras são texto em fonte monoespacada,
+coloridas pela severidade — nada de gráfico nem ícone para decifrar.
 
 **Não depende de nada.** É Tkinter, que vem junto com o Python do python.org —
 sem `pip`, sem WebView2, sem motor de navegador.

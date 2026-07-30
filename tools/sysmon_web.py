@@ -28,7 +28,7 @@ from sysmon_nucleo import (
     carregar_config_de, como_dict, salvar_config, testar_host,
 )
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 
 # Lista fixa em vez de montar caminho com o que o cliente mandou: nenhuma
 # requisicao consegue sair deste conjunto, entao nao existe travessia de path.

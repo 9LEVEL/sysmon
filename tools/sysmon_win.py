@@ -33,7 +33,7 @@ from sysmon_nucleo import (
     fmt_pct, fmt_temp, fmt_uptime, salvar_config, testar_host,
 )
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 
 # Paleta escura. Os tons de status ficam acima de 4.5:1 no fundo, e o valor
 # numerico sempre acompanha - cor reforca, nunca carrega sozinha.
@@ -236,8 +236,8 @@ class Janela:
         self.root = tk.Tk()
         self.root.title("sysmon")
         self.root.configure(bg=P["fundo"])
-        self.root.geometry(self.estado.get("geometria", "580x620"))
-        self.root.minsize(430, 260)
+        self.root.geometry(self.estado.get("geometria", "740x620"))
+        self.root.minsize(520, 260)
 
         self.mono = fonte_mono(9)
         self.mono_b = fonte_mono(9, bold=True)
@@ -365,14 +365,19 @@ class Janela:
         self.arvore = ttk.Treeview(quadro, style="sysmon.Treeview",
                                    columns=("v", "d"), show="tree",
                                    selectmode="none", takefocus=False)
-        self.arvore.column("#0", width=215, minwidth=130, stretch=True)
-        self.arvore.column("v", width=125, minwidth=95, anchor="e", stretch=False)
-        self.arvore.column("d", width=200, minwidth=60, stretch=True)
+        self.arvore.column("#0", width=200, minwidth=130, stretch=True)
+        self.arvore.column("v", width=215, minwidth=110, anchor="e", stretch=False)
+        self.arvore.column("d", width=215, minwidth=60, stretch=True)
 
         for n, cor in COR_NIVEL.items():
             self.arvore.tag_configure(f"n{n}", foreground=cor)
-        self.arvore.tag_configure("host", foreground=P["titulo"], font=self.mono_b)
-        self.arvore.tag_configure("sub", foreground=P["fraco"])
+        # Uma tag por severidade para a linha do host: no Treeview a tag pinta
+        # a linha toda, entao um host critico fica vermelho de ponta a ponta,
+        # nao so o nome. A faixa de fundo separa um bloco do seguinte.
+        for n, cor in ((OK, P["titulo"]), (AVISO, P["aviso"]),
+                       (CRITICO, P["critico"]), (OFFLINE, P["fraco"])):
+            self.arvore.tag_configure(f"host{n}", foreground=cor,
+                                      background=P["selecao"], font=self.mono_b)
         self.arvore.tag_configure("secao", foreground=P["fraco"], font=self.mono_b)
 
         rolagem = ttk.Scrollbar(quadro, orient="vertical",
@@ -420,7 +425,7 @@ class Janela:
     def _redimensionar(self, e) -> None:
         x0, y0, w, h = self._base
         self.root.geometry(
-            f"{max(430, w + e.x_root - x0)}x{max(260, h + e.y_root - y0)}")
+            f"{max(520, w + e.x_root - x0)}x{max(260, h + e.y_root - y0)}")
 
     def _menu(self, e) -> None:
         m = tk.Menu(self.root, tearoff=0, bg=P["painel"], fg=P["texto"],
@@ -558,15 +563,28 @@ class Janela:
             hk = f"h:{host.nome}"
             vistos.add(hk)
 
+            mem = d.get("mem") or {}
             so = (d.get("so") or {}).get("nome") or ""
-            chip = d.get("cpu_modelo") or ""
-            legenda = " · ".join(x for x in (so, chip) if x)
+
+            # As tres medidas que se olha primeiro, juntas na linha do host.
+            resumo = " · ".join(x for x in (
+                fmt_temp(d.get("cpu_temp")) if d.get("cpu_temp") is not None else "",
+                f"cpu {fmt_pct(d.get('cpu_percent'))}"
+                if d.get("cpu_percent") is not None else "",
+                f"ram {fmt_pct(mem.get('percent'))}"
+                if mem.get("percent") is not None else "",
+            ) if x)
+            detalhe = " · ".join(x for x in (
+                f"{fmt_bytes(mem.get('usado'))} de {fmt_bytes(mem.get('total'))}"
+                if mem.get("total") else "",
+                so,
+            ) if x)
 
             raiz = self._no(
                 "", hk, host.nome.upper(),
-                fmt_temp(d.get("cpu_temp")) if estado.dados else "OFFLINE",
-                legenda if estado.dados else (estado.erro or "sem dados"),
-                ("host",) if estado.dados else ("host", f"n{OFFLINE}"))
+                resumo if estado.dados else "OFFLINE",
+                detalhe if estado.dados else (estado.erro or "sem dados"),
+                (f"host{nivel}",))
 
             if not estado.dados:
                 continue
@@ -583,10 +601,12 @@ class Janela:
 
             # ---- desempenho
             g = secao("DESEMPENHO")
-            mem = d.get("mem") or {}
             cpu = d.get("cpu_percent")
+            chip = (d.get("cpu_modelo") or "").replace("(R)", "").replace("(TM)", "")
             linha(g, "cpu", "cpu", f"{barra(cpu, b)} {fmt_pct(cpu):>4}",
-                  f"{d.get('cpus', '?')} nucleos", _faixa(cpu, 80, 95))
+                  " · ".join(x for x in (f"{d.get('cpus', '?')} nucleos",
+                                         chip.strip()[:30]) if x),
+                  _faixa(cpu, 80, 95))
             mp = mem.get("percent")
             linha(g, "mem", "memoria", f"{barra(mp, b)} {fmt_pct(mp):>4}",
                   f"{fmt_bytes(mem.get('usado'))} / {fmt_bytes(mem.get('total'))}",
