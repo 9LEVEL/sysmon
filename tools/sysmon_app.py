@@ -29,7 +29,7 @@ from pathlib import Path
 
 import webview  # pywebview
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 TITULO = "sysmon"
 
@@ -127,14 +127,30 @@ def no_topo() -> bool:
 
 
 def fechar() -> None:
+    """Alias historico de sair(); usado pelo botao de reiniciar apos update."""
+    sair()
+
+
+# Quando ha bandeja, fechar a janela SO esconde: o programa continua vivo no
+# icone, como qualquer app de bandeja. Sair de verdade e pelo menu da bandeja.
+_ficar_na_bandeja = False
+_saindo = False
+
+
+def sair() -> None:
+    """Encerra de verdade. E o que o item 'Sair' da bandeja chama."""
+    global _saindo
+    _saindo = True
     if _atual and _atual.janela:
         _atual.guardar_geometria()
         _atual.janela.destroy()
 
 
-def rodar(url: str, ao_fechar=None, oculto: bool = False) -> None:
+def rodar(url: str, ao_fechar=None, oculto: bool = False,
+          ficar_na_bandeja: bool = False) -> None:
     """Cria a janela e entra no laco. Bloqueia a thread principal."""
-    global _atual
+    global _atual, _ficar_na_bandeja
+    _ficar_na_bandeja = ficar_na_bandeja
     ponte = Ponte(url)
     _atual = ponte
     e = ponte.estado
@@ -157,10 +173,16 @@ def rodar(url: str, ao_fechar=None, oculto: bool = False) -> None:
     janela.expose(ponte.alternar_topo, ponte.no_topo,
                   ponte.minimizar, ponte.abrir_no_browser)
 
-    def encerrando() -> None:
+    def encerrando():
+        """Devolver False cancela o fechamento (pywebview trata em todos os
+        backends: winforms, gtk, qt e cocoa)."""
         ponte.guardar_geometria()
+        if _ficar_na_bandeja and not _saindo:
+            janela.hide()
+            return False        # nao fecha: o programa segue na bandeja
         if ao_fechar:
             ao_fechar()
+        return None
 
     janela.events.closing += encerrando
 

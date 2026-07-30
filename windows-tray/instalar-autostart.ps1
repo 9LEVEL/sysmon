@@ -50,6 +50,20 @@ if (-not $python) {
     exit 1
 }
 
+# Sem estes pacotes o autostart subiria no navegador todo dia, em vez do app.
+Write-Host "==> Componentes do app" -ForegroundColor Cyan
+& $python.Source -c "import webview, pystray, PIL" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Aviso "faltam pywebview / pystray / pillow - sem eles abre no navegador"
+    Write-Host "    instalando..." -ForegroundColor Cyan
+    & $python.Source -m pip install --disable-pip-version-check pywebview pystray pillow
+    & $python.Source -c "import webview, pystray, PIL" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Aviso "nao consegui instalar; o sysmon vai abrir no navegador"
+        Aviso "tente manualmente: python -m pip install pywebview pystray pillow"
+    } else { Ok "instalados" }
+} else { Ok "janela e bandeja disponiveis" }
+
 # Teste rapido antes de registrar: falhar aqui e melhor que falhar no boot.
 # Em modo --browser --nao-abrir para nao piscar janela na tela; o que se quer
 # verificar e config e porta, que e onde as coisas costumam falhar.

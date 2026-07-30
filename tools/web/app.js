@@ -372,9 +372,18 @@ function render(frota) {
     new Date(frota.ts * 1000).toLocaleTimeString('pt-BR');
   document.title = alertas.length || offline
     ? `(${alertas.length + offline}) sysmon` : 'sysmon';
-  document.getElementById('rodape').textContent =
-    `Atualiza a cada ${frota.intervalo}s · a coleta acontece no servidor local, ` +
-    'os tokens não chegam ao browser.';
+  const rodape = document.getElementById('rodape');
+  rodape.textContent =
+    `Atualiza a cada ${frota.intervalo}s · a coleta acontece no processo local, ` +
+    'os tokens não chegam à página.';
+  if (frota.modo === 'browser') {
+    // Sem isso, "por que abriu no navegador?" não tem resposta na tela.
+    rodape.append(el('div', { style: 'margin-top:6px;color:var(--tinta-2)' }, [
+      'Abrindo no navegador porque falta o ', el('code', { text: 'pywebview' }),
+      '. Para a janela do app: ',
+      el('code', { text: 'python -m pip install pywebview pystray pillow' }),
+    ]));
+  }
 }
 
 async function buscar() {

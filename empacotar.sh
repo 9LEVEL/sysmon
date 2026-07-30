@@ -144,6 +144,10 @@ e o seu config.json. Precisa de Python 3.9 ou mais novo, e nada alem disso.
 
 1) Duplo clique em sysmon.bat
 
+   Na primeira vez ele instala os componentes do app (janela e bandeja) - sao
+   tres pacotes do pip. Sem eles o sysmon abre no navegador, que funciona mas
+   nao e o que se quer aqui.
+
    Ele abre com console, entao qualquer erro aparece na tela. Na primeira vez
    a interface abre na TELA DE CONFIGURACAO: preencha apelido, url e token de
    cada host, clique em Testar e salve. Nao precisa editar arquivo nenhum.

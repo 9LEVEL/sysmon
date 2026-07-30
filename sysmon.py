@@ -51,7 +51,7 @@ from sysmon_nucleo import (  # noqa: E402
     Config, ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 PORTA_PADRAO = 9110
 
@@ -235,8 +235,12 @@ def _subir(args, web: bool = True, janela: bool = True) -> int:
                 print("--oculto ignorado: sem bandeja nao haveria como reabrir "
                       "a janela.", file=sys.stderr)
                 oculto = False
-            print("janela nativa; Ctrl+C aqui tambem encerra")
-            app.rodar(url, ao_fechar=encerrar, oculto=oculto)
+            if com_bandeja:
+                print("app na bandeja: fechar a janela nao encerra; use Sair no icone")
+            else:
+                print("janela nativa; fechar a janela encerra")
+            app.rodar(url, ao_fechar=encerrar, oculto=oculto,
+                      ficar_na_bandeja=com_bandeja)
             return 0
         if not web:
             # `sysmon.py tray`: bandeja com overlay, sem servidor.
@@ -299,7 +303,7 @@ def _bandeja_junto(frota, cfg, app) -> bool:
             "alternar_topo": lambda: app.alternar_topo(),
             "no_topo": lambda: app.no_topo(),
             "atualizar": lambda: frota.atualizar_agora(),
-            "sair": lambda: app.fechar(),
+            "sair": lambda: app.sair(),
         })
         sysmon_tray.acompanhar(icone, frota)
         print("bandeja ativa")

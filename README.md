@@ -275,18 +275,23 @@ A tabela descarta colunas conforme o terminal estreita. `--once` e `--host`
 saem com código 1 quando há host crítico ou offline, então dá para usar em
 cron ou health check.
 
-### Camadas opcionais
+### É um app de bandeja
 
-Nenhuma delas impede o programa de subir; o que muda é a moldura em volta:
+Com `pywebview`, `pystray` e `pillow` instalados — o `sysmon.bat` e o
+instalador cuidam disso na primeira execução — o sysmon se comporta como
+qualquer app de bandeja do Windows:
 
-| Instalado | O que você ganha |
-|---|---|
-| nada | dashboard abre no browser |
-| `pywebview` | janela do sistema, sem barra de endereço, com **Fixar** |
-| `pystray` + `pillow` | ícone de bandeja junto, com notificação |
+- **fechar a janela não encerra o programa**: ele fica no ícone da bandeja, e
+  a janela reabre pelo ícone ou pelo atalho
+- **Sair** no menu da bandeja é o que encerra de verdade
+- o ícone muda de cor conforme o pior host, e notifica quando algo muda
+
+Sem esses pacotes nada quebra — o dashboard abre no navegador e a própria
+página diz por quê, com o comando para instalar. Mas o navegador é o plano B,
+não o normal.
 
 ```
-pip install pywebview pystray pillow
+python -m pip install pywebview pystray pillow
 ```
 
 ### Bandeja
