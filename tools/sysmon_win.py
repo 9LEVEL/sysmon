@@ -33,7 +33,7 @@ from sysmon_nucleo import (
     fmt_pct, fmt_temp, fmt_uptime, salvar_config, testar_host,
 )
 
-__version__ = "3.2.0"
+__version__ = "3.3.0"
 
 # Paleta escura. Os tons de status ficam acima de 4.5:1 no fundo, e o valor
 # numerico sempre acompanha - cor reforca, nunca carrega sozinha.
@@ -55,6 +55,40 @@ COR_NIVEL = {OK: P["texto"], AVISO: P["aviso"],
 # Barra de proporcao em texto: em fonte monoespacada alinha de graca, e nao
 # precisa de widget nem de imagem.
 CHEIO, VAZIO = "█", "·"
+
+# Tudo que a janela sabe mostrar. A caixa de "exibir" e montada a partir daqui,
+# entao a lista serve tambem de inventario: o usuario ve o que existe mesmo
+# quando escolhe esconder. Guardamos as chaves OCULTAS, nao as visiveis - assim
+# um campo novo em versao futura aparece por padrao em vez de sumir calado.
+CATALOGO = [
+    ("RESUMO", "na linha do host", [
+        ("r:temp", "temperatura da cpu"),
+        ("r:cpu",  "uso de cpu"),
+        ("r:ram",  "uso de memoria em %"),
+        ("r:gb",   "memoria usada em GB"),
+        ("r:so",   "sistema operacional"),
+    ]),
+    ("DESEMPENHO", None, [
+        ("p:cpu",  "uso de cpu"),
+        ("p:mem",  "memoria"),
+        ("p:swap", "swap"),
+        ("p:load", "carga (load average)"),
+        ("p:up",   "tempo no ar"),
+    ]),
+    ("TEMPERATURA", None, [
+        ("t:cpu",   "cpu"),
+        ("t:todos", "demais sensores do hardware"),
+    ]),
+    ("VENTOINHAS", None, [("v:todas", "rotacao em rpm")]),
+    ("DISCOS", None, [
+        ("b:todos", "discos fisicos: modelo, temperatura, desgaste, SMART"),
+    ]),
+    ("ARMAZENAMENTO", None, [
+        ("a:fs",   "filesystems montados"),
+        ("a:thin", "thin pool LVM (Proxmox)"),
+    ]),
+    ("REDE", None, [("n:todas", "interfaces ativas")]),
+]
 
 
 def barra(pct, largura: int = 10) -> str:
@@ -218,6 +252,75 @@ class DialogoHosts(tk.Toplevel):
         self.destroy()
 
 
+# ------------------------------------------------------------------ exibir
+class DialogoExibir(tk.Toplevel):
+    """Escolhe o que aparece. A lista mostra TUDO que existe, marcado ou nao."""
+
+    def __init__(self, pai, oculto: set[str], ao_salvar, mono, mono_b) -> None:
+        super().__init__(pai)
+        self.title("sysmon · exibir")
+        self.configure(bg=P["fundo"])
+        self.transient(pai)
+        self.ao_salvar = ao_salvar
+        self.vars: dict[str, tk.BooleanVar] = {}
+
+        tk.Label(self, text="desmarque o que nao quer ver; a lista mostra tudo "
+                            "que a ferramenta coleta",
+                 bg=P["fundo"], fg=P["fraco"], font=mono, justify="left",
+                 wraplength=520).pack(anchor="w", padx=14, pady=(14, 10))
+
+        corpo = tk.Frame(self, bg=P["fundo"])
+        corpo.pack(fill="both", expand=True, padx=14)
+
+        for secao, nota, itens in CATALOGO:
+            chave = f"sec:{secao}"
+            v = tk.BooleanVar(value=chave not in oculto)
+            self.vars[chave] = v
+            linha = tk.Frame(corpo, bg=P["fundo"])
+            linha.pack(fill="x", pady=(8, 0))
+            self._caixa(linha, secao, v, mono_b, P["titulo"]).pack(side="left")
+            if nota:
+                tk.Label(linha, text=nota, bg=P["fundo"], fg=P["fraco"],
+                         font=mono).pack(side="left", padx=6)
+
+            for k, rotulo in itens:
+                vi = tk.BooleanVar(value=k not in oculto)
+                self.vars[k] = vi
+                self._caixa(corpo, rotulo, vi, mono, P["texto"]).pack(
+                    anchor="w", padx=(26, 0))
+
+        acoes = tk.Frame(self, bg=P["fundo"])
+        acoes.pack(fill="x", padx=14, pady=12)
+        self._botao(acoes, "TUDO", lambda: self._todos(True), mono).pack(side="left")
+        self._botao(acoes, "NADA", lambda: self._todos(False), mono).pack(
+            side="left", padx=6)
+        self._botao(acoes, "APLICAR", self.salvar, mono, P["ok"]).pack(side="right")
+        self._botao(acoes, "CANCELAR", self.destroy, mono).pack(side="right", padx=6)
+
+    def _caixa(self, pai, texto, var, fonte, cor):
+        return tk.Checkbutton(
+            pai, text=texto, variable=var, bg=P["fundo"], fg=cor, font=fonte,
+            activebackground=P["fundo"], activeforeground=cor,
+            selectcolor=P["painel"], highlightthickness=0, borderwidth=0,
+            anchor="w", padx=2)
+
+    def _botao(self, pai, texto, comando, fonte, cor=None):
+        b = tk.Label(pai, text=f" {texto} ", bg=P["painel"], fg=cor or P["texto"],
+                     font=fonte, cursor="hand2", padx=6, pady=3)
+        b.bind("<Button-1>", lambda e: comando())
+        b.bind("<Enter>", lambda e: b.configure(bg=P["linha"]))
+        b.bind("<Leave>", lambda e: b.configure(bg=P["painel"]))
+        return b
+
+    def _todos(self, valor: bool) -> None:
+        for v in self.vars.values():
+            v.set(valor)
+
+    def salvar(self) -> None:
+        self.ao_salvar({k for k, v in self.vars.items() if not v.get()})
+        self.destroy()
+
+
 # ------------------------------------------------------------------ janela
 class Janela:
     LARGURA_BARRA = 10
@@ -232,6 +335,7 @@ class Janela:
         self.itens: dict[str, str] = {}
         self.fila: queue.Queue[str] = queue.Queue()
         self.na_bandeja = False
+        self.oculto: set[str] = set(self.estado.get("oculto") or [])
 
         self.root = tk.Tk()
         self.root.title("sysmon")
@@ -283,6 +387,21 @@ class Janela:
         self.root.iconphoto(True, self._img)
         self._pintar_icone(OK)
 
+    def ver(self, *chaves: str) -> bool:
+        """Um campo aparece a menos que tenha sido desmarcado."""
+        return not any(c in self.oculto for c in chaves)
+
+    def escolher_campos(self) -> None:
+        def aplicar(oculto: set[str]) -> None:
+            self.oculto = oculto
+            self.estado["oculto"] = sorted(oculto)
+            gravar_estado(self.estado)
+            # Redesenha do zero: esconder um campo tem que remover o no, e a
+            # poda so acontece comparando com o que foi visto nesta passada.
+            self.desenhar()
+
+        DialogoExibir(self.root, self.oculto, aplicar, self.mono, self.mono_b)
+
     def _pintar_icone(self, nivel: int) -> None:
         self._img.put(COR_NIVEL[nivel], to=(0, 0, 32, 32))
 
@@ -301,6 +420,8 @@ class Janela:
         self._acao(c, "×", self.fechar, "fechar").pack(side="right", padx=(2, 0))
         self._acao(c, "–", self.minimizar, "minimizar").pack(side="right", padx=2)
         self._acao(c, "⌂", self.editar_hosts, "hosts").pack(side="right", padx=2)
+        self._acao(c, "☰", self.escolher_campos, "escolher o que exibir").pack(
+            side="right", padx=2)
         self._acao(c, "↻", self.atualizar_agora, "atualizar  F5").pack(
             side="right", padx=2)
         self.btn_topo = self._acao(c, "▲", self.alternar_topo,
@@ -437,6 +558,7 @@ class Janela:
                           command=self._aplicar_moldura)
         m.add_separator()
         m.add_command(label="hosts...", command=self.editar_hosts)
+        m.add_command(label="exibir...", command=self.escolher_campos)
         if self.abrir_web:
             m.add_command(label="dashboard web", command=self.abrir_web)
         m.add_separator()
@@ -512,7 +634,8 @@ class Janela:
         try:
             self.estado.update(geometria=self.root.geometry(),
                                topo=bool(self.no_topo.get()),
-                               sem_borda=bool(self.sem_borda.get()))
+                               sem_borda=bool(self.sem_borda.get()),
+                               oculto=sorted(self.oculto))
             gravar_estado(self.estado)
         except tk.TclError:
             pass
@@ -567,17 +690,19 @@ class Janela:
             so = (d.get("so") or {}).get("nome") or ""
 
             # As tres medidas que se olha primeiro, juntas na linha do host.
-            resumo = " · ".join(x for x in (
-                fmt_temp(d.get("cpu_temp")) if d.get("cpu_temp") is not None else "",
+            mostrar_resumo = self.ver("sec:RESUMO")
+            resumo = "" if not mostrar_resumo else " · ".join(x for x in (
+                fmt_temp(d.get("cpu_temp"))
+                if self.ver("r:temp") and d.get("cpu_temp") is not None else "",
                 f"cpu {fmt_pct(d.get('cpu_percent'))}"
-                if d.get("cpu_percent") is not None else "",
+                if self.ver("r:cpu") and d.get("cpu_percent") is not None else "",
                 f"ram {fmt_pct(mem.get('percent'))}"
-                if mem.get("percent") is not None else "",
+                if self.ver("r:ram") and mem.get("percent") is not None else "",
             ) if x)
-            detalhe = " · ".join(x for x in (
+            detalhe = "" if not mostrar_resumo else " · ".join(x for x in (
                 f"{fmt_bytes(mem.get('usado'))} de {fmt_bytes(mem.get('total'))}"
-                if mem.get("total") else "",
-                so,
+                if self.ver("r:gb") and mem.get("total") else "",
+                so if self.ver("r:so") else "",
             ) if x)
 
             raiz = self._no(
@@ -600,49 +725,56 @@ class Janela:
                 self._no(pai, c, "    " + rotulo, valor, detalhe, (f"n{nv}",))
 
             # ---- desempenho
-            g = secao("DESEMPENHO")
-            cpu = d.get("cpu_percent")
-            chip = (d.get("cpu_modelo") or "").replace("(R)", "").replace("(TM)", "")
-            linha(g, "cpu", "cpu", f"{barra(cpu, b)} {fmt_pct(cpu):>4}",
-                  " · ".join(x for x in (f"{d.get('cpus', '?')} nucleos",
-                                         chip.strip()[:30]) if x),
-                  _faixa(cpu, 80, 95))
-            mp = mem.get("percent")
-            linha(g, "mem", "memoria", f"{barra(mp, b)} {fmt_pct(mp):>4}",
-                  f"{fmt_bytes(mem.get('usado'))} / {fmt_bytes(mem.get('total'))}",
-                  _faixa(mp, 90, 97))
-            if mem.get("swap_percent"):
-                sp = mem["swap_percent"]
-                linha(g, "swap", "swap", f"{barra(sp, b)} {fmt_pct(sp):>4}",
-                      fmt_bytes(mem.get("swap_usado")), _faixa(sp, 50, 80))
-            load = d.get("load") or []
-            if len(load) == 3:
-                linha(g, "load", "carga", f"{load[0]:.2f}",
-                      f"{load[1]:.2f} 5m · {load[2]:.2f} 15m")
-            linha(g, "up", "no ar", fmt_uptime(d.get("uptime_s")))
+            if self.ver("sec:DESEMPENHO"):
+                g = secao("DESEMPENHO")
+                cpu = d.get("cpu_percent")
+                chip = (d.get("cpu_modelo") or "").replace("(R)", "").replace("(TM)", "")
+                if self.ver("p:cpu"):
+                    linha(g, "cpu", "cpu", f"{barra(cpu, b)} {fmt_pct(cpu):>4}",
+                          " · ".join(x for x in (f"{d.get('cpus', '?')} nucleos",
+                                                 chip.strip()[:30]) if x),
+                          _faixa(cpu, 80, 95))
+                mp = mem.get("percent")
+                if self.ver("p:mem"):
+                    linha(g, "mem", "memoria", f"{barra(mp, b)} {fmt_pct(mp):>4}",
+                          f"{fmt_bytes(mem.get('usado'))} / {fmt_bytes(mem.get('total'))}",
+                          _faixa(mp, 90, 97))
+                if self.ver("p:swap") and mem.get("swap_percent"):
+                    sp = mem["swap_percent"]
+                    linha(g, "swap", "swap", f"{barra(sp, b)} {fmt_pct(sp):>4}",
+                          fmt_bytes(mem.get("swap_usado")), _faixa(sp, 50, 80))
+                load = d.get("load") or []
+                if self.ver("p:load") and len(load) == 3:
+                    linha(g, "load", "carga", f"{load[0]:.2f}",
+                          f"{load[1]:.2f} 5m · {load[2]:.2f} 15m")
+                if self.ver("p:up"):
+                    linha(g, "up", "no ar", fmt_uptime(d.get("uptime_s")))
 
             # ---- temperatura
             temps = d.get("temps") or []
-            if temps or d.get("cpu_temp") is not None:
+            if self.ver("sec:TEMPERATURA") and (temps or d.get("cpu_temp") is not None):
                 g = secao("TEMPERATURA")
                 crit = d.get("cpu_crit")
-                linha(g, "t:cpu", "cpu", fmt_temp(d.get("cpu_temp")),
-                      f"critico {fmt_temp(crit)}" if crit else "",
-                      _nivel_temp(d.get("cpu_temp"), crit))
-                for i, s in enumerate(temps[:10]):
-                    linha(g, f"t:{i}", (s.get("label") or "").lower()[:18],
-                          fmt_temp(s.get("c")), (s.get("chip") or "")[:18],
-                          _nivel_temp(s.get("c"), s.get("crit")))
+                if self.ver("t:cpu"):
+                    linha(g, "t:cpu", "cpu", fmt_temp(d.get("cpu_temp")),
+                          f"critico {fmt_temp(crit)}" if crit else "",
+                          _nivel_temp(d.get("cpu_temp"), crit))
+                if self.ver("t:todos"):
+                    for i, sen in enumerate(temps[:10]):
+                        linha(g, f"t:{i}", (sen.get("label") or "").lower()[:18],
+                              fmt_temp(sen.get("c")), (sen.get("chip") or "")[:18],
+                              _nivel_temp(sen.get("c"), sen.get("crit")))
 
             fans = d.get("fans") or {}
-            if fans:
+            if self.ver("sec:VENTOINHAS", "v:todas") and fans:
                 g = secao("VENTOINHAS")
                 for nome, rpm in list(fans.items())[:6]:
                     linha(g, f"f:{nome}", nome.split("/")[-1].lower()[:18],
                           f"{rpm} rpm")
 
             # ---- discos fisicos
-            for x in d.get("blocos") or []:
+            for x in (d.get("blocos") or []) if self.ver("sec:DISCOS",
+                                                         "b:todos") else []:
                 g = secao("DISCOS")
                 sm = x.get("smart") or {}
                 # Ordem por importancia: o que faz trocar o disco primeiro, o
@@ -659,9 +791,9 @@ class Janela:
                       else _faixa(x.get("temp_c"), 60, 70))
 
             # ---- armazenamento
-            discos = d.get("discos") or []
-            tps = d.get("thinpools") or []
-            if discos or tps:
+            discos = (d.get("discos") or []) if self.ver("a:fs") else []
+            tps = (d.get("thinpools") or []) if self.ver("a:thin") else []
+            if self.ver("sec:ARMAZENAMENTO") and (discos or tps):
                 g = secao("ARMAZENAMENTO")
                 for x in discos:
                     p = x.get("percent")
@@ -677,7 +809,8 @@ class Janela:
                           _faixa(p, 80, 90))
 
             # ---- rede
-            redes = [n for n in (d.get("net") or []) if n.get("up")]
+            redes = ([n for n in (d.get("net") or []) if n.get("up")]
+                     if self.ver("sec:REDE", "n:todas") else [])
             if redes:
                 g = secao("REDE")
                 for n in redes:

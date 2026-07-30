@@ -285,6 +285,39 @@ sem `pip`, sem WebView2, sem motor de navegador.
 O `⌂` abre a configuração de hosts ali mesmo, com botão **Testar**. O `◱` abre
 a versão web, com gauges, para olhar com calma.
 
+### Escolher o que aparece
+
+O `☰` abre a lista de tudo que a ferramenta coleta, agrupado por seção, com
+uma caixa para cada campo:
+
+```
+☑ RESUMO  na linha do host        ☑ TEMPERATURA
+  ☑ temperatura da cpu              ☑ cpu
+  ☑ uso de cpu                      ☑ demais sensores do hardware
+  ☑ uso de memoria em %           ☑ DISCOS
+  ☑ memoria usada em GB             ☑ modelo, temperatura, desgaste, SMART
+  ☑ sistema operacional           ☑ ARMAZENAMENTO
+☑ DESEMPENHO                        ☑ filesystems montados
+  ☑ uso de cpu                      ☑ thin pool LVM (Proxmox)
+  ☑ memoria                       ☑ REDE
+  ☑ swap                            ☑ interfaces ativas
+  ☑ carga (load average)
+  ☑ tempo no ar
+```
+
+A lista mostra **tudo**, mesmo o que você desmarcou — ela serve também de
+inventário do que está sendo coletado. Desmarcar uma seção esconde o bloco
+inteiro.
+
+**Esconder não silencia alerta.** Se você tirar o thin pool da tela e ele
+encher, o aviso continua aparecendo no rodapé. Preferência de exibição não
+deve virar um jeito silencioso de perder problema — há teste garantindo isso.
+
+A escolha fica em `%APPDATA%\sysmon\janela-tk.json`, junto de tamanho e
+posição. O arquivo guarda o que está **escondido**, não o que está visível:
+assim um campo novo numa versão futura aparece por padrão, em vez de nascer
+oculto para quem já tinha preferência salva.
+
 ### Dashboard no terminal
 
 ```

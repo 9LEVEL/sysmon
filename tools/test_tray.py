@@ -24,13 +24,22 @@ sys.path.insert(0, str(RAIZ))
 
 
 def _instalar_duplos() -> None:
-    """Coloca modulos de mentira no lugar dos que so existem no Windows."""
+    """Substitui SO o que faltar de verdade.
+
+    Antes o tkinter era substituido sempre, e como o discovery carrega este
+    modulo antes do test_win, o duplo vencia e quebrava quem precisa do
+    tkinter real.
+    """
     for nome in ("pystray", "PIL", "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont",
                  "tkinter"):
         if nome in sys.modules:
             continue
-        mod = types.ModuleType(nome)
-        sys.modules[nome] = mod
+        try:
+            __import__(nome)
+            continue          # existe de verdade: nao mexe
+        except ImportError:
+            pass
+        sys.modules[nome] = types.ModuleType(nome)
 
     pil = sys.modules["PIL"]
     for attr in ("Image", "ImageDraw", "ImageFont"):
