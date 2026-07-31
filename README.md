@@ -1,27 +1,40 @@
 # sysmon
 
-Monitor leve para **vários hosts Linux** (Proxmox, Debian, Ubuntu), com ícone e
-overlay na bandeja do **Windows** e um dashboard no terminal.
+**Um painel para todas as suas máquinas Linux — sem servidor, sem banco, sem
+nuvem.** Uma janela na sua área de trabalho que fica vermelha quando algum host
+esquenta, enche ou cai.
 
-O agente é um **binário Go estático**: instalar num host novo é copiar um
-arquivo. Não depende do Python da distribuição, não usa `pip`, não executa
-comando externo e roda sem root. Os clientes são Python stdlib puro.
+![O sysmon na sua máquina consulta vários hosts Linux com agente Go (GET /metrics + Bearer token); cada host responde com suas métricas, exibidas numa janela e num ícone de bandeja](docs/fluxo.svg)
 
-```
-┌── pve (Proxmox) ───┐  ┌── nas (Debian) ────┐  ┌── vps (Ubuntu) ────┐
-│  sysmon-agent (Go) │  │  sysmon-agent (Go) │  │  sysmon-agent (Go) │
-│  systemd, sem root │  │  systemd, sem root │  │  systemd, sem root │
-│  lê /sys e /proc   │  │                    │  │                    │
-└─────────┬──────────┘  └─────────┬──────────┘  └─────────┬──────────┘
-          │                       │                       │
-          └───────── GET /metrics + Bearer token ─────────┘
-                                  │
-                 ┌────────────────┴─────────────────┐
-        ┌────────┴─────────┐              ┌─────────┴────────┐
-        │  janela nativa   │              │    bandeja +     │
-        │  (ou terminal)   │              │   notificações   │
-        └──────────────────┘              └──────────────────┘
-```
+## A dor que ele resolve
+
+Você tem um Proxmox, um servidorzinho de casa, talvez uma VPS. Para saber se
+algum está com disco cheio, CPU fervendo ou simplesmente offline, a escolha
+costuma ser abrir SSH em cada um — ou montar um Grafana + Prometheus, com banco
+de série temporal, um _exporter_ em cada host e um servidor no ar só para isso.
+
+O sysmon é o meio-termo que faltava:
+
+- **No host:** um binário Go estático. Instalar é copiar um arquivo. Sem
+  runtime, sem `pip`, sem `exec`, sem root — ele lê `/sys` e `/proc` e serve por
+  HTTP, atrás de um token.
+- **Na sua máquina:** um arquivo. Abre uma **janela nativa** (e um ícone de
+  bandeja) que busca os dados de todos os agentes e mostra tudo junto. O ícone
+  muda de cor pelo pior host e **notifica quando algo muda**.
+
+Nada roda "na nuvem": a janela é o servidor. Ela puxa as métricas direto dos
+hosts, na sua LAN ou por um túnel (WireGuard/Tailscale). Um autostart, um
+processo.
+
+## Como funciona
+
+1. **Instale o agente** em cada host Linux — um `install.sh`, ou o `deploy.sh`
+   fazendo N hosts por SSH de uma vez.
+2. Cada agente serve **`GET /metrics`** (autenticado por token) com CPU,
+   temperatura, RAM, discos, SMART, RAID, thin pool LVM e rede.
+3. **Abra o cliente** na sua máquina: janela + bandeja (o padrão), dashboard no
+   browser ou tabela no terminal. Os três leem os mesmos hosts e **as mesmas
+   regras de alerta**, definidas num lugar só.
 
 ## Estrutura
 
