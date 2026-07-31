@@ -38,18 +38,17 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends tk
 
-      # A tag e a fonte da verdade do numero, mas o binario carrega a versao
-      # compilada dentro dele. Divergir aqui significa um agente que responde
+      # A tag e a fonte da verdade do numero, mas cada modulo carrega a sua
+      # versao dentro dele. Divergir aqui significa um agente que responde
       # /version diferente do que o release diz - melhor falhar agora.
+      #
+      # O checar-versao.sh varre TODO lugar que declara versao, em vez de
+      # conferir uma lista fixa: modulo novo entra sozinho na conferencia.
       - name: Confere que a tag bate com o codigo
         run: |
           VERSAO="${GITHUB_REF_NAME#v}"
           echo "VERSAO=$VERSAO" >> "$GITHUB_ENV"
-          GO=$(sed -n 's/^var versao = "\(.*\)"$/\1/p' linux-agent/main.go)
-          PY=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' sysmon.py)
-          echo "tag=$VERSAO  main.go=$GO  sysmon.py=$PY"
-          [ "$GO" = "$VERSAO" ] || { echo "::error::main.go diz $GO, a tag diz $VERSAO"; exit 1; }
-          [ "$PY" = "$VERSAO" ] || { echo "::error::sysmon.py diz $PY, a tag diz $VERSAO"; exit 1; }
+          ./checar-versao.sh "$VERSAO"
 
       # Pacote quebrado nao chega no host de ninguem: testa antes de empacotar.
       - name: Testes

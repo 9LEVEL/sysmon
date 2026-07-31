@@ -11,6 +11,15 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Barato e primeiro: versao fora de sincronia entre os modulos so aparecia
+  # na hora de cortar a tag, quando ja e tarde e chato de corrigir.
+  versao:
+    name: versao
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: ./checar-versao.sh
+
   agente:
     name: agente (Go)
     runs-on: ubuntu-latest
@@ -65,7 +74,7 @@ jobs:
   pacote:
     name: pacote
     runs-on: ubuntu-latest
-    needs: [agente, clientes]
+    needs: [versao, agente, clientes]
     steps:
       - uses: actions/checkout@v7
 

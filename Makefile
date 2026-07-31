@@ -1,9 +1,10 @@
 # Atalhos do projeto inteiro. O build do agente fica em linux-agent/Makefile.
 
-.PHONY: ajuda teste teste-go teste-py build dist bundle pacote limpar
+.PHONY: ajuda teste teste-go teste-py versao build dist bundle pacote limpar
 
 ajuda:
 	@echo "make teste    - roda todos os testes (agente Go + clientes Python)"
+	@echo "make versao   - confere se todo modulo declara a mesma versao"
 	@echo "make build    - compila o agente para esta arquitetura"
 	@echo "make dist     - compila o agente para amd64 e arm64"
 	@echo "make bundle   - gera o dist/sysmon.pyz (cliente em arquivo unico)"
@@ -20,6 +21,9 @@ teste-py:
 	@echo "== clientes (Python: nucleo, terminal e bandeja) =="
 	@python3 -m unittest discover -s tools -t tools
 
+versao:
+	@./checar-versao.sh
+
 build:
 	@$(MAKE) -C linux-agent build
 
@@ -30,7 +34,9 @@ bundle: pacote
 	@ls -lh dist/sysmon.pyz
 
 # Testa antes de empacotar: pacote quebrado nao chega no host de ninguem.
-pacote: teste
+# A versao vem primeiro por ser instantanea - nao faz sentido rodar a bateria
+# inteira para descobrir no fim que um modulo ficou para tras.
+pacote: versao teste
 	@./empacotar.sh
 
 limpar:
