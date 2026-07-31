@@ -20,6 +20,7 @@ janela sem decoracao.
 from __future__ import annotations
 
 import json
+import math
 import os
 import queue
 import tkinter as tk
@@ -486,6 +487,68 @@ class DialogoAlertas(tk.Toplevel):
         self.destroy()
 
 
+# ------------------------------------------------------------- icones do topo
+# Desenhados como vetor num Canvas, nao como glifo de fonte: renderizam igual em
+# qualquer sistema (nada de caixa-tofu quando a fonte nao tem o simbolo, como o
+# antigo hamburger), com traco e tamanho sob controle e significado mais claro.
+COR_ICONE = "#b2bcc8"   # idle: visivel de longe sem competir com os numeros
+
+
+def _tracos(cv, pts, cor, w=2):
+    """Polilinha com pontas e juntas arredondadas."""
+    cv.create_line(*[v for xy in pts for v in xy], fill=cor, width=w,
+                   capstyle="round", joinstyle="round")
+
+
+def _ic_topo(cv, x, y, c, w=2):        # sempre no topo: seta -> teto
+    _tracos(cv, [(x-5, y-5), (x+5, y-5)], c, w)
+    _tracos(cv, [(x, y+5), (x, y-2)], c, w)
+    _tracos(cv, [(x-3.2, y-1.5), (x, y-4.6), (x+3.2, y-1.5)], c, w)
+
+
+def _ic_atualizar(cv, x, y, c, w=2):   # seta circular
+    r = 6.0
+    ini, fim = -48, 262                 # graus, coords de tela (y p/ baixo)
+    pts = [(x + r*math.cos(math.radians(a)), y + r*math.sin(math.radians(a)))
+           for a in (ini + (fim-ini)*i/22 for i in range(23))]
+    _tracos(cv, pts, c, w)
+    t = math.radians(fim)
+    ex, ey = x + r*math.cos(t), y + r*math.sin(t)
+    tx, ty = -math.sin(t), math.cos(t)      # tangente
+    px, py = ty, -tx                        # perpendicular
+    lb, wb = 3.8, 2.6
+    _tracos(cv, [(ex - tx*lb + px*wb, ey - ty*lb + py*wb), (ex, ey),
+                 (ex - tx*lb - px*wb, ey - ty*lb - py*wb)], c, w)
+
+
+def _ic_alerta(cv, x, y, c, w=2):      # triangulo de aviso + !
+    _tracos(cv, [(x, y-6), (x-6.4, y+5.5), (x+6.4, y+5.5), (x, y-6)], c, w)
+    _tracos(cv, [(x, y-1.6), (x, y+1.6)], c, w)
+    cv.create_oval(x-1.1, y+2.9, x+1.1, y+5.1, fill=c, outline=c)
+
+
+def _ic_exibir(cv, x, y, c, w=2):      # checklist: escolher o que aparece
+    for yy in (y-5, y, y+5):
+        _tracos(cv, [(x-6, yy), (x-4.4, yy+1.9), (x-1.4, yy-2.4)], c, w)
+        _tracos(cv, [(x+0.8, yy), (x+6, yy)], c, w)
+
+
+def _ic_hosts(cv, x, y, c, w=2):       # servidores empilhados
+    for yy in (y-5.6, y+1.1):
+        cv.create_rectangle(x-6, yy, x+6, yy+4.5, outline=c, width=w)
+        cv.create_oval(x-4.45, yy+1.4, x-2.75, yy+3.1, fill=c, outline=c)
+        _tracos(cv, [(x+0.4, yy+2.25), (x+4.2, yy+2.25)], c, 1.4)
+
+
+def _ic_minimizar(cv, x, y, c, w=2):   # barra embaixo
+    _tracos(cv, [(x-5, y+4), (x+5, y+4)], c, w)
+
+
+def _ic_fechar(cv, x, y, c, w=2):      # X
+    _tracos(cv, [(x-5, y-5), (x+5, y+5)], c, w)
+    _tracos(cv, [(x-5, y+5), (x+5, y-5)], c, w)
+
+
 # ------------------------------------------------------------------ janela
 class Janela:
     LARGURA_BARRA = 10
@@ -619,18 +682,23 @@ class Janela:
                                font=self.mono)
         self.resumo.pack(side="left", padx=10)
 
-        self._acao(c, "×", self.fechar, "fechar").pack(side="right", padx=(2, 0))
-        self._acao(c, "–", self.minimizar, "minimizar").pack(side="right", padx=2)
-        self._acao(c, "⌂", self.editar_hosts, "hosts").pack(side="right", padx=2)
-        self._acao(c, "☰", self.escolher_campos, "escolher o que exibir").pack(
-            side="right", padx=2)
-        self._acao(c, "!", self.editar_alertas, "limiares de alerta").pack(
-            side="right", padx=2)
-        self._acao(c, "↻", self.atualizar_agora, "atualizar  F5").pack(
-            side="right", padx=2)
-        self.btn_topo = self._acao(c, "▲", self.alternar_topo,
-                                   "sempre no topo")
-        self.btn_topo.pack(side="right", padx=2)
+        self._botao_icone(c, _ic_fechar, self.fechar, "fechar",
+                          cor_hover=P["critico"]).pack(side="right", padx=(2, 0))
+        self._botao_icone(c, _ic_minimizar, self.minimizar,
+                          "minimizar").pack(side="right", padx=1)
+        # separador entre os controles de janela e as ferramentas
+        tk.Frame(c, width=1, height=14, bg=P["linha"]).pack(side="right", padx=6)
+        self._botao_icone(c, _ic_hosts, self.editar_hosts,
+                          "hosts").pack(side="right", padx=1)
+        self._botao_icone(c, _ic_exibir, self.escolher_campos,
+                          "escolher o que exibir").pack(side="right", padx=1)
+        self._botao_icone(c, _ic_alerta, self.editar_alertas,
+                          "limiares de alerta").pack(side="right", padx=1)
+        self._botao_icone(c, _ic_atualizar, self.atualizar_agora,
+                          "atualizar  F5").pack(side="right", padx=1)
+        self.btn_topo = self._botao_icone(c, _ic_topo, self.alternar_topo,
+                                          "sempre no topo")
+        self.btn_topo.pack(side="right", padx=1)
 
         # Arrastar pelo cabecalho, como qualquer janela sem moldura.
         for w in (c, marca, self.resumo):
@@ -639,25 +707,46 @@ class Janela:
             w.bind("<Button-3>", self._menu)
         self._pintar_topo()
 
-    def _acao(self, pai, texto, comando, dica=""):
-        b = tk.Label(pai, text=texto, bg=P["fundo"], fg=P["fraco"],
-                     font=self.mono_b, cursor="hand2", padx=5)
-        b.bind("<Button-1>", lambda e: comando())
+    def _botao_icone(self, pai, desenho, comando, dica="", cor_hover=None):
+        """Botao do cabecalho como icone vetorial num Canvas.
+
+        Idle num tom claro (visivel de longe), realce de fundo no hover, e um
+        estado "ligado" (azul) para o botao de sempre-no-topo. `desenho` recebe
+        (canvas, cx, cy, cor) e traca o simbolo centrado.
+        """
+        cv = tk.Canvas(pai, width=24, height=22, bg=P["fundo"],
+                       highlightthickness=0, cursor="hand2", takefocus=0)
+        cv._ligado = False
+        cv._hover = False
+        cv._cor_hover = cor_hover or P["texto"]
+
+        def repintar():
+            cv.delete("all")
+            if cv._hover:
+                cv.create_rectangle(1, 1, 23, 21, fill=P["linha"], outline="")
+            cor = (P["titulo"] if cv._ligado
+                   else cv._cor_hover if cv._hover else COR_ICONE)
+            desenho(cv, 12, 11, cor)
+
+        cv._repintar = repintar
 
         def entrar(_e):
-            b.configure(fg=P["texto"])
+            cv._hover = True
+            repintar()
             if dica:
                 self._dica(dica)
 
         def sair(_e):
-            b.configure(fg=P["titulo"] if b is getattr(self, "btn_topo", None)
-                        and self.no_topo.get() else P["fraco"])
+            cv._hover = False
+            repintar()
             if dica:
                 self._dica("")
 
-        b.bind("<Enter>", entrar)
-        b.bind("<Leave>", sair)
-        return b
+        cv.bind("<Button-1>", lambda e: comando())
+        cv.bind("<Enter>", entrar)
+        cv.bind("<Leave>", sair)
+        repintar()
+        return cv
 
     def _corpo(self) -> None:
         quadro = tk.Frame(self.root, bg=P["fundo"])
@@ -785,7 +874,8 @@ class Janela:
         self._pintar_topo()
 
     def _pintar_topo(self) -> None:
-        self.btn_topo.configure(fg=P["titulo"] if self.no_topo.get() else P["fraco"])
+        self.btn_topo._ligado = self.no_topo.get()
+        self.btn_topo._repintar()
 
     def minimizar(self) -> None:
         if self.na_bandeja:
