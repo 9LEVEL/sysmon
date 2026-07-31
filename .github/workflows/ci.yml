@@ -1,0 +1,107 @@
+# Roda a cada push e pull request. E a mesma bateria do `make teste` que roda
+# na maquina, mais o empacotamento - porque quebrar o pacote e tao ruim quanto
+# quebrar o codigo, e so se descobre tentando empacotar.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  agente:
+    name: agente (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: linux-agent/go.mod
+          # O agente nao tem dependencia externa: sem go.sum, o cache do
+          # setup-go falha procurando o arquivo.
+          cache: false
+
+      # vet + gofmt + go test, igual ao alvo `checagem` do Makefile.
+      - name: Checagem
+        run: make -C linux-agent checagem
+
+      # O agente serve HTTP e coleta em varias goroutines: corrida aqui vira
+      # leitura errada no cliente.
+      - name: Testes com -race
+        run: make -C linux-agent teste
+
+      - name: Compila para amd64 e arm64
+        run: make -C linux-agent dist
+
+  clientes:
+    name: clientes (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # O piso e o que o README promete; o topo e o que a maioria tem hoje.
+        python: ['3.9', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # sysmon_win importa tkinter no topo do modulo, entao o import precisa
+      # funcionar mesmo sem display (os testes nao abrem janela).
+      - name: Bibliotecas do Tk
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends tk
+          python -c "import tkinter; print('tkinter', tkinter.TkVersion)"
+
+      - name: Testes
+        run: python -m unittest discover -s tools -t tools -v
+
+  pacote:
+    name: pacote
+    runs-on: ubuntu-latest
+    needs: [agente, clientes]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: linux-agent/go.mod
+          cache: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Bibliotecas do Tk
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends tk
+
+      # Sem argumento, o empacotar.sh tira a versao do main.go - que e
+      # exatamente o que queremos conferir aqui.
+      - name: Empacota
+        run: ./empacotar.sh
+
+      # O auto-update baixa o .pyz e confere contra o SHA256SUMS. Se um dos
+      # dois sumir do pacote, o cliente instalado recusa a atualizacao.
+      - name: Confere o que o auto-update precisa
+        run: |
+          test -f dist/sysmon.pyz
+          grep -q ' sysmon.pyz$' dist/SHA256SUMS
+          ( cd dist && sha256sum -c SHA256SUMS )
+
+      # Roda o bundle de verdade: um .pyz que nao abre nao serve de nada.
+      - name: Fuma o .pyz
+        run: python dist/sysmon.pyz --help
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+          retention-days: 14

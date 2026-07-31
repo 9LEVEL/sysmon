@@ -1,0 +1,110 @@
+# Corta o release quando uma tag vX.Y.Z e empurrada.
+#
+#     git tag -a v4.0.0 -m "v4.0.0 — titulo\n\nnotas..." && git push origin v4.0.0
+#
+# A primeira linha da mensagem da tag vira o titulo do release e o resto vira
+# o corpo. Os binarios sao os mesmos que o `make pacote` gera na maquina, so
+# que construidos aqui, a partir do que esta na tag.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    name: publicar ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # precisa do historico e da mensagem da tag
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: linux-agent/go.mod
+          cache: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Bibliotecas do Tk
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends tk
+
+      # A tag e a fonte da verdade do numero, mas o binario carrega a versao
+      # compilada dentro dele. Divergir aqui significa um agente que responde
+      # /version diferente do que o release diz - melhor falhar agora.
+      - name: Confere que a tag bate com o codigo
+        run: |
+          VERSAO="${GITHUB_REF_NAME#v}"
+          echo "VERSAO=$VERSAO" >> "$GITHUB_ENV"
+          GO=$(sed -n 's/^var versao = "\(.*\)"$/\1/p' linux-agent/main.go)
+          PY=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' sysmon.py)
+          echo "tag=$VERSAO  main.go=$GO  sysmon.py=$PY"
+          [ "$GO" = "$VERSAO" ] || { echo "::error::main.go diz $GO, a tag diz $VERSAO"; exit 1; }
+          [ "$PY" = "$VERSAO" ] || { echo "::error::sysmon.py diz $PY, a tag diz $VERSAO"; exit 1; }
+
+      # Pacote quebrado nao chega no host de ninguem: testa antes de empacotar.
+      - name: Testes
+        run: make teste
+
+      - name: Empacota
+        run: ./empacotar.sh "$VERSAO"
+
+      - name: Confere o que o auto-update precisa
+        run: |
+          test -f dist/sysmon.pyz
+          grep -q ' sysmon.pyz$' dist/SHA256SUMS
+          ( cd dist && sha256sum -c SHA256SUMS )
+          python dist/sysmon.pyz --help >/dev/null
+
+      # Titulo = primeira linha da mensagem da tag; notas = o resto. Tag sem
+      # mensagem (leve) cai no changelog automatico do proprio GitHub.
+      - name: Monta as notas
+        id: notas
+        run: |
+          MSG=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
+          if [ -z "${MSG// /}" ]; then
+            echo "gerar=sim" >> "$GITHUB_OUTPUT"
+            echo "titulo=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "gerar=nao" >> "$GITHUB_OUTPUT"
+            echo "titulo=$(printf '%s\n' "$MSG" | head -n1)" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "$MSG" | tail -n +2 > NOTAS.md
+          fi
+
+      - name: Publica o release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ steps.notas.outputs.gerar }}" = "sim" ]; then
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "${{ steps.notas.outputs.titulo }}" \
+              --generate-notes --latest
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "${{ steps.notas.outputs.titulo }}" \
+              --notes-file NOTAS.md --latest
+          fi
+
+      # O cliente ja instalado consulta o release mais novo e espera estes dois
+      # nomes exatos. Confere pela API, do lado de fora, o que foi publicado.
+      - name: Confere o release publicado
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOMES=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+          echo "$NOMES"
+          echo "$NOMES" | grep -qx 'sysmon.pyz'
+          echo "$NOMES" | grep -qx 'SHA256SUMS'
+          echo "$NOMES" | grep -qx "sysmon-agent-$VERSAO-linux-amd64.tar.gz"
+          echo "$NOMES" | grep -qx "sysmon-agent-$VERSAO-linux-arm64.tar.gz"
+          echo "$NOMES" | grep -qx "sysmon-windows-$VERSAO.zip"
+          echo "$NOMES" | grep -qx "sysmon-linux-$VERSAO.tar.gz"
