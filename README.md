@@ -32,8 +32,8 @@ processo.
    fazendo N hosts por SSH de uma vez.
 2. Cada agente serve **`GET /metrics`** (autenticado por token) com CPU,
    temperatura, RAM, discos, SMART, RAID, thin pool LVM e rede.
-3. **Abra o cliente** na sua máquina: janela + bandeja (o padrão), dashboard no
-   browser ou tabela no terminal. Os três leem os mesmos hosts e **as mesmas
+3. **Abra o cliente** na sua máquina: a **janela nativa + bandeja** (o padrão)
+   ou a **tabela no terminal**. Os dois leem os mesmos hosts e **as mesmas
    regras de alerta**, definidas num lugar só.
 
 ## Estrutura
@@ -47,7 +47,6 @@ processo.
 | `linux-agent/sysmon-thinpool.{service,timer}` | Proxmox | snapshot do thin pool LVM |
 | `sysmon.py` | sua máquina | ponto de entrada único dos clientes |
 | `tools/sysmon_nucleo.py` | clientes | config, polling e regras de alerta (compartilhado) |
-| `tools/sysmon_web.py` + `tools/web/` | sua máquina | dashboard no browser (gauges, discos, SMART) |
 | `tools/sysmon_dash.py` | sua máquina | dashboard de N hosts no terminal |
 | `tools/sysmon_win.py` | sua máquina | **janela nativa (Tkinter), o padrão** |
 | `tools/sysmon_tray.py` | Windows | ícone de bandeja + overlay multi-host |
@@ -77,7 +76,7 @@ release.
 | Arquivo | Para que serve |
 |---|---|
 | `sysmon-windows-<v>.zip` | **Windows** — app completo: `.pyz`, lançadores e instaladores |
-| `sysmon-linux-<v>.tar.gz` | **Linux/macOS** — cliente (dashboard e terminal) |
+| `sysmon-linux-<v>.tar.gz` | **Linux/macOS** — cliente (janela e terminal) |
 | `sysmon-agent-<v>-linux-amd64.tar.gz` | agente, em **cada host monitorado** (x86_64) |
 | `sysmon-agent-<v>-linux-arm64.tar.gz` | agente, em **cada host monitorado** (ARM) |
 | `sysmon.pyz` | só o programa, para substituir manualmente |
@@ -183,34 +182,21 @@ python3 sysmon.py term --config config.json --once
 
 ## Os clientes
 
-O dashboard roda **na sua máquina**, não num servidor. Ele serve a página em
-`127.0.0.1:9110` e é ele quem busca os dados nos agentes remotos — `localhost`
-aqui é o próprio processo local, e é o esperado:
-
-```
- host monitorado                sua máquina
-┌──────────────────┐          ┌────────────────────────────┐
-│  sysmon-agent    │◄─────────┤  sysmon.pyz                │
-│  porta 9109      │  busca   │  serve em 127.0.0.1:9110   │
-└──────────────────┘          │        ▲                   │
-                              │   a janela lê daqui        │
-                              └────────────────────────────┘
-```
-
-Tudo roda a partir de **um arquivo**. Baixe o `sysmon.pyz` do release, ponha-o
-numa pasta, e:
+Tudo roda a partir de **um arquivo**, **na sua máquina** — sem servidor nem
+página web. O `sysmon.pyz` busca os dados direto dos agentes remotos e mostra
+tudo numa janela nativa (o diagrama no topo mostra o fluxo). Baixe o `.pyz` do
+release, ponha numa pasta, e:
 
 **Windows:** duplo clique em `sysmon.bat` (abre com console, então qualquer
-erro aparece). **Linux:** `python3 sysmon.pyz`.
+erro aparece). **Linux/macOS:** `python3 sysmon.pyz`.
 
-Na primeira vez a interface abre na **tela de configuração** — preencha
-apelido, URL e token de cada host, clique em **Testar** e salve. Não precisa
-editar arquivo nenhum. Depois, o botão **Hosts** no cabeçalho reabre essa tela
-a qualquer momento.
+Na primeira vez a janela abre na **tela de configuração** — preencha apelido,
+URL e token de cada host, clique em **Testar** e salve. Não precisa editar
+arquivo nenhum. Depois, o botão **⌂** no cabeçalho reabre essa tela a qualquer
+momento.
 
-Isso abre uma **janela do sistema** com o dashboard dentro — sem barra de
-endereço, sem aba de browser — e o ícone de bandeja junto, no mesmo processo.
-Um autostart, um processo.
+É uma **janela do sistema** — sem barra de endereço, sem aba de browser — com o
+ícone de bandeja junto, no mesmo processo. Um autostart, um processo.
 
 Atualizar é substituir o `sysmon.pyz`. O `config.json` fica.
 
@@ -218,12 +204,10 @@ Atualizar é substituir o `sysmon.pyz`. O `config.json` fica.
 |---|---|
 | `python sysmon.pyz` | janela nativa + bandeja (padrão) |
 | `python sysmon.pyz --oculto` | sobe minimizado na bandeja (autostart) |
-| `python sysmon.pyz --web` | o dashboard web, mais rico |
-| `python sysmon.pyz web` | só serve a página, não abre nada |
 | `python sysmon.pyz term` | tabela no terminal, atualiza sozinha |
 | `python sysmon.pyz term --once` | imprime uma vez e sai (script/cron) |
 | `python sysmon.pyz term --host pve` | detalhe completo de um host |
-| `python sysmon.pyz tray` | só o ícone de bandeja |
+| `python sysmon.pyz tray` | só o ícone de bandeja (overlay multi-host) |
 | `python sysmon.pyz local` | sensores **desta** máquina, sem rede |
 
 Rodando do repositório em vez do `.pyz`, troque `sysmon.pyz` por `sysmon.py` —
@@ -232,17 +216,11 @@ os argumentos são os mesmos.
 ### Atualização automática
 
 O sysmon verifica se há versão nova ao iniciar e a cada 6 horas, baixa em
-segundo plano e **confere o SHA256 contra o `SHA256SUMS` do release**. Quando
-está pronto, aparece um botão discreto no cabeçalho:
-
-```
-Atualizar para v2.5.0
-```
-
-Clicar reinicia já na versão nova. A troca em si é feita pelo lançador
-(`sysmon.vbs`), não pelo app: no Windows um processo não consegue sobrescrever
-com segurança o próprio `.pyz` que tem aberto. O download vai para
-`sysmon-novo.pyz` e o lançador promove antes do Python abrir o arquivo.
+segundo plano e **confere o SHA256 contra o `SHA256SUMS` do release**. O
+download vai para `sysmon-novo.pyz` e **entra no próximo arranque**: quando você
+fecha e abre de novo, o lançador (`sysmon.vbs`/`sysmon.bat`) promove o arquivo
+antes do Python abri-lo — no Windows um processo não consegue sobrescrever com
+segurança o próprio `.pyz` que tem aberto.
 
 Se o SHA não bater, ou o download não for um zipapp válido, **nada é trocado** —
 o erro fica registrado e a versão atual continua. Falha de rede também nunca
@@ -307,8 +285,7 @@ para trazer a moldura do sistema de volta.
 
 **Não depende de nada.** É Tkinter, que vem junto com o Python do python.org.
 
-O `⌂` abre a configuração de hosts, com botão **Testar**. O `◱` abre a versão
-web, com gauges.
+O `⌂` abre a configuração de hosts, com botão **Testar**.
 
 ### Limiares de alerta
 
@@ -326,7 +303,7 @@ Na mesma tela ficam os **filesystems ignorados**, um por linha. O padrão já tr
 nada útil — `/boot` enche de kernel antigo e a ESP vive quase cheia por
 natureza. Alertar nelas ensina a ignorar alerta.
 
-O filtro vale para os três clientes e para o alerta, não só para a janela.
+O filtro vale para a janela e o terminal, e também para o alerta.
 
 ### Escolher o que aparece
 
@@ -380,31 +357,25 @@ cron ou health check.
 
 ### É um app de bandeja
 
-Com `pywebview`, `pystray` e `pillow` instalados — **o próprio programa
-instala na primeira execução**, seja qual for o jeito que você o inicie — o
-sysmon se comporta como qualquer app de bandeja do Windows:
+A janela usa **Tkinter, que vem com o Python** — abre sem instalar nada. Para o
+**ícone de bandeja**, dois pacotes opcionais (`pystray` e `pillow`); com eles, o
+sysmon se comporta como qualquer app de bandeja:
 
 - **fechar a janela não encerra o programa**: ele fica no ícone da bandeja, e
   a janela reabre pelo ícone ou pelo atalho
 - **Sair** no menu da bandeja é o que encerra de verdade
 - o ícone muda de cor conforme o pior host, e notifica quando algo muda
 
-Se a instalação automática não der certo (sem rede, sem permissão), nada
-quebra: o dashboard abre no navegador e a própria página diz por quê, com o
-comando. Mas o navegador é o plano B, não o normal.
-
-Abrir no navegador com `pywebview` já instalado significa que falta o motor de
-janela do sistema. No Windows é o **WebView2**, que vem com o Edge — se faltar,
-instale de
-[go.microsoft.com/fwlink/p/?LinkId=2124703](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
-
 ```
-python -m pip install pywebview pystray pillow
+python -m pip install pystray pillow
 ```
+
+No Windows o `sysmon.bat` já instala esses dois sozinho na primeira execução.
+Sem eles, a janela funciona igual — só não há ícone na bandeja.
 
 ### Bandeja
 
-Opcional. Sem ela o dashboard sobe normalmente e o motivo aparece no terminal.
+Opcional. Sem ela a janela sobe normalmente e o motivo aparece no terminal.
 
 O ícone mostra a temperatura do **host mais quente**, colorido pelo **pior
 host**: verde abaixo de 75% do crítico do sensor, amarelo entre 75% e 90%,
@@ -509,8 +480,8 @@ caminho previsível, e o que a interface toda reflete.
 
 ## O que dispara alerta
 
-Definido num lugar só, em `tools/sysmon_nucleo.py:avaliar()` — o tray e o
-dashboard não podem divergir sobre o que é problema.
+Definido num lugar só, em `tools/sysmon_nucleo.py:avaliar()` — a janela, o
+terminal e a bandeja não podem divergir sobre o que é problema.
 
 | Condição | Aviso | Crítico |
 |---|---|---|

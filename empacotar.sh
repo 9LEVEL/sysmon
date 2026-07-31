@@ -103,15 +103,11 @@ done
 # direto. Vira UM arquivo para copiar e atualizar, em vez de uma arvore de
 # scripts soltos - que era a principal reclamacao de manutencao.
 PALCO="$DIST/.palco"
-mkdir -p "$PALCO/web"
-for m in sysmon_nucleo sysmon_web sysmon_dash sysmon_local sysmon_tray sysmon_app sysmon_update sysmon_win; do
+mkdir -p "$PALCO"
+for m in sysmon_nucleo sysmon_dash sysmon_local sysmon_tray sysmon_update sysmon_win; do
     install -m 644 "$AQUI/tools/$m.py" "$PALCO/"
 done
 install -m 644 "$AQUI/sysmon.py" "$PALCO/"
-for w in "$AQUI"/tools/web/*.html "$AQUI"/tools/web/*.css "$AQUI"/tools/web/*.js \
-         "$AQUI"/tools/web/__init__.py; do
-    install -m 644 "$w" "$PALCO/web/"
-done
 cat > "$PALCO/__main__.py" <<'EOF'
 import sysmon, sys
 sys.exit(sysmon.main())
@@ -144,9 +140,9 @@ E ESTE o pacote do Windows. Extraia numa pasta sua (nao dentro de Downloads) e:
 
 1) Duplo clique em sysmon.bat
 
-   Na primeira vez ele instala os componentes do app - janela e bandeja - que
-   sao tres pacotes do pip. Sem eles o sysmon abre no navegador, que funciona
-   mas nao e o que se quer aqui.
+   A janela usa Tkinter, que ja vem com o Python - nao instala nada. Na
+   primeira vez ele instala so o icone de bandeja (pystray + pillow, dois
+   pacotes do pip, opcionais); sem eles a janela funciona igual.
 
    Abre com console, entao qualquer erro aparece na tela. A interface abre na
    TELA DE CONFIGURACAO: preencha apelido, url e token de cada host Linux,
@@ -204,12 +200,12 @@ Cliente para acompanhar seus hosts. Precisa de Python 3.9 ou mais novo.
     cp config.example.json config.json    # preencha url e token de cada host
     chmod 600 config.json
     python3 sysmon.pyz term               # tabela no terminal
-    python3 sysmon.pyz                    # dashboard (janela, ou navegador)
+    python3 sysmon.pyz                    # janela nativa + bandeja (padrao)
 
-Sem config, a interface grafica abre na tela de configuracao. O modo terminal
+Sem config, a janela abre direto na tela de configuracao. O modo terminal
 exige o arquivo pronto.
 
-Para a janela nativa em vez do navegador:  pip install pywebview
+Para o icone de bandeja (opcional):  pip install pystray pillow
 
 Outros modos:
 

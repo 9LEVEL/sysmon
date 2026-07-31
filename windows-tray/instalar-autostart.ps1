@@ -72,10 +72,10 @@ if ($LASTEXITCODE -ne 0) {
 } else { Ok "icone de bandeja disponivel" }
 
 # Teste rapido antes de registrar: falhar aqui e melhor que falhar no boot.
-# Em modo --browser --nao-abrir para nao piscar janela na tela; o que se quer
-# verificar e config e porta, que e onde as coisas costumam falhar.
+# Em modo --oculto sobe minimizado na bandeja, sem piscar janela na tela; o que
+# se quer verificar e que a config carrega e o processo nao morre no arranque.
 Write-Host "==> Testando (6s)..." -ForegroundColor Cyan
-$p = Start-Process $python.Source -ArgumentList "`"$pyz`"", "--browser", "--nao-abrir" `
+$p = Start-Process $python.Source -ArgumentList "`"$pyz`"", "--oculto" `
      -WorkingDirectory $pasta -PassThru -WindowStyle Hidden
 Start-Sleep 6
 if ($p.HasExited) {
@@ -218,5 +218,5 @@ if ($temTarefa -and $temAtalho) {
 Write-Host ""
 Write-Host "Pronto." -ForegroundColor Green
 Write-Host "  Abrir agora   : duplo clique no atalho da area de trabalho"
-Write-Host "  Dashboard     : http://127.0.0.1:9110/"
+Write-Host "  Janela        : sobe minimizada na bandeja; clique no icone para abrir"
 Write-Host "  Remover       : powershell -ExecutionPolicy Bypass -File desinstalar-autostart.ps1"

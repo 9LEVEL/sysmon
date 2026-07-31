@@ -297,8 +297,8 @@ type $env:TEMP\traymon.log
 
 O `pip` pode ter instalado em um Python diferente do que o `pythonw` resolve:
 
-A bandeja é opcional: sem `pystray`/`Pillow` o dashboard web sobe do mesmo
-jeito e o motivo aparece no terminal. Para ter o ícone:
+A bandeja é opcional: sem `pystray`/`Pillow` a janela sobe do mesmo jeito e o
+motivo aparece no terminal. Para ter o ícone:
 
 ```powershell
 python -c "import pystray, PIL, tkinter; print('ok')"

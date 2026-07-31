@@ -692,13 +692,13 @@ def primeira_temp(estados: Iterable[tuple[Host, Estado]]) -> tuple[float | None,
 
 
 def como_dict(frota: Frota) -> dict[str, Any]:
-    """Snapshot da frota inteira, para --json, para o dashboard web e para o tray.
+    """Snapshot da frota inteira, para o --json do terminal e para o tray.
 
-    A severidade vai calculada junto de proposito: o dashboard nao reimplementa
-    avaliar() em JavaScript. Manter "o que conta como alerta" num lugar so vale
-    mais do que economizar alguns bytes no payload.
+    A severidade vai calculada junto de proposito: quem consome nao reimplementa
+    avaliar(). Manter "o que conta como alerta" num lugar so vale mais do que
+    economizar alguns bytes no snapshot.
 
-    Nao inclui token: o browser recebe telemetria, nunca credencial.
+    Nao inclui token: o snapshot leva telemetria, nunca credencial.
     """
     hosts = []
     for host, estado in frota.estados():

@@ -17,7 +17,7 @@ teste-go:
 	@$(MAKE) -C linux-agent checagem
 
 teste-py:
-	@echo "== clientes (Python: nucleo, terminal, web e bandeja) =="
+	@echo "== clientes (Python: nucleo, terminal e bandeja) =="
 	@python3 -m unittest discover -s tools -t tools
 
 build:

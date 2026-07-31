@@ -2,8 +2,6 @@
 # com o Python do python.org.
 #
 #   pystray + pillow   icone de bandeja (recomendado)
-#   pywebview          janela para o dashboard web, com `sysmon.pyz --web`
 #
 pystray>=0.19.5
 pillow>=10.0.0
-pywebview>=5.0

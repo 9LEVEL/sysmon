@@ -29,7 +29,7 @@
     "psi": [40, 70]
   },
 
-  "porta_web": 9110,
+  "porta_controle": 9110,
   "overlay_ao_iniciar": false,
   "overlay_compacto": true,
   "notificar": true,

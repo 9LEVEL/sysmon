@@ -491,11 +491,10 @@ class Janela:
     LARGURA_BARRA = 10
 
     def __init__(self, frota: Frota, caminho_config: Path,
-                 intervalo: float = 3.0, abrir_web=None) -> None:
+                 intervalo: float = 3.0) -> None:
         self.frota = frota
         self.caminho_config = caminho_config
         self.intervalo = max(1.0, intervalo)
-        self.abrir_web = abrir_web
         self.estado = ler_estado()
         self.itens: dict[str, str] = {}
         self.fila: queue.Queue[str] = queue.Queue()
@@ -632,9 +631,6 @@ class Janela:
         self.btn_topo = self._acao(c, "▲", self.alternar_topo,
                                    "sempre no topo")
         self.btn_topo.pack(side="right", padx=2)
-        if self.abrir_web:
-            self._acao(c, "◱", self.abrir_web, "dashboard web").pack(
-                side="right", padx=2)
 
         # Arrastar pelo cabecalho, como qualquer janela sem moldura.
         for w in (c, marca, self.resumo):
@@ -773,8 +769,6 @@ class Janela:
         m.add_command(label="hosts...", command=self.editar_hosts)
         m.add_command(label="exibir...", command=self.escolher_campos)
         m.add_command(label="alertas...", command=self.editar_alertas)
-        if self.abrir_web:
-            m.add_command(label="dashboard web", command=self.abrir_web)
         m.add_separator()
         m.add_command(label="sair", command=self.sair)
         try:
@@ -1133,9 +1127,16 @@ def _nivel_temp(c, crit, lim=None) -> int:
 
 
 def rodar(frota: Frota, caminho_config, intervalo: float = 3.0,
-          abrir_web=None, com_bandeja=None, oculto: bool = False) -> Janela:
-    """Abre a janela. com_bandeja recebe a Janela e devolve True se subiu o icone."""
-    j = Janela(frota, Path(caminho_config), intervalo, abrir_web)
+          com_bandeja=None, oculto: bool = False, ao_criar=None) -> Janela:
+    """Abre a janela.
+
+    com_bandeja recebe a Janela e devolve True se subiu o icone; ao_criar
+    recebe a Janela assim que ela existe (usado para armar a trava de instancia
+    unica, que pede `pedir('mostrar')` quando o sysmon e aberto de novo).
+    """
+    j = Janela(frota, Path(caminho_config), intervalo)
+    if ao_criar:
+        ao_criar(j)
     if com_bandeja:
         j.na_bandeja = bool(com_bandeja(j))
     if oculto and j.na_bandeja:

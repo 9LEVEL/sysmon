@@ -3,14 +3,13 @@
 sysmon_tray - icone de bandeja + overlay, para varios hosts Linux.
 
 O icone mostra a temperatura do host mais quente, colorido pelo pior host da
-frota; o overlay lista todos. Quem sobe isto e o sysmon.py, que roda a bandeja
-e o dashboard web no mesmo processo.
+frota; o overlay lista todos. Quem sobe isto e o sysmon.py, junto da janela.
 
 Requisitos (na maquina que olha, nao nos hosts monitorados):
     pip install pystray pillow
 
-Sem esses dois o import falha, e o sysmon.py segue so com o dashboard web em
-vez de nao subir - a bandeja e um extra, nao o caminho principal.
+Sem esses dois o import falha e o sysmon.py segue so com a janela - a bandeja
+e um extra, nao o caminho principal.
 
 Arquitetura de threads:
     - principal : loop do tkinter (overlay + aplicacao dos comandos do menu)
@@ -32,8 +31,6 @@ import sys
 import threading
 import tkinter as tk
 import traceback
-import urllib.request
-import webbrowser
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -83,7 +80,6 @@ POSICAO = [40, 40]
 OVERLAY_INICIAL = True
 COMPACTO_INICIAL = True
 NOTIFICAR = True
-PORTA_WEB = 9110
 
 # Cores do icone, por nivel de severidade.
 CORES = {
@@ -327,7 +323,6 @@ def montar_tray(frota: Frota, overlay: Overlay) -> pystray.Icon:
         pystray.MenuItem("Cliques atravessam", enfileirar("clickthrough"),
                          checked=lambda item: overlay.click_through),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Abrir dashboard", enfileirar("dashboard")),
         pystray.MenuItem("Atualizar todos", enfileirar("atualizar")),
         pystray.MenuItem("Copiar JSON da frota", enfileirar("copiar")),
         pystray.MenuItem("Sair", enfileirar("sair")),
@@ -345,8 +340,6 @@ def loop_ui(root: tk.Tk, frota: Frota, overlay: Overlay, icone: pystray.Icon) ->
             overlay.alternar_compacto()
         elif cmd == "clickthrough":
             overlay.alternar_click_through()
-        elif cmd == "dashboard":
-            threading.Thread(target=abrir_dashboard, daemon=True).start()
         elif cmd == "atualizar":
             frota.atualizar_agora()
         elif cmd == "atualizar_host":
@@ -376,25 +369,6 @@ def loop_ui(root: tk.Tk, frota: Frota, overlay: Overlay, icone: pystray.Icon) ->
 def copiar(root: tk.Tk, dados: dict) -> None:
     root.clipboard_clear()
     root.clipboard_append(json.dumps(dados, indent=2, ensure_ascii=False))
-
-
-def abrir_dashboard() -> None:
-    """Abre o dashboard no browser.
-
-    O servidor sobe junto com a bandeja no mesmo processo (sysmon.py), entao
-    aqui e so apontar o browser. Se alguem rodou `sysmon.py tray` sozinho, o
-    endereco nao responde e a mensagem explica o que fazer.
-    """
-    url = f"http://127.0.0.1:{PORTA_WEB}/"
-    try:
-        with urllib.request.urlopen(url + "api/frota", timeout=1):
-            pass
-    except Exception:  # noqa: BLE001
-        caixa("O dashboard web nao esta no ar.\n\n"
-              "Voce iniciou so a bandeja. Rode `python sysmon.py` (sem "
-              "subcomando) para subir os dois juntos.", icone=0x40)
-        return
-    webbrowser.open(url)
 
 
 def notificar(icone: pystray.Icon, texto: str) -> None:
@@ -454,17 +428,16 @@ def preparar(frota: Frota, cfg):
     """Configura a bandeja a partir do config, sem ainda entrar em nenhum laco.
 
     Devolve um contexto opaco que o rodar() consome. Separar as duas etapas
-    deixa o sysmon.py descobrir cedo se a bandeja e viavel, antes de subir o
-    servidor web.
+    deixa o sysmon.py descobrir cedo se a bandeja e viavel, antes de subir a
+    janela.
     """
-    global CFG, BRUTO, POSICAO, OVERLAY_INICIAL, COMPACTO_INICIAL, NOTIFICAR, PORTA_WEB
+    global CFG, BRUTO, POSICAO, OVERLAY_INICIAL, COMPACTO_INICIAL, NOTIFICAR
     CFG = cfg
     BRUTO = cfg.extra
     POSICAO = list(BRUTO.get("posicao", [40, 40]))
     OVERLAY_INICIAL = bool(BRUTO.get("overlay_ao_iniciar", False))
     COMPACTO_INICIAL = bool(BRUTO.get("overlay_compacto", len(cfg.hosts) > 2))
     NOTIFICAR = bool(BRUTO.get("notificar", True))
-    PORTA_WEB = int(BRUTO.get("porta_web", 9110))
 
     def ao_mudar(nome: str, estado: Estado) -> None:
         """Chamado da thread do poller quando um host muda de nivel."""
