@@ -20,9 +20,9 @@ janela sem decoracao.
 from __future__ import annotations
 
 import json
-import math
 import os
 import queue
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont
@@ -34,7 +34,7 @@ from sysmon_nucleo import (
     fmt_bps, fmt_bytes, fmt_pct, fmt_temp, fmt_uptime, salvar_config, testar_host,
 )
 
-__version__ = "4.0.0"
+__version__ = "4.1.0"
 
 # Paleta escura. Os tons de status ficam acima de 4.5:1 no fundo, e o valor
 # numerico sempre acompanha - cor reforca, nunca carrega sozinha.
@@ -122,6 +122,10 @@ CHEIO, VAZIO = "█", "·"
 # quando escolhe esconder. Guardamos as chaves OCULTAS, nao as visiveis - assim
 # um campo novo em versao futura aparece por padrao em vez de sumir calado.
 CATALOGO = [
+    ("TELA", "aparencia da janela", [
+        ("c:detalhe", "coluna do meio (o texto entre o nome e o valor)"),
+        ("c:scope",   "grafico animado de cpu no topo"),
+    ]),
     ("RESUMO", "na linha do host", [
         ("r:temp", "temperatura da cpu"),
         ("r:cpu",  "uso de cpu"),
@@ -150,6 +154,29 @@ CATALOGO = [
     ]),
     ("REDE", None, [("n:todas", "interfaces ativas")]),
 ]
+
+# Secoes do catalogo que NAO viram um bloco na arvore: sao ajustes de tela.
+# Antes so RESUMO era assim, e o teste que confere catalogo contra arvore
+# carregava esse nome escrito na mao. Declarado aqui, o teste continua valendo
+# quando aparecer a proxima.
+SECOES_DE_OPCAO = {"TELA", "RESUMO"}
+
+
+def decidir_scope(ligado: bool, alt_arvore: int, piso: int,
+                  alt_faixa: int) -> bool:
+    """O grafico do topo cabe, dado o quanto sobrou para a arvore?
+
+    Fora da classe e sem widget nenhum porque a parte que erra aqui e a
+    aritmetica, nao o Tk.
+
+    A histerese esta no segundo limiar: para VOLTAR exige-se, alem do piso, a
+    altura da propria faixa. Sem isso, mostrar encolheria a arvore abaixo do
+    piso e mandaria esconder no quadro seguinte - o classico pisca-pisca de
+    barra que aparece e some sozinha.
+    """
+    if ligado:
+        return alt_arvore >= piso
+    return alt_arvore >= piso + alt_faixa
 
 
 def barra(pct, largura: int = 10) -> str:
@@ -500,25 +527,47 @@ def _tracos(cv, pts, cor, w=2):
                    capstyle="round", joinstyle="round")
 
 
+def mistura(c1: str, c2: str, t: float) -> str:
+    """Interpola duas cores #rrggbb. t=0 devolve c1, t=1 devolve c2.
+
+    O Tk nao tem canal alfa: nao da para desenhar "cyan a 20%". O halo do
+    brilho e feito com a propria cor ja misturada ao fundo, camada por camada -
+    e por isso que ele so funciona sobre um fundo conhecido, que e o caso aqui.
+    """
+    t = max(0.0, min(1.0, t))
+    a = [int(c1[i:i+2], 16) for i in (1, 3, 5)]
+    b = [int(c2[i:i+2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(
+        round(x + (y - x) * t) for x, y in zip(a, b))
+
+
+# Camadas do halo: (largura do traco, quanto a cor ja foi diluida no fundo).
+# Larga e apagada por baixo, fina e viva por cima - e a soma que da a impressao
+# de luz vazando. Tres camadas bastam; a quarta so custa quadro.
+CAMADAS_GLOW = ((9.0, 0.86), (5.0, 0.62), (2.6, 0.28), (1.4, 0.0))
+
+
+def _glow(cv, pts, cor, fundo=None, camadas=CAMADAS_GLOW):
+    """Polilinha com halo. Desenha do mais apagado para o mais vivo."""
+    fundo = fundo or P["fundo"]
+    for larg, diluicao in camadas:
+        _tracos(cv, pts, mistura(cor, fundo, diluicao), larg)
+
+
+def _texto_glow(cv, x, y, txt, cor, fonte, fundo=None, anchor="w"):
+    """Texto com halo, pelo mesmo truque: copias apagadas em volta, viva no meio."""
+    fundo = fundo or P["fundo"]
+    halo = mistura(cor, fundo, 0.72)
+    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)):
+        cv.create_text(x + dx, y + dy, text=txt, fill=halo, font=fonte,
+                       anchor=anchor)
+    cv.create_text(x, y, text=txt, fill=cor, font=fonte, anchor=anchor)
+
+
 def _ic_topo(cv, x, y, c, w=2):        # sempre no topo: seta -> teto
     _tracos(cv, [(x-5, y-5), (x+5, y-5)], c, w)
     _tracos(cv, [(x, y+5), (x, y-2)], c, w)
     _tracos(cv, [(x-3.2, y-1.5), (x, y-4.6), (x+3.2, y-1.5)], c, w)
-
-
-def _ic_atualizar(cv, x, y, c, w=2):   # seta circular
-    r = 6.0
-    ini, fim = -48, 262                 # graus, coords de tela (y p/ baixo)
-    pts = [(x + r*math.cos(math.radians(a)), y + r*math.sin(math.radians(a)))
-           for a in (ini + (fim-ini)*i/22 for i in range(23))]
-    _tracos(cv, pts, c, w)
-    t = math.radians(fim)
-    ex, ey = x + r*math.cos(t), y + r*math.sin(t)
-    tx, ty = -math.sin(t), math.cos(t)      # tangente
-    px, py = ty, -tx                        # perpendicular
-    lb, wb = 3.8, 2.6
-    _tracos(cv, [(ex - tx*lb + px*wb, ey - ty*lb + py*wb), (ex, ey),
-                 (ex - tx*lb - px*wb, ey - ty*lb - py*wb)], c, w)
 
 
 def _ic_alerta(cv, x, y, c, w=2):      # triangulo de aviso + !
@@ -553,6 +602,12 @@ def _ic_fechar(cv, x, y, c, w=2):      # X
 class Janela:
     LARGURA_BARRA = 10
 
+    # Tamanho minimo, num lugar so: o minsize do gerenciador de janelas nao
+    # vale quando a moldura e nossa (overrideredirect), entao o arrasto do
+    # canto tem que respeitar o mesmo limite. Eram dois pares de numeros
+    # soltos, livres para divergirem.
+    MIN_LARG, MIN_ALT = 470, 260
+
     def __init__(self, frota: Frota, caminho_config: Path,
                  intervalo: float = 3.0) -> None:
         self.frota = frota
@@ -562,6 +617,7 @@ class Janela:
         self.itens: dict[str, str] = {}
         self.fila: queue.Queue[str] = queue.Queue()
         self.na_bandeja = False
+        self._pronto = False        # trava os handlers durante a montagem
         self.oculto: set[str] = set(self.estado.get("oculto") or [])
         # Historico curto por (host, medida) para os sparklines. Guardado no
         # cliente, nao no agente: e memoria de janela aberta, nao telemetria.
@@ -572,7 +628,7 @@ class Janela:
         self.root.title("sysmon")
         self.root.configure(bg=P["fundo"])
         self.root.geometry(self.estado.get("geometria", "820x640"))
-        self.root.minsize(470, 260)
+        self.root.minsize(self.MIN_LARG, self.MIN_ALT)
 
         self.mono = fonte_mono(10)
         self.mono_b = fonte_mono(10, bold=True)
@@ -583,14 +639,25 @@ class Janela:
 
         self._icone()
         self._cabecalho()
-        self._corpo()
+        # Rodape ANTES do corpo, de proposito. O pack atende na ordem em que
+        # foi chamado: quem vem depois fica com o que sobrou. Com o corpo
+        # primeiro, encolher a janela espremia o rodape - a linha de status
+        # virava uma tira de 8px e o painel de alertas era cortado no meio da
+        # frase, ou sumia de vez. Agora quem cede e a arvore, que e o unico
+        # que sabe rolar.
         self._rodape()
+        self._scope()
+        self._corpo()
         self._aplicar_moldura()
         self.root.attributes("-topmost", self.no_topo.get())
 
         self.root.protocol("WM_DELETE_WINDOW", self.fechar)
         self.root.bind("<F5>", lambda e: self.atualizar_agora())
         self.root.bind("<Control-r>", lambda e: self.atualizar_agora())
+        # So depois de tudo construido: o <Configure> chega durante a propria
+        # montagem, quando ainda nao ha arvore para medir.
+        self._pronto = True
+        self.root.bind("<Configure>", self._acomodar_scope, add="+")
 
     # -- moldura ----------------------------------------------------------
     def _aplicar_moldura(self) -> None:
@@ -675,9 +742,12 @@ class Janela:
         c.pack(fill="x", padx=10, pady=(9, 5))
         self.cabecalho = c
 
-        marca = tk.Label(c, text="sysmon", bg=P["fundo"], fg=P["titulo"],
-                         font=self.mono_t)
+        # A marca num Canvas, nao num Label: e o que permite o halo. Label do
+        # Tk pinta um texto chapado e so.
+        marca = tk.Canvas(c, width=self.mono_t.measure("sysmon") + 6, height=20,
+                          bg=P["fundo"], highlightthickness=0, takefocus=0)
         marca.pack(side="left")
+        _texto_glow(marca, 2, 10, "sysmon", P["titulo"], self.mono_t)
         self.resumo = tk.Label(c, text="", bg=P["fundo"], fg=P["fraco"],
                                font=self.mono)
         self.resumo.pack(side="left", padx=10)
@@ -694,8 +764,9 @@ class Janela:
                           "escolher o que exibir").pack(side="right", padx=1)
         self._botao_icone(c, _ic_alerta, self.editar_alertas,
                           "limiares de alerta").pack(side="right", padx=1)
-        self._botao_icone(c, _ic_atualizar, self.atualizar_agora,
-                          "atualizar  F5").pack(side="right", padx=1)
+        # Sem botao de atualizar: a janela ja atualiza sozinha no intervalo, e
+        # forcar e caso raro que F5 e o menu da bandeja resolvem. Um botao que
+        # quase ninguem clica so rouba espaco e atencao dos que importam.
         self.btn_topo = self._botao_icone(c, _ic_topo, self.alternar_topo,
                                           "sempre no topo")
         self.btn_topo.pack(side="right", padx=1)
@@ -751,6 +822,7 @@ class Janela:
     def _corpo(self) -> None:
         quadro = tk.Frame(self.root, bg=P["fundo"])
         quadro.pack(fill="both", expand=True, padx=10)
+        self.quadro = quadro
 
         estilo = ttk.Style()
         # clam e o unico tema que honra cor de fundo no Treeview em todos os
@@ -768,10 +840,30 @@ class Janela:
         estilo.map("sysmon.Treeview",
                    background=[("selected", P["selecao"])],
                    foreground=[("selected", P["texto"])])
+        # O clam desenha a barra com moldura 3D clara. Sem apagar lightcolor e
+        # darkcolor - como ja era feito no Treeview logo acima - o polegar
+        # aparece cercado de branco no fundo escuro, que era metade da fama de
+        # "barra quebrada".
+        # O polegar em P["linha"] sumia no fundo: barra tambem e indicador de
+        # onde voce esta na lista, e para isso precisa ser vista sem procura.
         estilo.configure("sysmon.Vertical.TScrollbar",
-                         background=P["linha"], troughcolor=P["fundo"],
+                         background=P["ocioso"], troughcolor=P["fundo"],
                          bordercolor=P["fundo"], arrowcolor=P["fraco"],
+                         lightcolor=P["fundo"], darkcolor=P["fundo"],
                          relief="flat")
+        estilo.map("sysmon.Vertical.TScrollbar",
+                   background=[("active", P["fraco"])])
+        # E a outra metade eram as setinhas: dois botoes que ninguem clica -
+        # rola-se com a roda - e que o tema insiste em pintar claros. Trough e
+        # polegar, so. Tema que nao aceite o layout fica com a barra completa,
+        # que funciona igual.
+        try:
+            estilo.layout("sysmon.Vertical.TScrollbar", [
+                ("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
+                    ("Vertical.Scrollbar.thumb",
+                     {"expand": "1", "sticky": "nswe"})]})])
+        except tk.TclError:
+            pass
 
         # Ordem das colunas: nome (fixo) · detalhe (elastico) · valor (fixo,
         # colado na borda direita). Antes o nome esticava e era ele quem era
@@ -799,12 +891,193 @@ class Janela:
                                       background=P["selecao"], font=self.mono_b)
         self.arvore.tag_configure("secao", foreground=P["fraco"], font=self.mono_b)
 
-        rolagem = ttk.Scrollbar(quadro, orient="vertical",
-                                style="sysmon.Vertical.TScrollbar",
-                                command=self.arvore.yview)
-        self.arvore.configure(yscrollcommand=rolagem.set)
+        self.rolagem = ttk.Scrollbar(quadro, orient="vertical",
+                                     style="sysmon.Vertical.TScrollbar",
+                                     command=self.arvore.yview)
+        self.arvore.configure(yscrollcommand=self._ajustar_rolagem)
+        # A barra e empacotada ANTES da arvore. Ao contrario, ela ficava com a
+        # sobra de quem tem expand=True e, em janela estreita, a sobra era zero:
+        # a barra sumia justo quando havia mais conteudo escondido do que nunca.
+        self.rolagem.pack(side="right", fill="y")
         self.arvore.pack(side="left", fill="both", expand=True)
-        rolagem.pack(side="right", fill="y")
+        self._barra_visivel = True
+        self._detalhe_visivel = True
+
+    def _ajustar_rolagem(self, primeiro, ultimo) -> None:
+        """Barra vertical so quando ha o que rolar.
+
+        Barra parada numa janela que ja mostra tudo mente: promete conteudo
+        abaixo que nao existe, e ainda cobra a largura dela por isso.
+
+        Nao oscila: mostrar ou esconder muda a LARGURA da arvore, e a fracao
+        vertical nao depende da largura - nenhuma linha reflui. Sem isso, o
+        proprio ato de esconder poderia pedir para mostrar de novo, em laco.
+        """
+        precisa = not (float(primeiro) <= 0.0 and float(ultimo) >= 1.0)
+        if precisa != self._barra_visivel:
+            self._barra_visivel = precisa
+            if precisa:
+                self.rolagem.pack(side="right", fill="y", before=self.arvore)
+            else:
+                self.rolagem.pack_forget()
+        self.rolagem.set(primeiro, ultimo)
+
+    # -- osciloscopio ------------------------------------------------------
+    ALT_SCOPE = 46
+    MS_ANIM = 66          # ~15 quadros/s: o bastante para deslizar liso
+    PASSO_SCOPE = 18      # px por amostra
+    MS_PARADO = 500       # heartbeat quando a janela nao esta na tela
+
+    def _scope(self) -> None:
+        """Faixa animada no topo: a cpu da frota desenhada como osciloscopio.
+
+        E o unico enfeite da janela, e mesmo ele carrega informacao: a cor sai
+        da severidade, entao a tela fica ambar ou vermelha antes de voce ler
+        qualquer numero.
+        """
+        self.scope = tk.Canvas(self.root, height=self.ALT_SCOPE, bg=P["fundo"],
+                               highlightthickness=0, takefocus=0)
+        self.scope.pack(fill="x", padx=10, pady=(0, 2))
+        # Arrastar tambem por aqui: e uma faixa larga no topo, o lugar onde a
+        # mao vai naturalmente para mover uma janela sem moldura.
+        self.scope.bind("<Button-1>", self._pegar)
+        self.scope.bind("<B1-Motion>", self._arrastar)
+        self.scope.bind("<Button-3>", self._menu)
+
+        # Dois estados diferentes, de proposito: o que voce pediu em `exibir`
+        # e o que cabe na tela agora. Sem separar, a janela ficar curta por um
+        # instante apagaria a preferencia para sempre.
+        self._scope_pedido = True
+        self._scope_ligado = True
+        self._amostras: list[float] = []      # cpu media da frota, por coleta
+        self._ultima_amostra = time.monotonic()
+        self._nivel_scope = OK
+        self._assinatura: tuple = ()
+
+    def _empilhar_amostra(self, valores: list, nivel: int,
+                          assinatura: tuple) -> None:
+        """Uma amostra por coleta - nunca uma por redesenho.
+
+        A cor acompanha o nivel sempre; o ponto no grafico so entra quando ha
+        leitura nova de verdade.
+        """
+        self._nivel_scope = nivel
+        if assinatura == self._assinatura:
+            return
+        self._assinatura = assinatura
+        media = (sum(valores) / len(valores)) if valores else 0.0
+        self._amostras.append(media)
+        del self._amostras[:-120]
+        self._ultima_amostra = time.monotonic()
+
+    def _pintar_scope(self) -> None:
+        cv = self.scope
+        cv.delete("all")
+        larg = cv.winfo_width() or 1
+        alt = self.ALT_SCOPE
+        base, teto = alt - 7, 7
+        cor = COR_NIVEL[self._nivel_scope]
+        if self._nivel_scope == OK:
+            cor = P["ativo"]        # cyan: "esta vivo", nao "esta em alerta"
+
+        # O deslize entre coletas e interpolacao do EIXO, nao do dado: a curva
+        # anda porque o tempo anda, e nao porque alguem inventou pontos.
+        avanco = (time.monotonic() - self._ultima_amostra) / max(self.intervalo, 0.5)
+        desloca = self.PASSO_SCOPE * min(1.0, max(0.0, avanco))
+
+        # grade: linhas verticais que rolam junto, como num scope de verdade
+        cor_grade = mistura(P["linha"], P["fundo"], 0.25)
+        passo_g = self.PASSO_SCOPE * 2
+        inicio = -((desloca) % passo_g)
+        x = inicio
+        while x < larg:
+            cv.create_line(x, teto - 3, x, base + 3, fill=cor_grade)
+            x += passo_g
+        cv.create_line(0, (teto + base) / 2, larg, (teto + base) / 2,
+                       fill=cor_grade, dash=(2, 4))
+
+        if len(self._amostras) < 2:
+            _texto_glow(cv, 10, alt / 2, "aguardando leitura", P["fraco"],
+                        self.mono, anchor="w")
+            return
+
+        # Da direita para a esquerda: a amostra mais nova encosta na borda.
+        cabem = int(larg / self.PASSO_SCOPE) + 3
+        serie = self._amostras[-cabem:]
+        pts = []
+        for i, v in enumerate(serie):
+            x = larg - (len(serie) - 1 - i) * self.PASSO_SCOPE - desloca
+            y = base - (base - teto) * max(0.0, min(100.0, v)) / 100.0
+            pts.append((x, y))
+
+        _glow(cv, pts, cor)
+        # Cabeca do traco: o ponto vivo que diz onde e o agora.
+        px, py = pts[-1]
+        for r, dil in ((7.0, 0.85), (4.0, 0.55), (2.0, 0.0)):
+            cv.create_oval(px - r, py - r, px + r, py + r,
+                           fill=mistura(cor, P["fundo"], dil), outline="")
+
+        # Tarja atras do numero: a curva passa por cima do canto direito e o
+        # halo do texto sozinho nao vence uma linha acesa cruzando a leitura.
+        txt = f"cpu {fmt_pct(serie[-1])}"
+        lt, at = self.mono_b.measure(txt), self.mono_b.metrics("linespace")
+        cv.create_rectangle(larg - lt - 14, teto - 1, larg - 2, teto + at + 1,
+                            fill=P["fundo"], outline="")
+        _texto_glow(cv, larg - 8, teto + at / 2, txt, cor, self.mono_b,
+                    anchor="e")
+
+    # Piso da arvore: ~4 linhas. Abaixo disso a lista deixa de informar e o
+    # grafico passa a ser o que sobra numa janela que ninguem consegue ler.
+    ALT_MIN_ARVORE = 92
+
+    def _mostrar_scope(self, mostrar: bool) -> None:
+        self._scope_ligado = mostrar
+        if mostrar:
+            self.scope.pack(fill="x", padx=10, pady=(0, 2), before=self.quadro)
+        else:
+            self.scope.pack_forget()
+
+    def _acomodar_scope(self, _e=None) -> None:
+        """Recolhe o grafico quando a janela fica curta demais para os dois.
+
+        Enfeite nao espreme a lista: some sozinho e volta sozinho.
+
+        O limiar de volta embute a altura da propria faixa, e e isso que
+        impede o pisca-pisca. Esconder devolve exatamente ALT_SCOPE a arvore;
+        exigir essa mesma folga de volta antes de reaparecer garante que
+        nenhuma altura de janela satisfaca as duas condicoes ao mesmo tempo -
+        sem isso, mostrar encolheria a arvore o bastante para mandar esconder,
+        em laco, a cada quadro.
+        """
+        if not self._pronto:
+            return
+        if not self._scope_pedido:
+            if self._scope_ligado:
+                self._mostrar_scope(False)
+            return
+        alt = self.arvore.winfo_height()
+        if alt <= 1:
+            return          # ainda nao houve layout; medir agora nao diz nada
+        alvo = decidir_scope(self._scope_ligado, alt,
+                             self.ALT_MIN_ARVORE, self.ALT_SCOPE)
+        if alvo != self._scope_ligado:
+            self._mostrar_scope(alvo)
+
+    def _animar(self) -> None:
+        """Um quadro, e agenda o proximo.
+
+        So anima com a janela na tela. Escondida na bandeja - que e o estado
+        normal deste programa - animar seria queimar cpu da maquina que ele
+        existe justamente para vigiar.
+        """
+        try:
+            na_tela = bool(self.root.winfo_ismapped()) and self._scope_ligado
+            if na_tela:
+                self._pintar_scope()
+            self.root.after(self.MS_ANIM if na_tela else self.MS_PARADO,
+                            self._animar)
+        except tk.TclError:
+            return          # janela fechada no meio do quadro
 
     def _rodape(self) -> None:
         self.status = tk.Label(self.root, text="", bg=P["fundo"], fg=P["fraco"],
@@ -818,11 +1091,16 @@ class Janela:
         self.rotulo_alertas.pack(fill="x")
 
         # Canto de redimensionar: sem moldura do sistema, ele nao vem de graca.
+        # Estava em P["linha"], quase a propria cor do fundo - a unica alca de
+        # resize da janela era invisivel ate voce esbarrar nela. Agora nasce
+        # discreto e acende ao passar o mouse, como qualquer alca.
         self.grip = tk.Label(self.root, text="◢", bg=P["fundo"],
-                             fg=P["linha"], font=self.mono,
+                             fg=P["fraco"], font=self.mono,
                              cursor="bottom_right_corner")
         self.grip.bind("<Button-1>", self._pegar_tamanho)
         self.grip.bind("<B1-Motion>", self._redimensionar)
+        self.grip.bind("<Enter>", lambda _e: self.grip.configure(fg=P["texto"]))
+        self.grip.bind("<Leave>", lambda _e: self.grip.configure(fg=P["fraco"]))
 
     # -- interacao --------------------------------------------------------
     def _dica(self, texto: str) -> None:
@@ -844,7 +1122,8 @@ class Janela:
     def _redimensionar(self, e) -> None:
         x0, y0, w, h = self._base
         self.root.geometry(
-            f"{max(470, w + e.x_root - x0)}x{max(260, h + e.y_root - y0)}")
+            f"{max(self.MIN_LARG, w + e.x_root - x0)}"
+            f"x{max(self.MIN_ALT, h + e.y_root - y0)}")
 
     def _menu(self, e) -> None:
         m = tk.Menu(self.root, tearoff=0, bg=P["painel"], fg=P["texto"],
@@ -987,10 +1266,37 @@ class Janela:
         self._no(pai, c, "    " + rotulo, valor, detalhe,
                  (f"m{magnitude(pct, *limiar)}",))
 
+    def _aplicar_preferencias(self) -> None:
+        """Reflete na tela o que foi marcado em `exibir`. So age na mudanca."""
+        # A caixa da secao vale por todas as de dentro, como nas demais: quem
+        # desmarca TELA fica com a janela crua - nome e valor, nada mais.
+        det = self.ver("sec:TELA", "c:detalhe")
+        if det != self._detalhe_visivel:
+            self._detalhe_visivel = det
+            if det:
+                self.arvore.configure(displaycolumns=("d", "v"))
+                self.arvore.column("d", width=180, minwidth=0, stretch=True)
+                self.arvore.column("v", width=230, minwidth=230, stretch=False)
+            else:
+                # displaycolumns, e nao width=0: encolher a coluna deixa uma
+                # fresta de poucos pixels que ainda desenha a primeira coluna
+                # de pixels do texto - um cisco por linha. Aqui ela sai da
+                # lista de exibicao e nao existe mais.
+                #
+                # Sem a coluna do meio, quem estica e a do valor: os numeros
+                # seguem colados na borda direita em vez de deixar um vao.
+                self.arvore.configure(displaycolumns=("v",))
+                self.arvore.column("v", width=230, minwidth=230, stretch=True)
+
+        self._scope_pedido = self.ver("sec:TELA", "c:scope")
+        self._acomodar_scope()
+
     def desenhar(self) -> None:
         vistos: set[str] = set()
         pior = OK
         b = self.LARGURA_BARRA
+        self._aplicar_preferencias()
+        cpus: list[float] = []
 
         lim = self.frota.cfg.limiares
         for host, estado in self.frota.estados():
@@ -1002,6 +1308,8 @@ class Janela:
 
             mem = d.get("mem") or {}
             so = (d.get("so") or {}).get("nome") or ""
+            if d.get("cpu_percent") is not None:
+                cpus.append(d["cpu_percent"])
             self._anotar(host.nome, d.get("ts"), {
                 "cpu": d.get("cpu_percent"),
                 "ram": mem.get("percent"),
@@ -1149,6 +1457,10 @@ class Janela:
                     self.arvore.delete(iid)
                 del self.itens[chave]
 
+        # A assinatura sao os ts das coletas: desenhar de novo por outro motivo
+        # (salvar config, trocar campo) nao pode empilhar amostra repetida e
+        # esticar o grafico com tempo que nao passou.
+        self._empilhar_amostra(cpus, pior, tuple(sorted(self._ultimo_ts.items())))
         self._pintar_icone(pior)
         self._resumo(pior)
 
@@ -1169,9 +1481,19 @@ class Janela:
             if len(alertas) > 4:
                 txt += f"\n  + {len(alertas) - 4} outros"
             self.rotulo_alertas.configure(text=txt)
-            if not self.painel_alertas.winfo_ismapped():
-                self.painel_alertas.pack(side="bottom", fill="x", pady=(4, 0))
-        elif self.painel_alertas.winfo_ismapped():
+            # before=quadro poe o painel na frente da arvore na fila do pack:
+            # alerta e o motivo de a janela existir, nao pode ser ele a ficar
+            # sem espaco. winfo_manager em vez de winfo_ismapped porque o
+            # segundo diz "esta visivel", e um painel espremido a zero conta
+            # como invisivel - dava um pack() a cada redesenho.
+            if not self.painel_alertas.winfo_manager():
+                # Na frente do grafico tambem: se o espaco apertar, quem
+                # desaparece e o enfeite, nunca o aviso.
+                antes = (self.scope if self.scope.winfo_manager()
+                         else self.quadro)
+                self.painel_alertas.pack(side="bottom", fill="x", pady=(4, 0),
+                                         before=antes)
+        elif self.painel_alertas.winfo_manager():
             self.painel_alertas.pack_forget()
 
         self._status_base = ("sem hosts · use ⌂ para configurar" if n == 0
@@ -1196,6 +1518,7 @@ class Janela:
     def rodar(self) -> None:
         self.frota.esperar_primeira_leitura(limite=2.5)
         self.desenhar()
+        self._animar()
         if not self.frota.cfg.hosts:
             self.root.after(300, self.editar_hosts)
         self.root.after(int(self.intervalo * 1000), self._tique)

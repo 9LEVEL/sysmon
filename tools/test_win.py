@@ -70,8 +70,54 @@ class TestCatalogo(unittest.TestCase):
 
     def test_secoes_conhecidas_batem_com_as_desenhadas(self):
         desenhadas = set(re.findall(r'secao\("([A-Z]+)"\)', FONTE))
-        do_catalogo = {s for s, _, _ in W.CATALOGO if s != "RESUMO"}
+        do_catalogo = {s for s, _, _ in W.CATALOGO
+                       if s not in W.SECOES_DE_OPCAO}
         self.assertEqual(desenhadas, do_catalogo)
+
+    def test_secao_de_opcao_existe_no_catalogo(self):
+        """Nome em SECOES_DE_OPCAO que nao esta no catalogo isenta um bloco
+        da arvore da conferencia acima sem que ninguem perceba."""
+        nomes = {s for s, _, _ in W.CATALOGO}
+        self.assertLessEqual(W.SECOES_DE_OPCAO, nomes)
+
+
+class TestRecolherScope(unittest.TestCase):
+    """O grafico do topo some quando a janela encurta - sem ficar piscando."""
+
+    PISO, FAIXA = 92, 46
+
+    def decidir(self, ligado, alt):
+        return W.decidir_scope(ligado, alt, self.PISO, self.FAIXA)
+
+    def test_recolhe_quando_a_arvore_fica_menor_que_o_piso(self):
+        self.assertFalse(self.decidir(True, self.PISO - 1))
+
+    def test_fica_enquanto_a_arvore_couber(self):
+        self.assertTrue(self.decidir(True, self.PISO))
+
+    def test_so_volta_com_folga_para_a_propria_faixa(self):
+        # Voltar com o piso exato faria a arvore cair abaixo dele no mesmo
+        # quadro: a faixa ocupa espaco que sai justamente da arvore.
+        self.assertFalse(self.decidir(False, self.PISO))
+        self.assertFalse(self.decidir(False, self.PISO + self.FAIXA - 1))
+        self.assertTrue(self.decidir(False, self.PISO + self.FAIXA))
+
+    def test_nenhuma_altura_oscila(self):
+        """A prova do pisca-pisca, para toda altura possivel.
+
+        Decidido o estado, aplica-se o efeito dele na arvore (esconder devolve
+        a faixa, mostrar toma) e decide-se de novo. Se a segunda decisao
+        discordar da primeira, aquela altura entra em laco na tela.
+        """
+        for alt in range(0, 600):
+            for ligado in (True, False):
+                novo = self.decidir(ligado, alt)
+                # o que a arvore mede depois que a mudanca acontece
+                depois = alt + (self.FAIXA if ligado and not novo else
+                                -self.FAIXA if novo and not ligado else 0)
+                self.assertEqual(
+                    self.decidir(novo, depois), novo,
+                    f"altura {alt} partindo de ligado={ligado} oscila")
 
 
 class TestVisibilidade(unittest.TestCase):

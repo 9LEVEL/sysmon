@@ -250,13 +250,25 @@ severidade saem de tipografia, alinhamento e cor.
 
 No **cabeçalho**, à direita, uma fileira de ícones desenhados a vetor — não
 dependem de fonte, então aparecem iguais em qualquer sistema: **sempre no topo**
-(acende em azul quando ligado), **atualizar**, **limiares de alerta**, **escolher
-o que exibir** e **hosts**; depois de um separador, **minimizar** e **fechar** (que
-fica vermelho ao passar o mouse). Cada ícone diz o que faz no hover.
+(acende em azul quando ligado), **limiares de alerta**, **escolher o que exibir**
+e **hosts**; depois de um separador, **minimizar** e **fechar** (que fica vermelho
+ao passar o mouse). Cada ícone diz o que faz no hover. Não há botão de atualizar:
+a janela já atualiza sozinha no intervalo, e **F5** força quando você quiser.
 
 **Três colunas com papéis fixos.** O nome nunca é truncado; o detalhe no meio é
 quem cede quando você estreita a janela; os números ficam **colados na borda
-direita** e acompanham o redimensionamento.
+direita** e acompanham o redimensionamento. A coluna do meio pode ser desligada
+em *exibir* — sem ela, o valor encosta na direita e sobra só nome e número.
+
+**A barra de rolagem aparece só quando há o que rolar**, e some quando tudo
+cabe na janela.
+
+**No topo, um gráfico animado da CPU da frota.** A cor sai da severidade: fica
+âmbar ou vermelho antes de você ler qualquer número. Anda só com a janela na
+tela — recolhida na bandeja, o desenho para, para não gastar CPU da máquina que
+o programa existe para vigiar. Se a janela ficar curta demais para os dois, ele
+se recolhe sozinho e volta quando há espaço: enfeite não espreme a lista. Pode
+ser desligado de vez em *exibir*.
 
 #### Cinco degraus de cor, não três
 
