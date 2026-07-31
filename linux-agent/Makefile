@@ -28,8 +28,11 @@ dist:
 		-o $(SAIDA)/sysmon-agent-linux-arm64 .
 	@ls -lh $(SAIDA)/
 
+# O detector de corrida e escrito em C: exige cgo, justo o que o build do
+# binario desliga para sair estatico. Ligar so aqui - este alvo roda na
+# maquina de quem desenvolve e no CI, nunca no host monitorado.
 teste:
-	go test -race ./...
+	CGO_ENABLED=1 go test -race ./...
 
 vet:
 	go vet ./...
