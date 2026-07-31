@@ -285,6 +285,24 @@ sem `pip`, sem WebView2, sem motor de navegador.
 O `⌂` abre a configuração de hosts ali mesmo, com botão **Testar**. O `◱` abre
 a versão web, com gauges, para olhar com calma.
 
+### Limiares de alerta
+
+O `!` abre onde cada medida vira **aviso** (âmbar) e **crítico** (vermelho):
+temperatura da CPU, temperatura de disco, memória, filesystem, inodes, thin
+pool, desgaste do SSD e pressão PSI. `PADRAO` volta tudo ao original.
+
+A temperatura da CPU é configurada como **fração do crítico que o próprio
+sensor reporta** — `0.75` significa aviso a 75% do limite do chip. É o que faz
+o mesmo número servir para hardwares diferentes; o par fixo em °C só entra
+quando o sensor não informa o crítico.
+
+Na mesma tela ficam os **filesystems ignorados**, um por linha. O padrão já traz
+`/boot` e `/boot/efi`: são partições de tamanho fixo cujo percentual não diz
+nada útil — `/boot` enche de kernel antigo e a ESP vive quase cheia por
+natureza. Alertar nelas ensina a ignorar alerta.
+
+O filtro vale para os três clientes e para o alerta, não só para a janela.
+
 ### Escolher o que aparece
 
 O `☰` abre a lista de tudo que a ferramenta coleta, agrupado por seção, com
@@ -476,6 +494,9 @@ dashboard não podem divergir sobre o que é problema.
 | Thin pool LVM (data e metadata) | 80% | 90% |
 | RAM | 90% | 97% |
 | Pressão PSI (`some_avg60`) | 40% | 70% |
+
+Todos configuráveis pelo `!` na janela, ou pela chave `alertas` do
+`config.json`. `/boot` e `/boot/efi` são ignorados por padrão.
 | Temperatura de disco | 60 °C | 70 °C |
 | Vida consumida do SSD (SMART) | 80% | 90% |
 | Setores realocados | ≥ 1 | — |

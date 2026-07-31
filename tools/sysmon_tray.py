@@ -39,7 +39,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import pystray
 
-__version__ = "3.3.0"
+__version__ = "3.4.0"
 
 BASE = Path(__file__).resolve().parent
 LOG_PATH = Path(os.environ.get("TEMP", BASE)) / "traymon.log"
@@ -148,7 +148,8 @@ def linha_compacta(host, estado: Estado) -> str:
         return f"{host.nome:<10} offline"
     d = estado.dados
     mem = (d.get("mem") or {}).get("percent")
-    discos = d.get("discos") or []
+    from sysmon_nucleo import discos_relevantes
+    discos = discos_relevantes(d.get("discos"))
     disco = f"{discos[0]['mount']} {discos[0]['percent']:.0f}%" if discos else "--"
     return (f"{host.nome:<10} {fmt_temp(d.get('cpu_temp')):>5}"
             f" {fmt_pct(d.get('cpu_percent')):>5}"

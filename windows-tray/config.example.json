@@ -17,6 +17,18 @@
   "intervalo": 5,
   "timeout": 4,
 
+  "_alertas": "opcional: (aviso, critico) por medida. Edite pelo ! na janela.",
+  "ignorar_mounts": ["/boot", "/boot/efi"],
+  "alertas": {
+    "disco": [80, 90],
+    "ram": [90, 97],
+    "thinpool": [80, 90],
+    "temp_frac": [0.75, 0.9],
+    "temp_disco": [60, 70],
+    "desgaste": [80, 90],
+    "psi": [40, 70]
+  },
+
   "porta_web": 9110,
   "overlay_ao_iniciar": false,
   "overlay_compacto": true,

@@ -36,7 +36,7 @@ def ambiente(**variaveis: str):
 
 from sysmon_nucleo import (
     AVISO, CRITICO, OFFLINE, OK,
-    Config, ErroConfig, Estado, Frota, Host, Monitor,
+    Config, ErroConfig, Estado, Frota, Host, Limiares, Monitor,
     avaliar, carregar_config, fmt_bps, fmt_bytes, fmt_uptime,
     nivel_temp, primeira_temp, resumo_linhas,
 )
@@ -468,3 +468,69 @@ class TestFormato(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestLimiares(unittest.TestCase):
+    def test_boot_nao_gera_alerta(self):
+        # /boot enche de kernel antigo e a ESP vive quase cheia; alertar nelas
+        # e o tipo de aviso que ensina a ignorar avisos.
+        nivel, alertas = avaliar(estado_ok(discos=[
+            {"mount": "/boot", "percent": 96.0, "inodes_percent": 5.0,
+             "total": 1, "usado": 1},
+            {"mount": "/boot/efi", "percent": 99.0, "inodes_percent": 5.0,
+             "total": 1, "usado": 1},
+        ]))
+        self.assertEqual(nivel, OK)
+        self.assertEqual(alertas, [])
+
+    def test_outros_mounts_continuam_avaliados(self):
+        nivel, alertas = avaliar(estado_ok(discos=[
+            {"mount": "/boot", "percent": 99.0, "inodes_percent": 5.0,
+             "total": 1, "usado": 1},
+            {"mount": "/", "percent": 95.0, "inodes_percent": 5.0,
+             "total": 1, "usado": 1},
+        ]))
+        self.assertEqual(nivel, CRITICO)
+        self.assertEqual(alertas, ["disco / em 95%"])
+
+    def test_limiar_do_config_vence_o_padrao(self):
+        lim = Limiares.de({"alertas": {"disco": [50, 60]}})
+        e = estado_ok(discos=[{"mount": "/", "percent": 55.0,
+                               "inodes_percent": 1.0, "total": 1, "usado": 1}])
+        self.assertEqual(avaliar(e)[0], OK)            # padrao: 55% e tranquilo
+        self.assertEqual(avaliar(e, lim)[0], AVISO)    # com 50/60 vira aviso
+
+    def test_ignorar_mounts_configuravel(self):
+        lim = Limiares.de({"ignorar_mounts": ["/srv/cache"]})
+        e = estado_ok(discos=[{"mount": "/srv/cache", "percent": 99.0,
+                               "inodes_percent": 1.0, "total": 1, "usado": 1}])
+        self.assertEqual(avaliar(e, lim)[0], OK)
+        # E o /boot volta a ser avaliado, porque a lista foi substituida.
+        e2 = estado_ok(discos=[{"mount": "/boot", "percent": 99.0,
+                                "inodes_percent": 1.0, "total": 1, "usado": 1}])
+        self.assertEqual(avaliar(e2, lim)[0], CRITICO)
+
+    def test_config_invalida_cai_no_padrao(self):
+        lim = Limiares.de({"alertas": {"ram": ["oito", None], "disco": [70, 85]}})
+        self.assertEqual(lim.ram, (90.0, 97.0))
+        self.assertEqual(lim.disco, (70.0, 85.0))
+
+    def test_temperatura_usa_a_fracao_configurada(self):
+        lim = Limiares.de({"alertas": {"temp_frac": [0.5, 0.6]}})
+        self.assertEqual(nivel_temp(55, 100, lim), AVISO)
+        self.assertEqual(nivel_temp(65, 100, lim), CRITICO)
+        self.assertEqual(nivel_temp(55, 100), OK)      # padrao 0.75
+
+    def test_todo_campo_do_dialogo_tem_padrao(self):
+        lim = Limiares()
+        for nome, rotulo, unidade in Limiares.CAMPOS:
+            par = getattr(lim, nome)
+            self.assertEqual(len(par), 2, nome)
+            self.assertLess(par[0], par[1], f"{nome}: aviso deve ser < critico")
+            self.assertIn(unidade, ("pct", "c", "frac"))
+
+    def test_ida_e_volta_pelo_config(self):
+        lim = Limiares(disco=(55.0, 65.0), ram=(60.0, 70.0))
+        de_volta = Limiares.de({"alertas": lim.como_dict()})
+        self.assertEqual(de_volta.disco, (55.0, 65.0))
+        self.assertEqual(de_volta.ram, (60.0, 70.0))

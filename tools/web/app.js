@@ -203,7 +203,14 @@ function linhaDisco(b) {
 }
 
 // ------------------------------------------------------------------ host
-function cartaoHost(h) {
+/* Mesmos filesystems que o servidor ignora ao avaliar: mostrar /boot em 96%
+   sem alertar seria pior que nao mostrar - pareceria alerta perdido. */
+function filtrarDiscos(discos, frota) {
+  const ign = new Set((frota && frota.ignorar_mounts) || []);
+  return (discos || []).filter((x) => !ign.has(x.mount));
+}
+
+function cartaoHost(h, frota) {
   const d = h.dados;
 
   if (!d) {
@@ -272,7 +279,7 @@ function cartaoHost(h) {
     ]));
   }
 
-  const discos = d.discos || [];
+  const discos = filtrarDiscos(d.discos, frota);
   if (discos.length) {
     corpo.append(el('section', { class: 'secao' }, [
       el('h3', { text: 'Filesystems' }),
@@ -347,7 +354,7 @@ function cartaoHost(h) {
 function render(frota) {
   const main = document.getElementById('frota');
   main.replaceChildren(...(frota.hosts.length
-    ? frota.hosts.map(cartaoHost)
+    ? frota.hosts.map((h) => cartaoHost(h, frota))
     : [el('p', { class: 'vazio', text: 'Nenhum host configurado.' })]));
 
   const offline = frota.hosts.filter((h) => h.nivel === 3).length;

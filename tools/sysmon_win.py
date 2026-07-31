@@ -29,11 +29,11 @@ from tkinter import ttk
 
 from sysmon_nucleo import (
     AVISO, CRITICO, OFFLINE, OK,
-    ErroConfig, Frota, avaliar, carregar_config_de, fmt_bps, fmt_bytes,
-    fmt_pct, fmt_temp, fmt_uptime, salvar_config, testar_host,
+    ErroConfig, Frota, Limiares, avaliar, carregar_config_de, discos_relevantes,
+    fmt_bps, fmt_bytes, fmt_pct, fmt_temp, fmt_uptime, salvar_config, testar_host,
 )
 
-__version__ = "3.3.0"
+__version__ = "3.4.0"
 
 # Paleta escura. Os tons de status ficam acima de 4.5:1 no fundo, e o valor
 # numerico sempre acompanha - cor reforca, nunca carrega sozinha.
@@ -321,6 +321,111 @@ class DialogoExibir(tk.Toplevel):
         self.destroy()
 
 
+# ------------------------------------------------------------------ alertas
+class DialogoAlertas(tk.Toplevel):
+    """Onde cada medida vira aviso e onde vira critico.
+
+    Dois campos por linha, na mesma ordem em que a cor aparece na tela. O que
+    nao for numero valido volta ao padrao em vez de gravar lixo - limiar
+    quebrado calaria alerta sem avisar.
+    """
+
+    def __init__(self, pai, lim: Limiares, ao_salvar, mono, mono_b) -> None:
+        super().__init__(pai)
+        self.title("sysmon · alertas")
+        self.configure(bg=P["fundo"])
+        self.transient(pai)
+        self.ao_salvar = ao_salvar
+        self.mono = mono
+        self.campos: dict[str, tuple[tk.Entry, tk.Entry]] = {}
+
+        tk.Label(self, text="a partir de que valor cada medida vira aviso "
+                            "(ambar) e critico (vermelho)",
+                 bg=P["fundo"], fg=P["fraco"], font=mono, justify="left",
+                 wraplength=560).pack(anchor="w", padx=14, pady=(14, 4))
+
+        grade = tk.Frame(self, bg=P["fundo"])
+        grade.pack(fill="x", padx=14, pady=6)
+        grade.columnconfigure(0, weight=1)
+        for col, titulo in ((1, "aviso"), (2, "critico")):
+            tk.Label(grade, text=titulo, bg=P["fundo"], fg=P["fraco"],
+                     font=mono_b).grid(row=0, column=col, padx=4, pady=(0, 4))
+
+        for i, (nome, rotulo, unidade) in enumerate(Limiares.CAMPOS, start=1):
+            tk.Label(grade, text=rotulo, bg=P["fundo"], fg=P["texto"],
+                     font=mono, anchor="w").grid(row=i, column=0, sticky="w", pady=2)
+            par = getattr(lim, nome)
+            entradas = []
+            for j, valor in enumerate(par):
+                e = tk.Entry(grade, width=7, justify="right", bg=P["painel"],
+                             fg=P["aviso"] if j == 0 else P["critico"],
+                             font=mono, relief="flat", insertbackground=P["titulo"],
+                             highlightthickness=1, highlightbackground=P["linha"],
+                             highlightcolor=P["titulo"])
+                e.insert(0, f"{valor:g}")
+                e.grid(row=i, column=j + 1, padx=4, pady=2)
+                entradas.append(e)
+            self.campos[nome] = tuple(entradas)
+
+        tk.Label(self, text="filesystems ignorados  (um por linha; percentual "
+                            "de /boot e da ESP nao diz nada util)",
+                 bg=P["fundo"], fg=P["fraco"], font=mono, justify="left",
+                 wraplength=560).pack(anchor="w", padx=14, pady=(12, 4))
+        self.mounts = tk.Text(self, height=3, bg=P["painel"], fg=P["texto"],
+                              font=mono, relief="flat", insertbackground=P["titulo"],
+                              highlightthickness=1, highlightbackground=P["linha"],
+                              padx=8, pady=5)
+        self.mounts.insert("1.0", "\n".join(lim.ignorar_mounts))
+        self.mounts.pack(fill="x", padx=14)
+
+        acoes = tk.Frame(self, bg=P["fundo"])
+        acoes.pack(fill="x", padx=14, pady=12)
+        self._botao(acoes, "PADRAO", self.restaurar).pack(side="left")
+        self._botao(acoes, "APLICAR", self.salvar, P["ok"]).pack(side="right")
+        self._botao(acoes, "CANCELAR", self.destroy).pack(side="right", padx=6)
+
+        self.recado = tk.Label(self, text="", bg=P["fundo"], fg=P["critico"],
+                               font=mono, anchor="w")
+        self.recado.pack(fill="x", padx=14, pady=(0, 12))
+
+    def _botao(self, pai, texto, comando, cor=None):
+        b = tk.Label(pai, text=f" {texto} ", bg=P["painel"], fg=cor or P["texto"],
+                     font=self.mono, cursor="hand2", padx=6, pady=3)
+        b.bind("<Button-1>", lambda e: comando())
+        b.bind("<Enter>", lambda e: b.configure(bg=P["linha"]))
+        b.bind("<Leave>", lambda e: b.configure(bg=P["painel"]))
+        return b
+
+    def restaurar(self) -> None:
+        padrao = Limiares()
+        for nome, (a, c) in self.campos.items():
+            for e, v in zip((a, c), getattr(padrao, nome)):
+                e.delete(0, "end")
+                e.insert(0, f"{v:g}")
+        self.mounts.delete("1.0", "end")
+        self.mounts.insert("1.0", "\n".join(padrao.ignorar_mounts))
+
+    def salvar(self) -> None:
+        alertas, ruins = {}, []
+        for nome, (ea, ec) in self.campos.items():
+            try:
+                a, c = float(ea.get().replace(",", ".")), float(ec.get().replace(",", "."))
+            except ValueError:
+                ruins.append(nome)
+                continue
+            if a >= c:
+                ruins.append(f"{nome} (aviso deve ser menor que critico)")
+                continue
+            alertas[nome] = [a, c]
+        if ruins:
+            self.recado.configure(text="valor invalido em: " + ", ".join(ruins))
+            return
+        mounts = [l.strip() for l in self.mounts.get("1.0", "end").splitlines()
+                  if l.strip()]
+        self.ao_salvar(alertas, mounts)
+        self.destroy()
+
+
 # ------------------------------------------------------------------ janela
 class Janela:
     LARGURA_BARRA = 10
@@ -391,6 +496,21 @@ class Janela:
         """Um campo aparece a menos que tenha sido desmarcado."""
         return not any(c in self.oculto for c in chaves)
 
+    def editar_alertas(self) -> None:
+        def aplicar(alertas: dict, mounts: list) -> None:
+            bruto = dict(self.frota.cfg.extra)
+            bruto["hosts"] = [{"nome": h.nome, "url": h.url, "token": h.token}
+                              for h in self.frota.cfg.hosts]
+            bruto["alertas"] = alertas
+            bruto["ignorar_mounts"] = mounts
+            cfg = carregar_config_de(bruto)     # valida antes de gravar
+            salvar_config(self.caminho_config, bruto)
+            self.frota.trocar(cfg)
+            self.root.after(200, self.desenhar)
+
+        DialogoAlertas(self.root, self.frota.cfg.limiares, aplicar,
+                       self.mono, self.mono_b)
+
     def escolher_campos(self) -> None:
         def aplicar(oculto: set[str]) -> None:
             self.oculto = oculto
@@ -421,6 +541,8 @@ class Janela:
         self._acao(c, "–", self.minimizar, "minimizar").pack(side="right", padx=2)
         self._acao(c, "⌂", self.editar_hosts, "hosts").pack(side="right", padx=2)
         self._acao(c, "☰", self.escolher_campos, "escolher o que exibir").pack(
+            side="right", padx=2)
+        self._acao(c, "!", self.editar_alertas, "limiares de alerta").pack(
             side="right", padx=2)
         self._acao(c, "↻", self.atualizar_agora, "atualizar  F5").pack(
             side="right", padx=2)
@@ -559,6 +681,7 @@ class Janela:
         m.add_separator()
         m.add_command(label="hosts...", command=self.editar_hosts)
         m.add_command(label="exibir...", command=self.escolher_campos)
+        m.add_command(label="alertas...", command=self.editar_alertas)
         if self.abrir_web:
             m.add_command(label="dashboard web", command=self.abrir_web)
         m.add_separator()
@@ -680,7 +803,7 @@ class Janela:
         b = self.LARGURA_BARRA
 
         for host, estado in self.frota.estados():
-            nivel, _ = avaliar(estado)
+            nivel, _ = avaliar(estado, self.frota.cfg.limiares)
             pior = max(pior, nivel)
             d = estado.dados or {}
             hk = f"h:{host.nome}"
@@ -791,7 +914,9 @@ class Janela:
                       else _faixa(x.get("temp_c"), 60, 70))
 
             # ---- armazenamento
-            discos = (d.get("discos") or []) if self.ver("a:fs") else []
+            # Mesmo filtro do alerta: se nao vale avaliar, nao vale ocupar linha.
+            discos = (discos_relevantes(d.get("discos"), self.frota.cfg.limiares)
+                      if self.ver("a:fs") else [])
             tps = (d.get("thinpools") or []) if self.ver("a:thin") else []
             if self.ver("sec:ARMAZENAMENTO") and (discos or tps):
                 g = secao("ARMAZENAMENTO")

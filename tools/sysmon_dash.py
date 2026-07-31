@@ -37,10 +37,11 @@ from sysmon_nucleo import (  # noqa: E402
     AVISO, CRITICO, OFFLINE, OK,
     ErroConfig, Frota,
     achar_config, avaliar, avisar_permissao, carregar_config, como_dict,
+    discos_relevantes,
     fmt_bps, fmt_bytes, fmt_pct, fmt_temp, fmt_uptime, resumo_linhas,
 )
 
-__version__ = "3.3.0"
+__version__ = "3.4.0"
 
 
 RESET = "\033[0m"
@@ -62,8 +63,8 @@ class Tinta:
 
 
 # ------------------------------------------------------------------ colunas
-def _maior_disco(d: dict) -> str:
-    discos = d.get("discos") or []
+def _maior_disco(d: dict, lim=None) -> str:
+    discos = discos_relevantes(d.get("discos"), lim)
     if not discos:
         return "--"
     # O agente ja devolve ordenado por uso; o primeiro e o que importa.
@@ -144,7 +145,7 @@ def desenhar(frota: Frota, tinta: Tinta, largura: int) -> list[str]:
     saida.append(tinta(titulo[:largura], NEGRITO))
 
     for host, estado in estados:
-        nivel, _ = avaliar(estado)
+        nivel, _ = avaliar(estado, frota.cfg.limiares)
         cor = COR_NIVEL[nivel]
         celulas = [f"{_cortar(host.nome, cols[0][1]):<{cols[0][1]}}"]
 
@@ -190,7 +191,7 @@ def detalhe(frota: Frota, nome: str, tinta: Tinta) -> int:
     for host, estado in frota.estados():
         if host.nome != nome:
             continue
-        nivel, alertas = avaliar(estado)
+        nivel, alertas = avaliar(estado, frota.cfg.limiares)
         for linha in resumo_linhas(host, estado):
             print(tinta(linha, COR_NIVEL[nivel]))
         if estado.dados:
