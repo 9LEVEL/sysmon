@@ -233,11 +233,11 @@ inativo — ali quem atualiza é o `git`.
 
 ### A janela
 
-Sem moldura, escura, monoespaçada. Nenhum ícone: a hierarquia e a severidade
-saem de tipografia, alinhamento e cor.
+Sem moldura, escura, monoespaçada. No corpo, **nenhum ícone**: a hierarquia e a
+severidade saem de tipografia, alinhamento e cor.
 
 ```
- sysmon  1 host · 1 alerta                            ▲ ↻ ! ☰ ⌂ – ×
+ sysmon  1 host · 1 alerta
 
  ▾ MAQUINA     3G de 15G · Ubuntu 26.04 LTS    39C · cpu 5% · ram 21%
      DESEMPENHO
@@ -247,6 +247,12 @@ saem de tipografia, alinhamento e cor.
      TEMPERATURA
        cpu      critico 100C                ▃▅▂▆▄▃▅▂             39C
 ```
+
+No **cabeçalho**, à direita, uma fileira de ícones desenhados a vetor — não
+dependem de fonte, então aparecem iguais em qualquer sistema: **sempre no topo**
+(acende em azul quando ligado), **atualizar**, **limiares de alerta**, **escolher
+o que exibir** e **hosts**; depois de um separador, **minimizar** e **fechar** (que
+fica vermelho ao passar o mouse). Cada ícone diz o que faz no hover.
 
 **Três colunas com papéis fixos.** O nome nunca é truncado; o detalhe no meio é
 quem cede quando você estreita a janela; os números ficam **colados na borda
