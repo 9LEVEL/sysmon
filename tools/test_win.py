@@ -119,3 +119,49 @@ class TestAlertasIndependentes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestMagnitude(unittest.TestCase):
+    def test_cinco_degraus(self):
+        # O ponto: 3% e 30% precisam cair em degraus diferentes. Com so
+        # ok/aviso/critico os dois eram a mesma cor e a variacao sumia.
+        self.assertEqual(W.magnitude(3, 90, 97), W.M_OCIOSO)
+        self.assertEqual(W.magnitude(30, 90, 97), W.M_NORMAL)
+        self.assertEqual(W.magnitude(60, 90, 97), W.M_ATIVO)
+        self.assertEqual(W.magnitude(92, 90, 97), W.M_AVISO)
+        self.assertEqual(W.magnitude(98, 90, 97), W.M_CRITICO)
+
+    def test_sem_leitura_e_ocioso_nao_alerta(self):
+        self.assertEqual(W.magnitude(None, 90, 97), W.M_OCIOSO)
+
+    def test_limiar_baixo_nao_pula_degrau(self):
+        # Com aviso em 30, um valor de 35 tem que ser AVISO e nao ATIVO -
+        # o alerta configurado vence a escala de magnitude.
+        self.assertEqual(W.magnitude(35, 30, 40), W.M_AVISO)
+
+    def test_cada_degrau_tem_cor(self):
+        for m in (W.M_OCIOSO, W.M_NORMAL, W.M_ATIVO, W.M_AVISO, W.M_CRITICO):
+            self.assertIn(m, W.COR_MAG)
+        self.assertEqual(len(set(W.COR_MAG.values())), 5, "cores repetidas")
+
+
+class TestSpark(unittest.TestCase):
+    def test_ruido_fica_reto(self):
+        # Oscilar entre 3.0 e 3.2 nao e novidade nenhuma; autoescala pura
+        # transformaria isso num grafico dramatico.
+        self.assertEqual(set(W.spark([3.0, 3.1, 2.9, 3.0, 3.2])), {"▁"})
+
+    def test_mudanca_de_verdade_preenche(self):
+        s = W.spark([3, 4, 3, 8, 15, 22, 30, 29])
+        self.assertEqual(s[0], "▁")
+        self.assertIn(s[-2], "▇█")
+
+    def test_tamanho_igual_a_serie(self):
+        self.assertEqual(len(W.spark([1, 2, 3, 4, 5])), 5)
+
+    def test_serie_vazia_ou_so_nulos(self):
+        self.assertEqual(W.spark([]), "")
+        self.assertEqual(W.spark([None, None]), "")
+
+    def test_nulo_no_meio_nao_quebra(self):
+        self.assertEqual(len(W.spark([10, None, 50])), 2)

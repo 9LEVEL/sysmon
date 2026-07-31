@@ -246,44 +246,56 @@ Sem moldura, escura, monoespaçada. Nenhum ícone: a hierarquia e a severidade
 saem de tipografia, alinhamento e cor.
 
 ```
- sysmon  3 hosts · 1 offline · 11 alertas        ▲ ↻ ⌂ – ×
+ sysmon  1 host · 1 alerta                            ▲ ↻ ! ☰ ⌂ – ×
 
- ▾ PVE-LAB      78C · cpu 71% · ram 85%  54G de 64G · Proxmox VE 8.2
+ ▾ MAQUINA     3G de 15G · Ubuntu 26.04 LTS    39C · cpu 5% · ram 21%
      DESEMPENHO
-       cpu            ███████···  71%  16 nucleos · AMD Ryzen 9 5950X
-       memoria        ████████··  85%  54G / 64G
-       carga                2.41       1.98 5m · 1.76 15m
+       cpu      8 nucleos · Core i3-12100   ▅▆▁▅▆▁▅▆ ███······    5%
+       memoria  3G / 15G                    ▁▁▁▁▁▁▁▁ ██········   21%
+       carga    0.83 5m · 0.54 15m                             1.33
      TEMPERATURA
-       cpu                   78C       critico 95C
-     DISCOS
-       nvme0n1               63C       7% usado · 2T · Samsung 990 PRO
-       sda                   39C       SMART REPROVOU · 7T · ST8000VN004
-     ARMAZENAMENTO
-       /var/lib/vz    █████████·  92%  2T / 2T
-     REDE
-       vmbr0              ↓46M/s       ↑9M/s · 10000 Mbit
-
- ! pve-lab: CPU em 78C
- ! pve-lab: disco /var/lib/vz em 92%
+       cpu      critico 100C                ▃▅▂▆▄▃▅▂             39C
 ```
+
+**Três colunas com papéis fixos.** O nome nunca é truncado; o detalhe no meio é
+quem cede quando você estreita a janela; os números ficam **colados na borda
+direita** e acompanham o redimensionamento.
+
+#### Cinco degraus de cor, não três
+
+Sair de 3% para 30% de CPU é a variação que interessa no dia a dia, e com
+apenas ok/aviso/crítico os dois eram a mesma cor:
+
+| Faixa | Cor | Leitura |
+|---|---|---|
+| < 20% | cinza apagado | ocioso, a linha recua |
+| 20–50% | branco | trabalhando |
+| 50% até o aviso | ciano | notável |
+| ≥ aviso | âmbar | atenção |
+| ≥ crítico | vermelho | agora |
+
+Âmbar e vermelho continuam significando **alerta** — por isso a faixa
+intermediária usa ciano, e não um amarelo mais claro que competiria com eles.
+
+#### Sparkline
+
+`▅▆▁▅▆▁▅▆` ao lado da barra mostra os últimos ciclos. A barra responde "quanto
+agora"; o sparkline responde **"está subindo ou é o normal dele?"** — que é o
+que a barra sozinha não conta.
+
+A escala é automática **com piso de amplitude**: oscilar entre 3,0% e 3,2%
+continua parecendo o que é (linha reta), mas subir de 3% para 30% preenche o
+desenho. Escala fixa 0–100 achataria a variação útil; autoescala pura
+transformaria ruído em drama.
 
 **Arrasta pelo cabeçalho**, redimensiona pelo canto inferior direito. O `▲`
 prende sobre as outras janelas. Botão direito no topo abre o menu — inclusive
-para trazer a moldura do sistema de volta, se o seu ambiente preferir.
+para trazer a moldura do sistema de volta.
 
-Cada host é um bloco. A linha do host resume as três medidas que se olha
-primeiro — **temperatura, CPU e memória** — e é colorida **por inteiro** pela
-severidade: vermelha de ponta a ponta quando algo está crítico, âmbar em
-aviso, cinza quando offline. Uma faixa de fundo separa um host do seguinte.
+**Não depende de nada.** É Tkinter, que vem junto com o Python do python.org.
 
-Abaixo vêm as seções em maiúscula. As barras são texto em fonte monoespacada,
-coloridas pela severidade — nada de gráfico nem ícone para decifrar.
-
-**Não depende de nada.** É Tkinter, que vem junto com o Python do python.org —
-sem `pip`, sem WebView2, sem motor de navegador.
-
-O `⌂` abre a configuração de hosts ali mesmo, com botão **Testar**. O `◱` abre
-a versão web, com gauges, para olhar com calma.
+O `⌂` abre a configuração de hosts, com botão **Testar**. O `◱` abre a versão
+web, com gauges.
 
 ### Limiares de alerta
 

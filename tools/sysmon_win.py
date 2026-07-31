@@ -33,7 +33,7 @@ from sysmon_nucleo import (
     fmt_bps, fmt_bytes, fmt_pct, fmt_temp, fmt_uptime, salvar_config, testar_host,
 )
 
-__version__ = "3.4.0"
+__version__ = "3.5.0"
 
 # Paleta escura. Os tons de status ficam acima de 4.5:1 no fundo, e o valor
 # numerico sempre acompanha - cor reforca, nunca carrega sozinha.
@@ -48,9 +48,69 @@ P = {
     "aviso":   "#d29922",
     "critico": "#f85149",
     "selecao": "#161b26",
+    # Faixa intermediaria: 50-75% nao e alerta, mas tambem nao e ocioso.
+    # Cyan porque ambar e vermelho ja tem significado de alerta e nao podem
+    # ser gastos com "esta trabalhando".
+    "ativo":   "#39c5cf",
+    "ocioso":  "#4a5563",
 }
 COR_NIVEL = {OK: P["texto"], AVISO: P["aviso"],
              CRITICO: P["critico"], OFFLINE: P["fraco"]}
+
+# Cinco degraus de magnitude, nao dois. Com so ok/aviso/critico, sair de 3%
+# para 30% de CPU nao mudava nada na tela - e essa e a variacao que interessa
+# no dia a dia. Os dois degraus de cima continuam sendo os limiares de alerta,
+# entao ambar e vermelho seguem querendo dizer "olhe para isto".
+M_OCIOSO, M_NORMAL, M_ATIVO, M_AVISO, M_CRITICO = range(5)
+COR_MAG = {
+    M_OCIOSO:  P["ocioso"],
+    M_NORMAL:  P["texto"],
+    M_ATIVO:   P["ativo"],
+    M_AVISO:   P["aviso"],
+    M_CRITICO: P["critico"],
+}
+MAG_OCIOSO, MAG_ATIVO = 20.0, 50.0
+
+
+def magnitude(pct, aviso: float, critico: float) -> int:
+    """Degrau de intensidade de uma medida percentual."""
+    if pct is None:
+        return M_OCIOSO
+    if pct >= critico:
+        return M_CRITICO
+    if pct >= aviso:
+        return M_AVISO
+    if pct >= MAG_ATIVO:
+        return M_ATIVO
+    if pct >= MAG_OCIOSO:
+        return M_NORMAL
+    return M_OCIOSO
+
+
+# Sparkline: historico curto em texto. Responde "esta subindo?" - o bar sozinho
+# so diz "quanto agora", e era o que faltava para perceber variacao.
+NIVEIS = "▁▂▃▄▅▆▇█"
+
+
+def spark(valores, span_minimo: float = 20.0) -> str:
+    """Autoescala COM piso de amplitude.
+
+    Escala fixa 0-100 achataria a variacao que mais interessa: sair de 3% para
+    30% de CPU mal sairia do chao. Autoescala pura faria o contrario - ruido de
+    3.0 para 3.2 viraria um grafico dramatico.
+
+    Com piso, oscilacao menor que `span_minimo` continua parecendo o que e
+    (linha reta), e mudanca de verdade preenche o desenho.
+    """
+    v = [x for x in valores if x is not None]
+    if not v:
+        return ""
+    base = min(v)
+    faixa = max(max(v) - base, span_minimo)
+    return "".join(
+        NIVEIS[max(0, min(len(NIVEIS) - 1,
+                          int((x - base) / faixa * (len(NIVEIS) - 1))))]
+        for x in v)
 
 # Barra de proporcao em texto: em fonte monoespacada alinha de graca, e nao
 # precisa de widget nem de imagem.
@@ -441,16 +501,20 @@ class Janela:
         self.fila: queue.Queue[str] = queue.Queue()
         self.na_bandeja = False
         self.oculto: set[str] = set(self.estado.get("oculto") or [])
+        # Historico curto por (host, medida) para os sparklines. Guardado no
+        # cliente, nao no agente: e memoria de janela aberta, nao telemetria.
+        self.hist: dict[str, list[float]] = {}
+        self._ultimo_ts: dict[str, float] = {}
 
         self.root = tk.Tk()
         self.root.title("sysmon")
         self.root.configure(bg=P["fundo"])
-        self.root.geometry(self.estado.get("geometria", "740x620"))
-        self.root.minsize(520, 260)
+        self.root.geometry(self.estado.get("geometria", "820x640"))
+        self.root.minsize(470, 260)
 
-        self.mono = fonte_mono(9)
-        self.mono_b = fonte_mono(9, bold=True)
-        self.mono_t = fonte_mono(11, bold=True)
+        self.mono = fonte_mono(10)
+        self.mono_b = fonte_mono(10, bold=True)
+        self.mono_t = fonte_mono(12, bold=True)
 
         self.sem_borda = tk.BooleanVar(value=self.estado.get("sem_borda", True))
         self.no_topo = tk.BooleanVar(value=bool(self.estado.get("topo")))
@@ -491,6 +555,25 @@ class Janela:
         self._img = tk.PhotoImage(width=32, height=32)
         self.root.iconphoto(True, self._img)
         self._pintar_icone(OK)
+
+    JANELA_HIST = 12
+
+    def _anotar(self, host: str, ts: float, medidas: dict) -> None:
+        """Guarda uma amostra por coleta, nao por redesenho.
+
+        A janela redesenha a cada 3s e a frota coleta no ritmo dela; sem esta
+        checagem o sparkline repetiria o mesmo valor e mentiria sobre o tempo.
+        """
+        if self._ultimo_ts.get(host) == ts:
+            return
+        self._ultimo_ts[host] = ts
+        for nome, valor in medidas.items():
+            fila = self.hist.setdefault(f"{host}:{nome}", [])
+            fila.append(valor)
+            del fila[:-self.JANELA_HIST]
+
+    def serie(self, host: str, nome: str) -> list:
+        return self.hist.get(f"{host}:{nome}", [])
 
     def ver(self, *chaves: str) -> bool:
         """Um campo aparece a menos que tenha sido desmarcado."""
@@ -596,7 +679,7 @@ class Janela:
                          foreground=P["texto"], borderwidth=0, relief="flat",
                          bordercolor=P["fundo"], lightcolor=P["fundo"],
                          darkcolor=P["fundo"],
-                         font=self.mono, rowheight=19)
+                         font=self.mono, rowheight=21)
         estilo.map("sysmon.Treeview",
                    background=[("selected", P["selecao"])],
                    foreground=[("selected", P["texto"])])
@@ -605,15 +688,23 @@ class Janela:
                          bordercolor=P["fundo"], arrowcolor=P["fraco"],
                          relief="flat")
 
+        # Ordem das colunas: nome (fixo) · detalhe (elastico) · valor (fixo,
+        # colado na borda direita). Antes o nome esticava e era ele quem era
+        # espremido ao estreitar a janela, cortando ate o titulo da secao,
+        # enquanto os numeros ficavam parados longe da borda. Agora quem cede
+        # e o detalhe - o texto mais dispensavel - e os numeros acompanham a
+        # borda.
         self.arvore = ttk.Treeview(quadro, style="sysmon.Treeview",
-                                   columns=("v", "d"), show="tree",
+                                   columns=("d", "v"), show="tree",
                                    selectmode="none", takefocus=False)
-        self.arvore.column("#0", width=200, minwidth=130, stretch=True)
-        self.arvore.column("v", width=215, minwidth=110, anchor="e", stretch=False)
-        self.arvore.column("d", width=215, minwidth=60, stretch=True)
+        self.arvore.column("#0", width=190, minwidth=190, stretch=False)
+        self.arvore.column("d", width=180, minwidth=0, stretch=True)
+        self.arvore.column("v", width=230, minwidth=230, anchor="e", stretch=False)
 
         for n, cor in COR_NIVEL.items():
             self.arvore.tag_configure(f"n{n}", foreground=cor)
+        for m, cor in COR_MAG.items():
+            self.arvore.tag_configure(f"m{m}", foreground=cor)
         # Uma tag por severidade para a linha do host: no Treeview a tag pinta
         # a linha toda, entao um host critico fica vermelho de ponta a ponta,
         # nao so o nome. A faixa de fundo separa um bloco do seguinte.
@@ -668,7 +759,7 @@ class Janela:
     def _redimensionar(self, e) -> None:
         x0, y0, w, h = self._base
         self.root.geometry(
-            f"{max(520, w + e.x_root - x0)}x{max(260, h + e.y_root - y0)}")
+            f"{max(470, w + e.x_root - x0)}x{max(260, h + e.y_root - y0)}")
 
     def _menu(self, e) -> None:
         m = tk.Menu(self.root, tearoff=0, bg=P["painel"], fg=P["texto"],
@@ -790,20 +881,36 @@ class Janela:
         """Atualiza no lugar. Recriar a arvore fecharia o que o usuario abriu."""
         iid = self.itens.get(chave)
         if iid and self.arvore.exists(iid):
-            self.arvore.item(iid, text=texto, values=(valor, detalhe), tags=tags)
+            self.arvore.item(iid, text=texto, values=(detalhe, valor), tags=tags)
             return iid
-        iid = self.arvore.insert(pai, "end", text=texto, values=(valor, detalhe),
+        iid = self.arvore.insert(pai, "end", text=texto, values=(detalhe, valor),
                                  tags=tags, open=True)
         self.itens[chave] = iid
         return iid
+
+    def _medida(self, pai, hk, chave, rotulo, pct, detalhe, limiar, serie,
+                vistos) -> None:
+        """Linha de medida percentual: sparkline, barra, valor e cor graduada.
+
+        A cor sai da magnitude, nao so do limiar: cinco degraus em vez de tres,
+        para que sair de 3% para 30% tenha efeito visivel.
+        """
+        c = f"{hk}/{chave}"
+        vistos.add(c)
+        valor = f"{spark(serie, 8):<9}{barra(pct, self.LARGURA_BARRA)} " \
+                f"{fmt_pct(pct):>4}" if serie else \
+                f"{barra(pct, self.LARGURA_BARRA)} {fmt_pct(pct):>4}"
+        self._no(pai, c, "    " + rotulo, valor, detalhe,
+                 (f"m{magnitude(pct, *limiar)}",))
 
     def desenhar(self) -> None:
         vistos: set[str] = set()
         pior = OK
         b = self.LARGURA_BARRA
 
+        lim = self.frota.cfg.limiares
         for host, estado in self.frota.estados():
-            nivel, _ = avaliar(estado, self.frota.cfg.limiares)
+            nivel, _ = avaliar(estado, lim)
             pior = max(pior, nivel)
             d = estado.dados or {}
             hk = f"h:{host.nome}"
@@ -811,6 +918,11 @@ class Janela:
 
             mem = d.get("mem") or {}
             so = (d.get("so") or {}).get("nome") or ""
+            self._anotar(host.nome, d.get("ts"), {
+                "cpu": d.get("cpu_percent"),
+                "ram": mem.get("percent"),
+                "temp": d.get("cpu_temp"),
+            })
 
             # As tres medidas que se olha primeiro, juntas na linha do host.
             mostrar_resumo = self.ver("sec:RESUMO")
@@ -853,19 +965,20 @@ class Janela:
                 cpu = d.get("cpu_percent")
                 chip = (d.get("cpu_modelo") or "").replace("(R)", "").replace("(TM)", "")
                 if self.ver("p:cpu"):
-                    linha(g, "cpu", "cpu", f"{barra(cpu, b)} {fmt_pct(cpu):>4}",
-                          " · ".join(x for x in (f"{d.get('cpus', '?')} nucleos",
-                                                 chip.strip()[:30]) if x),
-                          _faixa(cpu, 80, 95))
+                    self._medida(g, hk, "cpu", "cpu", cpu,
+                                 " · ".join(x for x in (f"{d.get('cpus', '?')} nucleos",
+                                                        chip.strip()[:30]) if x),
+                                 (80, 95), self.serie(host.nome, "cpu"), vistos)
                 mp = mem.get("percent")
                 if self.ver("p:mem"):
-                    linha(g, "mem", "memoria", f"{barra(mp, b)} {fmt_pct(mp):>4}",
-                          f"{fmt_bytes(mem.get('usado'))} / {fmt_bytes(mem.get('total'))}",
-                          _faixa(mp, 90, 97))
+                    self._medida(g, hk, "mem", "memoria", mp,
+                                 f"{fmt_bytes(mem.get('usado'))} / "
+                                 f"{fmt_bytes(mem.get('total'))}",
+                                 lim.ram, self.serie(host.nome, "ram"), vistos)
                 if self.ver("p:swap") and mem.get("swap_percent"):
-                    sp = mem["swap_percent"]
-                    linha(g, "swap", "swap", f"{barra(sp, b)} {fmt_pct(sp):>4}",
-                          fmt_bytes(mem.get("swap_usado")), _faixa(sp, 50, 80))
+                    self._medida(g, hk, "swap", "swap", mem["swap_percent"],
+                                 fmt_bytes(mem.get("swap_usado")), (50, 80),
+                                 [], vistos)
                 load = d.get("load") or []
                 if self.ver("p:load") and len(load) == 3:
                     linha(g, "load", "carga", f"{load[0]:.2f}",
@@ -879,14 +992,17 @@ class Janela:
                 g = secao("TEMPERATURA")
                 crit = d.get("cpu_crit")
                 if self.ver("t:cpu"):
-                    linha(g, "t:cpu", "cpu", fmt_temp(d.get("cpu_temp")),
+                    t = d.get("cpu_temp")
+                    linha(g, "t:cpu", "cpu",
+                          f"{spark(self.serie(host.nome, 'temp'), 8):<12} "
+                          f"{fmt_temp(t)}",
                           f"critico {fmt_temp(crit)}" if crit else "",
-                          _nivel_temp(d.get("cpu_temp"), crit))
+                          _nivel_temp(t, crit, lim))
                 if self.ver("t:todos"):
                     for i, sen in enumerate(temps[:10]):
                         linha(g, f"t:{i}", (sen.get("label") or "").lower()[:18],
                               fmt_temp(sen.get("c")), (sen.get("chip") or "")[:18],
-                              _nivel_temp(sen.get("c"), sen.get("crit")))
+                              _nivel_temp(sen.get("c"), sen.get("crit"), lim))
 
             fans = d.get("fans") or {}
             if self.ver("sec:VENTOINHAS", "v:todas") and fans:
@@ -921,17 +1037,16 @@ class Janela:
             if self.ver("sec:ARMAZENAMENTO") and (discos or tps):
                 g = secao("ARMAZENAMENTO")
                 for x in discos:
-                    p = x.get("percent")
-                    linha(g, f"d:{x['mount']}", x["mount"][:20],
-                          f"{barra(p, b)} {fmt_pct(p):>4}",
-                          f"{fmt_bytes(x.get('usado'))} / {fmt_bytes(x.get('total'))}",
-                          _faixa(p, 80, 90))
+                    self._medida(g, hk, f"d:{x['mount']}", x["mount"][:22],
+                                 x.get("percent"),
+                                 f"{fmt_bytes(x.get('usado'))} / "
+                                 f"{fmt_bytes(x.get('total'))}",
+                                 lim.disco, [], vistos)
                 for t in tps:
-                    p = t.get("data_percent")
-                    linha(g, f"tp:{t['nome']}", t["nome"][:20],
-                          f"{barra(p, b)} {fmt_pct(p):>4}",
-                          f"metadata {fmt_pct(t.get('meta_percent'))}",
-                          _faixa(p, 80, 90))
+                    self._medida(g, hk, f"tp:{t['nome']}", t["nome"][:22],
+                                 t.get("data_percent"),
+                                 f"metadata {fmt_pct(t.get('meta_percent'))}",
+                                 lim.thinpool, [], vistos)
 
             # ---- rede
             redes = ([n for n in (d.get("net") or []) if n.get("up")]
@@ -1009,10 +1124,12 @@ def _faixa(v, aviso, critico) -> int:
     return CRITICO if v >= critico else AVISO if v >= aviso else OK
 
 
-def _nivel_temp(c, crit) -> int:
+def _nivel_temp(c, crit, lim=None) -> int:
+    """Fracao do critico do sensor, com os limiares configurados."""
     if c is None:
         return OFFLINE
-    return _faixa(c, (crit or 100) * 0.75, (crit or 100) * 0.90)
+    fa, fc = (lim.temp_frac if lim else (0.75, 0.90))
+    return _faixa(c, (crit or 100) * fa, (crit or 100) * fc)
 
 
 def rodar(frota: Frota, caminho_config, intervalo: float = 3.0,
