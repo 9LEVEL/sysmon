@@ -44,7 +44,7 @@ from sysmon_nucleo import (  # noqa: E402
     Config, ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "3.5.0"
+__version__ = "4.0.0"
 
 # Porta de loopback usada so como trava de instancia unica e canal para
 # "traga a janela para a frente". Nunca escuta fora de 127.0.0.1.

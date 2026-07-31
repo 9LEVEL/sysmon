@@ -34,7 +34,7 @@ from sysmon_nucleo import (
     fmt_bps, fmt_bytes, fmt_pct, fmt_temp, fmt_uptime, salvar_config, testar_host,
 )
 
-__version__ = "3.5.0"
+__version__ = "4.0.0"
 
 # Paleta escura. Os tons de status ficam acima de 4.5:1 no fundo, e o valor
 # numerico sempre acompanha - cor reforca, nunca carrega sozinha.
