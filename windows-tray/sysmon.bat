@@ -5,9 +5,16 @@ setlocal
 cd /d "%~dp0"
 
 REM Aplica atualizacao baixada, se houver (mesmo passo do sysmon.vbs).
+REM Insiste por alguns segundos: quando quem pediu foi o botao da interface,
+REM o sysmon antigo ainda pode estar segurando o arquivo neste instante.
 if exist "sysmon-novo.pyz" (
     echo Aplicando atualizacao...
-    move /y "sysmon-novo.pyz" "sysmon.pyz" >nul
+    for /l %%t in (1,1,20) do (
+        if exist "sysmon-novo.pyz" (
+            move /y "sysmon-novo.pyz" "sysmon.pyz" >nul 2>&1
+            if exist "sysmon-novo.pyz" ping -n 1 -w 300 127.0.0.1 >nul
+        )
+    )
 )
 
 where python >nul 2>&1

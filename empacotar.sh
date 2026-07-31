@@ -165,8 +165,13 @@ O config.json guarda os tokens de TODOS os hosts em texto claro. Proteja:
 
     icacls config.json /inheritance:r /grant:r "%USERNAME%:R"
 
-Atualizar: o proprio programa avisa e troca sozinho. Manualmente, basta
-substituir o sysmon.pyz - o config.json fica.
+Atualizar: o botao ⭳ no cabecalho procura, baixa (conferindo o SHA256) e
+reinicia ja na versao nova. Ele tambem verifica a cada 6h sozinho e avisa na
+barra de status quando ha versao pronta - a troca em si acontece no arranque
+seguinte, feita por este .bat ou pelo atalho, porque o Windows nao deixa um
+programa sobrescrever o proprio arquivo em uso.
+
+Manualmente, basta substituir o sysmon.pyz - o config.json fica.
 
 Documentacao: https://github.com/9LEVEL/sysmon
 EOF
@@ -189,6 +194,7 @@ NOME="sysmon-linux-$VERSAO"
 PASTA="$DIST/$NOME"
 mkdir -p "$PASTA"
 install -m 755 "$DIST/sysmon.pyz" "$PASTA/"
+install -m 755 "$AQUI/windows-tray/sysmon.sh" "$PASTA/"
 install -m 644 "$AQUI/windows-tray/config.example.json" "$PASTA/"
 install -m 644 "$AQUI/LICENSE" "$PASTA/"
 
@@ -199,19 +205,27 @@ Cliente para acompanhar seus hosts. Precisa de Python 3.9 ou mais novo.
 
     cp config.example.json config.json    # preencha url e token de cada host
     chmod 600 config.json
-    python3 sysmon.pyz term               # tabela no terminal
-    python3 sysmon.pyz                    # janela nativa + bandeja (padrao)
+    ./sysmon.sh                           # janela nativa + bandeja (padrao)
+    ./sysmon.sh term                      # tabela no terminal
 
 Sem config, a janela abre direto na tela de configuracao. O modo terminal
 exige o arquivo pronto.
 
+Use SEMPRE o ./sysmon.sh, e nao o python3 sysmon.pyz direto: e ele quem
+aplica a atualizacao ja baixada antes de subir. Chamando o .pyz na mao, a
+versao nova fica esperando ao lado sem nunca entrar.
+
 Para o icone de bandeja (opcional):  pip install pystray pillow
+
+Atualizar: o botao ⭳ no cabecalho procura, baixa (conferindo o SHA256) e
+reinicia ja na versao nova. Sozinho, ele tambem verifica a cada 6h e avisa
+na barra de status quando ha versao pronta.
 
 Outros modos:
 
-    python3 sysmon.pyz term --once        # imprime uma vez e sai (cron)
-    python3 sysmon.pyz term --host pve    # detalhe de um host
-    python3 sysmon.pyz local              # sensores DESTA maquina, sem rede
+    ./sysmon.sh term --once               # imprime uma vez e sai (cron)
+    ./sysmon.sh term --host pve           # detalhe de um host
+    ./sysmon.sh local                     # sensores DESTA maquina, sem rede
 
 Documentacao: https://github.com/9LEVEL/sysmon
 EOF

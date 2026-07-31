@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-__version__ = "4.1.0"
+__version__ = "4.2.0"
 
 REPO = "9LEVEL/sysmon"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -100,10 +100,36 @@ class Atualizador:
         with self._lock:
             self._estado.update(campos)
 
+    def verificar_em_thread(self, ao_terminar=None) -> bool:
+        """Verificacao sob demanda, para o botao da interface.
+
+        Devolve False se ja ha uma em curso - clicar de novo nao enfileira
+        downloads. O callback roda na thread de rede: quem chama e responsavel
+        por voltar para a thread da interface.
+        """
+        with self._lock:
+            if self._estado["checando"]:
+                return False
+            self._estado["checando"] = True
+
+        def tarefa() -> None:
+            try:
+                self.verificar(_ja_marcado=True)
+            finally:
+                if ao_terminar:
+                    try:
+                        ao_terminar()
+                    except Exception:  # noqa: BLE001
+                        logging.exception("callback de update falhou")
+
+        threading.Thread(target=tarefa, name="update-agora", daemon=True).start()
+        return True
+
     # -- verificacao ------------------------------------------------------
-    def verificar(self) -> None:
+    def verificar(self, _ja_marcado: bool = False) -> None:
         """Consulta o release mais novo e baixa se houver. Nunca levanta."""
         if not self.arquivo:
+            self._marcar(checando=False)
             return
         self._marcar(checando=True, erro=None)
         try:
@@ -183,6 +209,47 @@ class Atualizador:
                     time.sleep(self.intervalo)
 
         threading.Thread(target=laco, name="update", daemon=True).start()
+
+
+def lancador(pyz: Path) -> Path | None:
+    """O script que sobe o sysmon ao lado do .pyz, se houver.
+
+    No Windows e ele quem troca o arquivo, entao a existencia dele decide se
+    da para aplicar a atualizacao sozinho ou se resta pedir para o usuario.
+    """
+    for nome in ("sysmon.vbs", "sysmon.bat", "sysmon.sh"):
+        p = pyz.with_name(nome)
+        if p.is_file():
+            return p
+    return None
+
+
+def como_aplicar(windows: bool, tem_lancador: bool) -> str:
+    """Por onde a troca pode acontecer nesta maquina.
+
+    'processo'  - troca aqui mesmo e reexecuta. E o caso do Unix, onde
+                  substituir um arquivo aberto e legitimo: o processo em
+                  curso continua lendo o inode antigo ate sair.
+    'lancador'  - o Windows nao deixa sobrescrever arquivo em uso, entao o
+                  jeito e sair e deixar o .vbs/.bat trocar antes do proximo
+                  Python abrir o arquivo.
+    'manual'    - Windows sem lancador ao lado: nao ha caminho automatico.
+    """
+    if not windows:
+        return "processo"
+    return "lancador" if tem_lancador else "manual"
+
+
+def comando_reinicio(pyz: Path, lanc: Path | None, argv: list[str],
+                     executavel: str, windows: bool) -> list[str]:
+    """A linha de comando que sobe a versao nova no lugar desta."""
+    if windows and lanc is not None:
+        if lanc.suffix.lower() == ".vbs":
+            # /agora e consumido pelo proprio .vbs: pula a espera de logon,
+            # que aqui seria meio minuto olhando para nada.
+            return ["wscript.exe", str(lanc), "/agora", *argv]
+        return ["cmd.exe", "/c", str(lanc), *argv]
+    return [executavel, str(pyz), *argv]
 
 
 def aplicar_pendente(caminho_pyz: Path) -> bool:

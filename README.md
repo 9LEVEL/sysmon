@@ -198,10 +198,11 @@ momento.
 É uma **janela do sistema** — sem barra de endereço, sem aba de browser — com o
 ícone de bandeja junto, no mesmo processo. Um autostart, um processo.
 
-Atualizar é substituir o `sysmon.pyz`. O `config.json` fica.
+Atualizar é clicar no **⭳** do cabeçalho. O `config.json` fica.
 
 | Comando | O que faz |
 |---|---|
+| `./sysmon.sh` · `sysmon.bat` | lançador: aplica atualização pendente e sobe |
 | `python sysmon.pyz` | janela nativa + bandeja (padrão) |
 | `python sysmon.pyz --oculto` | sobe minimizado na bandeja (autostart) |
 | `python sysmon.pyz term` | tabela no terminal, atualiza sozinha |
@@ -215,21 +216,34 @@ os argumentos são os mesmos.
 
 ### Atualização automática
 
-O sysmon verifica se há versão nova ao iniciar e a cada 6 horas, baixa em
-segundo plano e **confere o SHA256 contra o `SHA256SUMS` do release**. O
-download vai para `sysmon-novo.pyz` e **entra no próximo arranque**: quando você
-fecha e abre de novo, o lançador (`sysmon.vbs`/`sysmon.bat`) promove o arquivo
-antes do Python abri-lo — no Windows um processo não consegue sobrescrever com
-segurança o próprio `.pyz` que tem aberto.
+**Pelo botão.** O **⭳** no cabeçalho procura versão nova; havendo, baixa e o
+botão fica **verde**. Clicar de novo troca o arquivo e reinicia já na versão
+nova. Sem ir ao GitHub, sem descompactar nada.
 
-Se o SHA não bater, ou o download não for um zipapp válido, **nada é trocado** —
-o erro fica registrado e a versão atual continua. Falha de rede também nunca
-derruba o monitoramento.
+Sozinho, ele também verifica ao iniciar e a cada 6 horas, e avisa na barra de
+status quando há versão pronta.
+
+Em qualquer caminho, **o SHA256 é conferido contra o `SHA256SUMS` do release**
+e o arquivo é aberto como zipapp antes de valer. Se algo não bater, **nada é
+trocado** — o erro fica registrado e a versão atual continua. Falha de rede
+nunca derruba o monitoramento.
+
+**Quem troca o arquivo** muda por sistema, e é por isso que o pacote traz um
+lançador:
+
+| Sistema | Como |
+|---|---|
+| Linux/macOS | `./sysmon.sh` — o Unix permite substituir arquivo aberto, então a troca acontece na hora e o programa se reexecuta |
+| Windows | `sysmon.vbs`/`sysmon.bat` — o Windows não deixa sobrescrever arquivo em uso, então o sysmon sai e o lançador promove o `sysmon-novo.pyz` antes do Python abri-lo |
+
+> Chamando `python3 sysmon.pyz` direto, sem o lançador, a versão baixada fica
+> esperando ao lado sem entrar. Use o lançador — no Linux ele passou a
+> acompanhar o pacote a partir da v4.2.0.
 
 Para desligar: `--sem-update`, ou `"horas_entre_updates": 0` no `config.json`.
 
 Rodando do repositório (`sysmon.py` em vez de `sysmon.pyz`) o auto-update fica
-inativo — ali quem atualiza é o `git`.
+inativo e o botão nem aparece — ali quem atualiza é o `git`.
 
 ### A janela
 
@@ -252,8 +266,10 @@ No **cabeçalho**, à direita, uma fileira de ícones desenhados a vetor — nã
 dependem de fonte, então aparecem iguais em qualquer sistema: **sempre no topo**
 (acende em azul quando ligado), **limiares de alerta**, **escolher o que exibir**
 e **hosts**; depois de um separador, **minimizar** e **fechar** (que fica vermelho
-ao passar o mouse). Cada ícone diz o que faz no hover. Não há botão de atualizar:
-a janela já atualiza sozinha no intervalo, e **F5** força quando você quiser.
+ao passar o mouse). Cada ícone diz o que faz no hover. Não há botão para recarregar
+os dados: a janela já atualiza sozinha no intervalo, e **F5** força quando você
+quiser. O **⭳** é outra coisa — atualiza o *programa*, e só aparece rodando do
+`.pyz`.
 
 **Três colunas com papéis fixos.** O nome nunca é truncado; o detalhe no meio é
 quem cede quando você estreita a janela; os números ficam **colados na borda

@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import sys
 import time
 import tkinter as tk
 from pathlib import Path
@@ -34,7 +35,7 @@ from sysmon_nucleo import (
     fmt_bps, fmt_bytes, fmt_pct, fmt_temp, fmt_uptime, salvar_config, testar_host,
 )
 
-__version__ = "4.1.0"
+__version__ = "4.2.0"
 
 # Paleta escura. Os tons de status ficam acima de 4.5:1 no fundo, e o valor
 # numerico sempre acompanha - cor reforca, nunca carrega sozinha.
@@ -570,6 +571,12 @@ def _ic_topo(cv, x, y, c, w=2):        # sempre no topo: seta -> teto
     _tracos(cv, [(x-3.2, y-1.5), (x, y-4.6), (x+3.2, y-1.5)], c, w)
 
 
+def _ic_baixar(cv, x, y, c, w=2):      # seta para baixo sobre uma base
+    _tracos(cv, [(x, y-6), (x, y+1)], c, w)
+    _tracos(cv, [(x-3.4, y-2.4), (x, y+1.4), (x+3.4, y-2.4)], c, w)
+    _tracos(cv, [(x-5.5, y+5), (x+5.5, y+5)], c, w)
+
+
 def _ic_alerta(cv, x, y, c, w=2):      # triangulo de aviso + !
     _tracos(cv, [(x, y-6), (x-6.4, y+5.5), (x+6.4, y+5.5), (x, y-6)], c, w)
     _tracos(cv, [(x, y-1.6), (x, y+1.6)], c, w)
@@ -609,15 +616,17 @@ class Janela:
     MIN_LARG, MIN_ALT = 470, 260
 
     def __init__(self, frota: Frota, caminho_config: Path,
-                 intervalo: float = 3.0) -> None:
+                 intervalo: float = 3.0, atualizador=None) -> None:
         self.frota = frota
         self.caminho_config = caminho_config
         self.intervalo = max(1.0, intervalo)
+        self.atualizador = atualizador
         self.estado = ler_estado()
         self.itens: dict[str, str] = {}
         self.fila: queue.Queue[str] = queue.Queue()
         self.na_bandeja = False
         self._pronto = False        # trava os handlers durante a montagem
+        self._update_pedido = False  # erro de update so aparece se voce pediu
         self.oculto: set[str] = set(self.estado.get("oculto") or [])
         # Historico curto por (host, medida) para os sparklines. Guardado no
         # cliente, nao no agente: e memoria de janela aberta, nao telemetria.
@@ -764,6 +773,15 @@ class Janela:
                           "escolher o que exibir").pack(side="right", padx=1)
         self._botao_icone(c, _ic_alerta, self.editar_alertas,
                           "limiares de alerta").pack(side="right", padx=1)
+        # So aparece rodando do .pyz: no repositorio quem atualiza e o git.
+        self.btn_update = None
+        if self.atualizador and self.atualizador.estado().get("suportado"):
+            self.btn_update = self._botao_icone(
+                c, _ic_baixar, self.acao_update, "procurar atualizacao")
+            # Verde quando ha versao pronta: azul ja quer dizer "ligado" no
+            # botao de sempre-no-topo, e isto aqui e outra coisa.
+            self.btn_update._cor_ligado = P["ok"]
+            self.btn_update.pack(side="right", padx=1)
         # Sem botao de atualizar: a janela ja atualiza sozinha no intervalo, e
         # forcar e caso raro que F5 e o menu da bandeja resolvem. Um botao que
         # quase ninguem clica so rouba espaco e atencao dos que importam.
@@ -795,7 +813,7 @@ class Janela:
             cv.delete("all")
             if cv._hover:
                 cv.create_rectangle(1, 1, 23, 21, fill=P["linha"], outline="")
-            cor = (P["titulo"] if cv._ligado
+            cor = (getattr(cv, "_cor_ligado", P["titulo"]) if cv._ligado
                    else cv._cor_hover if cv._hover else COR_ICONE)
             desenho(cv, 12, 11, cor)
 
@@ -1174,6 +1192,78 @@ class Janela:
         self.frota.atualizar_agora()
         self.root.after(400, self.desenhar)
 
+    # -- atualizacao do proprio programa ----------------------------------
+    def acao_update(self) -> None:
+        """Um botao, dois papeis: procurar quando nao ha nada, aplicar quando ha.
+
+        Dois botoes seriam um a mais - o de aplicar passaria a maior parte da
+        vida desabilitado, sem nada para fazer.
+        """
+        if not self.atualizador:
+            return
+        if self.atualizador.estado().get("pronta"):
+            self.aplicar_atualizacao()
+            return
+        self._update_pedido = True     # erro so aparece se voce perguntou
+        self.atualizador.verificar_em_thread()
+        self._dica("procurando atualizacao...")
+
+    def aplicar_atualizacao(self) -> None:
+        """Troca o .pyz e sobe a versao nova no lugar desta."""
+        import sysmon_update as U
+
+        pyz = self.atualizador.arquivo
+        lanc = U.lancador(pyz)
+        janela = os.name == "nt"
+        modo = U.como_aplicar(janela, lanc is not None)
+        if modo == "manual":
+            # Windows sem lancador ao lado: nao ha como trocar um arquivo que
+            # este processo tem aberto, e nao ha quem troque depois.
+            self._dica("baixada; abra pelo sysmon.bat para aplicar")
+            return
+
+        self._guardar()
+        if modo == "processo":
+            U.aplicar_pendente(pyz)
+        try:
+            import subprocess
+            subprocess.Popen(
+                U.comando_reinicio(pyz, lanc, sys.argv[1:], sys.executable,
+                                   janela),
+                cwd=str(pyz.parent), close_fds=True)
+        except OSError as e:
+            self._dica(f"nao consegui reiniciar ({e})")
+            return
+        # Sai de vez, mesmo com bandeja: quem continua e o processo novo.
+        self.na_bandeja = False
+        self.root.destroy()
+
+    def _texto_update(self) -> str:
+        """A linha de status sobre atualizacao, ou vazio quando nao ha o que dizer."""
+        if not self.atualizador:
+            return ""
+        e = self.atualizador.estado()
+        if not e.get("suportado"):
+            return ""
+        if e.get("pronta"):
+            return f"atualizacao {e['disponivel']} pronta · clique em ⭳"
+        if e.get("checando"):
+            return "procurando atualizacao..."
+        if e.get("erro") and self._update_pedido:
+            return f"atualizacao: {e['erro']}"
+        if self._update_pedido:
+            self._update_pedido = False
+            return "ja esta na versao mais nova"
+        return ""
+
+    def _pintar_update(self) -> None:
+        if not self.btn_update:
+            return
+        pronta = bool(self.atualizador.estado().get("pronta"))
+        if pronta != self.btn_update._ligado:
+            self.btn_update._ligado = pronta
+            self.btn_update._repintar()
+
     def editar_hosts(self) -> None:
         bruto = dict(self.frota.cfg.extra)
         bruto["hosts"] = [{"nome": h.nome, "url": h.url, "token": h.token}
@@ -1496,10 +1586,14 @@ class Janela:
         elif self.painel_alertas.winfo_manager():
             self.painel_alertas.pack_forget()
 
-        self._status_base = ("sem hosts · use ⌂ para configurar" if n == 0
-                             else f"atualiza {self.intervalo:.0f}s · F5 forca"
-                                  " · arraste pelo topo")
+        base = ("sem hosts · use ⌂ para configurar" if n == 0
+                else f"atualiza {self.intervalo:.0f}s · F5 forca"
+                     " · arraste pelo topo")
+        # A informacao de atualizacao entra ao lado, nao no lugar: a dica de
+        # uso continua valendo enquanto houver versao nova esperando.
+        self._status_base = " · ".join(x for x in (base, self._texto_update()) if x)
         self.status.configure(text=self._status_base)
+        self._pintar_update()
 
     # -- ciclo ------------------------------------------------------------
     def _tique(self) -> None:
@@ -1540,14 +1634,15 @@ def _nivel_temp(c, crit, lim=None) -> int:
 
 
 def rodar(frota: Frota, caminho_config, intervalo: float = 3.0,
-          com_bandeja=None, oculto: bool = False, ao_criar=None) -> Janela:
+          com_bandeja=None, oculto: bool = False, ao_criar=None,
+          atualizador=None) -> Janela:
     """Abre a janela.
 
     com_bandeja recebe a Janela e devolve True se subiu o icone; ao_criar
     recebe a Janela assim que ela existe (usado para armar a trava de instancia
     unica, que pede `pedir('mostrar')` quando o sysmon e aberto de novo).
     """
-    j = Janela(frota, Path(caminho_config), intervalo)
+    j = Janela(frota, Path(caminho_config), intervalo, atualizador=atualizador)
     if ao_criar:
         ao_criar(j)
     if com_bandeja:

@@ -44,7 +44,7 @@ from sysmon_nucleo import (  # noqa: E402
     Config, ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "4.1.0"
+__version__ = "4.2.0"
 
 # Porta de loopback usada so como trava de instancia unica e canal para
 # "traga a janela para a frente". Nunca escuta fora de 127.0.0.1.
@@ -219,14 +219,16 @@ def _janela(args) -> int:
     # segundo plano e confere o SHA256. A troca em si acontece no proximo
     # arranque, feita pelo lancador (sysmon.vbs/.bat) - um processo nao
     # sobrescreve com seguranca o proprio .pyz que tem aberto.
+    atualizador = None
     if not getattr(args, "sem_update", False):
         try:
             import sysmon_update
             horas = float(cfg.extra.get("horas_entre_updates", 6))
-            sysmon_update.Atualizador(
-                __version__, intervalo=horas * 3600 if horas > 0 else 0).iniciar()
+            atualizador = sysmon_update.Atualizador(
+                __version__, intervalo=horas * 3600 if horas > 0 else 0)
+            atualizador.iniciar()
         except Exception:  # noqa: BLE001 - update nunca impede o monitor de subir
-            pass
+            atualizador = None
 
     def com_bandeja(janela) -> bool:
         """Icone de bandeja ao lado da janela, se pystray existir. Falha em
@@ -260,6 +262,7 @@ def _janela(args) -> int:
     try:
         sysmon_win.rodar(frota, caminho, intervalo=max(2.0, cfg.intervalo),
                          com_bandeja=com_bandeja, oculto=oculto,
+                         atualizador=atualizador,
                          ao_criar=lambda j: inst.ligar(lambda: j.pedir("mostrar")))
     finally:
         frota.parar()

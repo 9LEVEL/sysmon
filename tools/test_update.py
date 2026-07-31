@@ -15,6 +15,7 @@ import io
 import json
 import tempfile
 import threading
+import time
 import unittest
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -184,6 +185,24 @@ class TestAtualizador(unittest.TestCase):
         sobras = list(self.dir.glob("*.parcial"))
         self.assertEqual(sobras, [], f"sobrou arquivo parcial: {sobras}")
 
+    def test_verificar_em_thread_baixa_e_nao_duplica(self):
+        a = self.montar()
+        self.assertTrue(a.verificar_em_thread())
+        # Enquanto uma verificacao corre, clicar de novo nao enfileira outra:
+        # seriam dois downloads do mesmo arquivo disputando o mesmo destino.
+        segunda = a.verificar_em_thread()
+        fim = threading.Event()
+        for _ in range(100):
+            if not a.estado()["checando"]:
+                fim.set()
+                break
+            time.sleep(0.05)
+        self.assertTrue(fim.is_set(), "a verificacao nao terminou")
+        self.assertTrue(a.estado()["pronta"], a.estado()["erro"])
+        self.assertTrue(self.novo.is_file())
+        if segunda:                     # so vale se a primeira ainda corria
+            self.skipTest("a primeira terminou rapido demais para o teste")
+
     def test_fora_do_bundle_nao_faz_nada(self):
         # Rodando do repositorio, quem atualiza e o git.
         a = U.Atualizador("1.0.0", intervalo=0)
@@ -191,6 +210,68 @@ class TestAtualizador(unittest.TestCase):
         a.verificar()
         self.assertFalse(a.estado()["suportado"])
         self.assertIsNone(a.estado()["disponivel"])
+
+
+class TestPorOndeTrocar(unittest.TestCase):
+    """Quem troca o arquivo muda por sistema, e errar isso significa um botao
+    de atualizar que nao atualiza nada."""
+
+    def test_unix_troca_no_proprio_processo(self):
+        # No Unix substituir arquivo aberto e legitimo.
+        self.assertEqual(U.como_aplicar(windows=False, tem_lancador=False),
+                         "processo")
+        self.assertEqual(U.como_aplicar(windows=False, tem_lancador=True),
+                         "processo")
+
+    def test_windows_depende_do_lancador(self):
+        self.assertEqual(U.como_aplicar(windows=True, tem_lancador=True),
+                         "lancador")
+        # Sem .vbs/.bat ao lado nao ha quem troque depois que sairmos.
+        self.assertEqual(U.como_aplicar(windows=True, tem_lancador=False),
+                         "manual")
+
+    def test_acha_o_lancador_ao_lado_do_pyz(self):
+        d = Path(tempfile.mkdtemp())
+        pyz = d / "sysmon.pyz"
+        pyz.write_bytes(b"x")
+        self.assertIsNone(U.lancador(pyz))
+        (d / "sysmon.sh").write_text("#!/bin/sh\n")
+        self.assertEqual(U.lancador(pyz).name, "sysmon.sh")
+        # O .vbs tem precedencia: e o que roda sem console no Windows.
+        (d / "sysmon.vbs").write_text("'x\n")
+        self.assertEqual(U.lancador(pyz).name, "sysmon.vbs")
+
+
+class TestComandoReinicio(unittest.TestCase):
+    PYZ = Path("/opt/sysmon/sysmon.pyz")
+
+    def test_unix_reexecuta_o_proprio_pyz(self):
+        self.assertEqual(
+            U.comando_reinicio(self.PYZ, None, ["--oculto"], "/usr/bin/python3",
+                               windows=False),
+            ["/usr/bin/python3", str(self.PYZ), "--oculto"])
+
+    def test_unix_ignora_o_lancador(self):
+        # Ja trocamos o arquivo no processo; subir pelo .sh so repetiria o passo.
+        self.assertEqual(
+            U.comando_reinicio(self.PYZ, Path("/opt/sysmon/sysmon.sh"), [],
+                               "/usr/bin/python3", windows=False),
+            ["/usr/bin/python3", str(self.PYZ)])
+
+    def test_windows_passa_pelo_vbs_sem_esperar_o_logon(self):
+        vbs = Path("C:/sysmon/sysmon.vbs")
+        cmd = U.comando_reinicio(self.PYZ, vbs, [], "python.exe", windows=True)
+        self.assertEqual(cmd, ["wscript.exe", str(vbs), "/agora"])
+
+    def test_windows_com_bat(self):
+        bat = Path("C:/sysmon/sysmon.bat")
+        cmd = U.comando_reinicio(self.PYZ, bat, ["--config", "c.json"],
+                                 "python.exe", windows=True)
+        self.assertEqual(cmd, ["cmd.exe", "/c", str(bat), "--config", "c.json"])
+
+    def test_windows_sem_lancador_cai_no_python(self):
+        cmd = U.comando_reinicio(self.PYZ, None, [], "python.exe", windows=True)
+        self.assertEqual(cmd, ["python.exe", str(self.PYZ)])
 
 
 class TestAplicarPendente(unittest.TestCase):

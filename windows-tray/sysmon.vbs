@@ -15,13 +15,26 @@ sh.CurrentDirectory = pasta
 atual = fso.BuildPath(pasta, "sysmon.pyz")
 novo  = fso.BuildPath(pasta, "sysmon-novo.pyz")
 
+' A troca insiste por alguns segundos. Quando quem pede a atualizacao e o
+' botao da interface, este script comeca antes de o sysmon antigo terminar de
+' sair, e o arquivo ainda esta em uso na primeira tentativa. Sem a repeticao,
+' clicar em atualizar nao surtiria efeito nenhum ate o proximo logon.
 If fso.FileExists(novo) Then
-    On Error Resume Next
-    If fso.FileExists(atual) Then fso.DeleteFile atual, True
-    fso.MoveFile novo, atual
-    ' Se a troca falhar (arquivo em uso), segue com a versao antiga: o
-    ' -novo continua la e entra no proximo arranque.
-    On Error GoTo 0
+    Dim tentativa
+    For tentativa = 1 To 20
+        On Error Resume Next
+        Err.Clear
+        If fso.FileExists(atual) Then fso.DeleteFile atual, True
+        If Err.Number = 0 Then fso.MoveFile novo, atual
+        If Err.Number = 0 And Not fso.FileExists(novo) Then
+            On Error GoTo 0
+            Exit For
+        End If
+        On Error GoTo 0
+        WScript.Sleep 300
+    Next
+    ' Se nem assim, segue com a versao antiga: o -novo continua la e entra
+    ' no proximo arranque.
 End If
 
 ' Sem o Agendador de Tarefas nao ha atraso de inicio configurado, entao a
@@ -32,11 +45,15 @@ If WScript.Arguments.Count = 0 Then WScript.Sleep 20000
 
 ' Argumentos extras da linha de comando passam adiante; sem eles, --oculto:
 ' no logon a janela sobe minimizada na bandeja em vez de pular na frente.
+'
+' /agora e consumido aqui e nao repassado: e como o botao de atualizar da
+' interface pede "sobe ja, sem a espera de logon e sem minimizar".
 If WScript.Arguments.Count > 0 Then
-    Dim i, lista
+    Dim i, lista, arg
     lista = ""
     For i = 0 To WScript.Arguments.Count - 1
-        lista = lista & " " & WScript.Arguments(i)
+        arg = WScript.Arguments(i)
+        If LCase(arg) <> "/agora" Then lista = lista & " " & arg
     Next
     args = lista
 Else
