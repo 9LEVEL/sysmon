@@ -312,6 +312,9 @@ type dialogoExibir struct {
 	// e um segundo dialogo so para isto seria uma porta a mais.
 	alturas   []*Botao
 	alturaSel string
+
+	margens   []*Botao
+	margemSel int
 }
 
 func (j *Janela) abrirExibir() {
@@ -328,6 +331,10 @@ func (j *Janela) abrirExibir() {
 	}
 	for _, a := range AlturasScope {
 		d.alturas = append(d.alturas, NovoBotao(strings.ToUpper(a.Rotulo), tela.Texto))
+	}
+	d.margemSel = j.margemEsq
+	for _, m := range MargensEsq {
+		d.margens = append(d.margens, NovoBotao(m.Rotulo, tela.Texto))
 	}
 	for _, s := range tela.Catalogo {
 		d.secoes = append(d.secoes, NovaCaixa(s.Nome, !j.oculto["sec:"+s.Nome]))
@@ -371,8 +378,10 @@ func (j *Janela) desenharExibir(gtx C) {
 	yRodape := alt - 42
 	topoRodape := yRodape - (linhasRodape-1)*AltRodapeDlg
 	yAlturas := topoRodape - 14 - 26 // folga + altura do botao
-	yRotulo := yAlturas - 16
-	corpo := image.Rect(16, 68, larg-16, yRotulo-8)
+	yRotAlt := yAlturas - 16
+	yMargens := yRotAlt - 8 - 26
+	yRotMargem := yMargens - 16
+	corpo := image.Rect(16, 68, larg-16, yRotMargem-8)
 	func() {
 		defer op.Offset(corpo.Min).Push(gtx.Ops).Pop()
 		g := gtx
@@ -396,12 +405,28 @@ func (j *Janela) desenharExibir(gtx C) {
 
 	// Altura do grafico do topo, logo acima dos botoes: e um ajuste de
 	// aparencia como os outros, e nao merece dialogo proprio.
-	j.Texto(gtx, 16, yRotulo, "altura do grafico do topo", tela.Fraco, 12, false)
+	// Dois presets, um por linha. O selecionado acende em ciano: sao opcoes
+	// exclusivas, e sem marca nenhuma o clique nao daria retorno de ter
+	// funcionado.
+	j.Texto(gtx, 16, yRotMargem, "margem esquerda (px)", tela.Fraco, 12, false)
+	xm := 16
+	for i, m := range MargensEsq {
+		b := d.margens[i]
+		b.Cor = tela.Fraco
+		if m.Px == d.margemSel {
+			b.Cor = tela.Ativo
+		}
+		func(b *Botao, x int) {
+			defer op.Offset(image.Pt(x, yMargens)).Push(gtx.Ops).Pop()
+			b.Layout(gtx, j)
+		}(b, xm)
+		xm += j.larguraBotao(gtx, b) + 6
+	}
+
+	j.Texto(gtx, 16, yRotAlt, "altura do grafico do topo", tela.Fraco, 12, false)
 	xa := 16
 	for i, a := range AlturasScope {
 		b := d.alturas[i]
-		// O selecionado acende em ciano: sao quatro opcoes exclusivas, e sem
-		// marca nenhuma o clique nao daria retorno de ter funcionado.
 		b.Cor = tela.Fraco
 		if a.Chave == d.alturaSel {
 			b.Cor = tela.Ativo
@@ -431,6 +456,11 @@ func (j *Janela) tratarExibir(gtx C) {
 	for i, b := range d.alturas {
 		if b.Clicado(gtx) {
 			d.alturaSel = AlturasScope[i].Chave
+		}
+	}
+	for i, b := range d.margens {
+		if b.Clicado(gtx) {
+			d.margemSel = MargensEsq[i].Px
 		}
 	}
 	if d.cancelar.Clicado(gtx) {
@@ -464,6 +494,7 @@ func (j *Janela) aplicarExibir(d *dialogoExibir) {
 	}
 	j.oculto = oculto
 	j.scopeAlt = d.alturaSel
+	j.margemEsq = d.margemSel
 	j.salvarEstado()
 	j.dialogo = semDialogo
 	j.coletar()

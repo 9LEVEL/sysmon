@@ -251,3 +251,16 @@ func icReconhecer(gtx C, x, y float32, c color.NRGBA) {
 	tracos(gtx, c, f32.Pt(x-1.1, y-6.2), f32.Pt(x+1.1, y-6.2))
 	circulo(gtx, f32.Pt(x, y+4.8), 1.35, c)
 }
+
+// icSeta e a marca de recolhido/expandido na linha do host.
+//
+// Aponta para BAIXO quando expandido e para a DIREITA quando recolhido - a
+// convencao de arvore que todo gerenciador de arquivos usa, e que por isso
+// nao precisa ser explicada.
+func icSeta(gtx C, x, y float32, recolhido bool, c color.NRGBA) {
+	if recolhido {
+		tracos(gtx, c, f32.Pt(x-1.6, y-3.4), f32.Pt(x+2, y), f32.Pt(x-1.6, y+3.4))
+		return
+	}
+	tracos(gtx, c, f32.Pt(x-3.4, y-1.6), f32.Pt(x, y+2), f32.Pt(x+3.4, y-1.6))
+}

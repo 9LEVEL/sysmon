@@ -26,6 +26,10 @@ type Linha struct {
 	Secao   bool
 	Host    bool
 
+	// Recolhido e preenchido por Recolher: a linha do host desenha a seta
+	// para o lado certo.
+	Recolhido bool
+
 	// Partes e o detalhe repartido em pedacos de cores diferentes, para
 	// quando a cor separa DUAS COISAS em vez de indicar gravidade.
 	//
@@ -93,6 +97,15 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 				detalhe = append(detalhe, fmt.Sprintf("%s de %s",
 					nucleo.BytesV(d.Mem.Usado), nucleo.BytesV(d.Mem.Total)))
 			}
+			// O modelo do processador vive aqui, no cabecalho, e nao na linha
+			// de cpu: e identidade da maquina, como o sistema operacional, e
+			// nao uma medida que muda. Na linha de cpu ele ocupava, todo
+			// ciclo, a coluna onde o resto varia.
+			if oculto.Ver("r:cpumodelo") {
+				if m := limparModelo(d.CPUModelo); m != "" {
+					detalhe = append(detalhe, m)
+				}
+			}
 			if oculto.Ver("r:so") && d.SO.Nome != "" {
 				detalhe = append(detalhe, d.SO.Nome)
 			}
@@ -121,15 +134,8 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 		if oculto.Ver("sec:DESEMPENHO") {
 			secao("DESEMPENHO")
 			if oculto.Ver("p:cpu") {
-				det := fmt.Sprintf("%d nucleos", d.CPUs)
-				// O nome do processador e longo e nao muda nunca: informacao
-				// util no primeiro dia e ruido em todos os outros, ocupando a
-				// coluna onde o resto varia. Fica ligado por padrao, e quem se
-				// incomoda desliga.
-				if m := limparModelo(d.CPUModelo); m != "" && oculto.Ver("p:cpumodelo") {
-					det += " · " + m
-				}
-				medida("cpu", det, d.CPUPercent, 80, 95, serie(l.Host.Nome, "cpu"))
+				medida("cpu", fmt.Sprintf("%d nucleos", d.CPUs), d.CPUPercent,
+					80, 95, serie(l.Host.Nome, "cpu"))
 			}
 			if oculto.Ver("p:mem") {
 				medida("memoria", fmt.Sprintf("%s / %s",

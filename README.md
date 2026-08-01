@@ -310,7 +310,8 @@ Duas etiquetas no canto do gráfico dizem o que está desenhado ali — **host**
 **medida** — e clicar em cada uma troca. As medidas são **cpu**, **memória** e
 **temperatura**, as três que vivem na mesma escala de 0 a 100.
 
-A **altura** é um preset no `☰`: baixo, médio, alto ou cheio. Em 46 px a curva
+A **altura** é um preset no `☰`, junto com a **margem esquerda** (0, 5, 10 ou
+20 px): baixo, médio, alto ou cheio. Em 46 px a curva
 diz "está vivo"; em 130 px ela mostra a forma, que é o que importa quando você
 está acompanhando um pico. Se o preset escolhido não couber junto com a lista,
 o gráfico se recolhe sozinho — enfeite não espreme informação.
@@ -318,6 +319,13 @@ o gráfico se recolhe sozinho — enfeite não espreme informação.
 Até a v5.1 era a média de CPU da frota. Média de hosts diferentes não mede
 coisa nenhuma: dois servidores a 10% e a 90% viram 50%, que não descreve nem um
 nem outro. E não havia nada dizendo o que o número era.
+
+#### Clique no host para recolher o bloco
+
+Com quatro hosts a árvore inteira cabe na tela; com dez, não cabe nem perto, e
+rolar para comparar dois derrota o propósito de ter tudo visível junto. Clicar
+na linha do host recolhe o bloco dele — a seta à esquerda diz o estado, e o
+cabeçalho continua visível com o resumo. Fica guardado entre sessões.
 
 #### Os ícones do cabeçalho têm dica
 
@@ -438,10 +446,10 @@ uma caixa para cada campo:
   ☑ uso de cpu                      ☑ demais sensores do hardware
   ☑ uso de memoria em %           ☑ DISCOS
   ☑ memoria usada em GB             ☑ modelo, temperatura, desgaste, SMART
-  ☑ sistema operacional           ☑ ARMAZENAMENTO
-☑ DESEMPENHO                        ☑ filesystems montados
-  ☑ uso de cpu                      ☑ thin pool LVM (Proxmox)
-  ☑ modelo do processador         ☑ REDE
+  ☑ modelo do processador         ☑ ARMAZENAMENTO
+  ☑ sistema operacional             ☑ filesystems montados
+☑ DESEMPENHO                        ☑ thin pool LVM (Proxmox)
+  ☑ uso de cpu                    ☑ REDE
   ☑ memoria                         ☑ interfaces ativas
   ☑ swap
   ☑ carga (load average)
@@ -452,8 +460,9 @@ A lista mostra **tudo**, mesmo o que você desmarcou — ela serve também de
 inventário do que está sendo coletado. Desmarcar uma seção esconde o bloco
 inteiro.
 
-O **modelo do processador** é um bom candidato a desmarcar: é longo, não muda
-nunca, e ocupa a coluna onde o resto varia.
+O **modelo do processador** aparece na linha do host, ao lado da memória e do
+sistema — é identidade da máquina, e não uma medida que muda. Numa janela
+estreita ele disputa espaço com os outros dois: desmarque o que não usa.
 
 **Esconder não silencia alerta.** Se você tirar o thin pool da tela e ele
 encher, o aviso continua aparecendo no rodapé. Preferência de exibição não

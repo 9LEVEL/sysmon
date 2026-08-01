@@ -31,11 +31,11 @@ var Catalogo = []Secao{
 		{"r:cpu", "uso de cpu"},
 		{"r:ram", "uso de memoria em %"},
 		{"r:gb", "memoria usada em GB"},
+		{"r:cpumodelo", "modelo do processador"},
 		{"r:so", "sistema operacional"},
 	}},
 	{Nome: "DESEMPENHO", Itens: []Item{
 		{"p:cpu", "uso de cpu"},
-		{"p:cpumodelo", "modelo do processador (o nome comprido)"},
 		{"p:mem", "memoria"},
 		{"p:swap", "swap"},
 		{"p:load", "carga (load average)"},

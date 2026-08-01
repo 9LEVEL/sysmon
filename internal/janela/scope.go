@@ -47,3 +47,18 @@ func (j *Janela) rotuloAlturaScope() string {
 	}
 	return AlturasScope[0].Rotulo
 }
+
+// MargensEsq sao os presets de respiro a esquerda das escritas.
+//
+// Sem margem, o texto encosta na borda da janela - e, com o fio de estado do
+// host desenhado ali, encosta no fio. Cinco pixels ja resolvem; quem usa a
+// janela larga costuma querer mais.
+var MargensEsq = []struct {
+	Rotulo string
+	Px     int
+}{
+	{"0", 0},
+	{"5", 5},
+	{"10", 10},
+	{"20", 20},
+}

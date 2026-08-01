@@ -125,9 +125,16 @@ type Janela struct {
 	// Ate a v5.1 ele era a media de cpu da frota. Media de hosts diferentes
 	// nao mede coisa nenhuma: dois servidores a 10% e a 90% viram 50%, que
 	// nao descreve nem um nem outro. Agora e uma evidencia so, escolhida.
-	scopeHost        string // "" = o primeiro host com dados
-	scopeMedida      string // cpu | ram | temp
-	scopeAlt         string // baixo | medio | alto | cheio
+	scopeHost   string // "" = o primeiro host com dados
+	scopeMedida string // cpu | ram | temp
+	scopeAlt    string // baixo | medio | alto | cheio
+	margemEsq   int    // respiro a esquerda das escritas
+
+	// Hosts recolhidos, por nome, e o clicavel de cada cabecalho. Com dez
+	// hosts a arvore nao cabe na tela, e rolar para comparar dois derrota o
+	// proposito de ter tudo visivel junto.
+	recolhidos       map[string]bool
+	cliqueHost       map[string]*widget.Clickable
 	ultimaAm         time.Time
 	ultimaAssinatura float64
 	nivelScope       int
@@ -163,12 +170,14 @@ func Nova(f *nucleo.Frota, caminho string, versao string) *Janela {
 	th.Shaper = text.NewShaper(text.WithCollection(gofont.Collection()))
 	return &Janela{
 		frota: f, caminho: caminho, th: th, Versao: versao,
-		lista:    widget.List{List: layout.List{Axis: layout.Vertical}},
-		oculto:   tela.Visiveis{},
-		hist:     map[string][]float64{},
-		ultimoTS: map[string]float64{},
-		ultimaAm: time.Now(),
-		fila:     make(chan string, 8),
+		lista:      widget.List{List: layout.List{Axis: layout.Vertical}},
+		oculto:     tela.Visiveis{},
+		hist:       map[string][]float64{},
+		ultimoTS:   map[string]float64{},
+		recolhidos: map[string]bool{},
+		cliqueHost: map[string]*widget.Clickable{},
+		ultimaAm:   time.Now(),
+		fila:       make(chan string, 8),
 	}
 }
 
@@ -551,6 +560,16 @@ func (j *Janela) tratarCliques(gtx C) {
 	if j.btMarca.Clicked(gtx) {
 		AbrirURL(marcaURL)
 	}
+	for nome, c := range j.cliqueHost {
+		if c.Clicked(gtx) {
+			if j.recolhidos[nome] {
+				delete(j.recolhidos, nome)
+			} else {
+				j.recolhidos[nome] = true
+			}
+			j.salvarEstado()
+		}
+	}
 	if j.btScopeHost.Clicked(gtx) {
 		j.mu.Lock()
 		j.scopeHost = proximo(j.hostsScope, j.alvoScope(nil))
@@ -709,7 +728,10 @@ func (j *Janela) desenhar(gtx C) {
 	}
 
 	fimLista := alt - AltRodape - altAlertas
-	j.tabela(gtx, linhas, image.Rect(0, y, larg, fimLista))
+	// Recolhido no DESENHO, e nao na coleta: assim o clique responde no
+	// quadro seguinte, e nao no proximo ciclo de rede.
+	j.tabela(gtx, tela.Recolher(linhas, j.recolhidos),
+		image.Rect(j.margemEsq, y, larg, fimLista))
 
 	if altAlertas > 0 {
 		j.painelAlertas(gtx, alertas, image.Rect(0, fimLista, larg, alt-AltRodape))
@@ -1033,6 +1055,18 @@ func (j *Janela) tabela(gtx C, linhas []tela.Linha, r image.Rectangle) {
 	})
 }
 
+// clicavelHost devolve (criando na primeira vez) o alvo de clique de um host.
+// Guardado por nome porque o widget do Gio precisa sobreviver entre quadros
+// para reconhecer press e release como um clique.
+func (j *Janela) clicavelHost(nome string) *widget.Clickable {
+	c, ok := j.cliqueHost[nome]
+	if !ok {
+		c = &widget.Clickable{}
+		j.cliqueHost[nome] = c
+	}
+	return c
+}
+
 // alturaLinha existe porque a linha do host e mais alta que as demais - a
 // lista do Gio aceita altura por item, entao a hierarquia nao custa nada.
 func alturaLinha(l tela.Linha) int {
@@ -1048,20 +1082,45 @@ func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
 	xValor := larg - Margem
 
 	if l.Host {
+		// A linha inteira e o alvo do clique que recolhe: um host tem nome
+		// curto, e mirar em quatro letras seria pior que mirar na linha.
+		c := j.clicavelHost(l.Nome)
+		g := gtx
+		g.Constraints = layout.Exact(image.Pt(larg, AltLinhaHost))
+		c.Layout(g, func(g C) D { return D{Size: image.Pt(larg, AltLinhaHost)} })
+		if c.Hovered() {
+			pointer.CursorPointer.Add(gtx.Ops)
+		}
+
 		// A linha do host pinta inteira: um host critico fica vermelho de
 		// ponta a ponta, e nao so no nome.
-		retangulo(gtx, image.Rect(0, 0, larg, AltLinhaHost), tela.Selecao)
+		fundo := tela.Selecao
+		if c.Hovered() {
+			fundo = tela.Grade
+		}
+		retangulo(gtx, image.Rect(0, 0, larg, AltLinhaHost), fundo)
 		// Um fio da cor do estado na borda esquerda: com varios hosts, e o
 		// que separa os blocos sem gastar uma linha em branco entre eles.
 		retangulo(gtx, image.Rect(0, 0, 3, AltLinhaHost), l.Cor)
-		j.TextoGlow(gtx, Margem, 5, l.Nome, l.Cor, CorpoHost, true)
+		icSeta(gtx, float32(Margem+5), AltLinhaHost/2, l.Recolhido,
+			tela.Alfa(l.Cor, 200))
+		xNomeHost := Margem + 14
+		larguraNome := j.Medir(gtx, l.Nome, CorpoHost, true)
+		j.TextoGlow(gtx, xNomeHost, 5, l.Nome, l.Cor, CorpoHost, true)
+		// A coluna do meio comeca logo APOS o nome, e nao na coluna fixa das
+		// medidas. Numa janela estreita aqueles 190px de recuo eram espaco
+		// vazio: o nome do host tem tres letras, e o que vem depois - modelo
+		// do processador, memoria, sistema - ficava sem lugar.
+		xDet = xNomeHost + larguraNome + 20
 		// A coluna do meio para ANTES do valor. Sem esse limite, numa janela
 		// estreita - que e como esta ferramenta e usada, encostada na lateral
 		// como um widget - o "9.1G de 14.9G · Debian" passava por cima do
 		// "57C · cpu 24% · ram 63%" e as duas ficavam ilegiveis.
 		fim := xValor - j.Medir(gtx, l.Valor, CorpoHost, true) - 12
-		j.Texto(gtx, xDet, 6, j.cortarPara(gtx, l.Detalhe, fim-xDet),
-			tela.Titulo, 12, true)
+		// Um ponto menor que o resto: no cabecalho ele e contexto - modelo
+		// do processador, memoria, sistema -, e nao a medida que se compara.
+		j.Texto(gtx, xDet, 7, j.cortarPara(gtx, l.Detalhe, fim-xDet),
+			tela.Titulo, 11, true)
 		j.TextoDir(gtx, xValor, 5, l.Valor, l.Cor, CorpoHost, true)
 		return
 	}
