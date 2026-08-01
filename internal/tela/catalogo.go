@@ -37,6 +37,7 @@ var Catalogo = []Secao{
 	}},
 	{Nome: "DESEMPENHO", Itens: []Item{
 		{"p:cpu", "uso de cpu"},
+		{"p:cpumodelo", "modelo do processador (o nome comprido)"},
 		{"p:mem", "memoria"},
 		{"p:swap", "swap"},
 		{"p:load", "carga (load average)"},
@@ -81,9 +82,9 @@ func ChavesDoCatalogo() []string {
 func RotuloAchado(a smart.Achado) string {
 	switch a.Categoria {
 	case smart.Interconexao:
-		return "cabo/porta: " + corta(a.Mensagem, 28)
+		return "cabo/porta: " + a.Curto()
 	case smart.Host:
-		return "energia: " + corta(a.Mensagem, 28)
+		return "energia: " + a.Curto()
 	}
-	return corta(a.Mensagem, 34)
+	return a.Curto()
 }

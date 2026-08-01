@@ -17,10 +17,12 @@ import (
 // Misturar os dois faria uma escolha de aparencia viajar junto com a
 // configuracao ao copiar o arquivo para outra maquina.
 type estadoJanela struct {
-	Oculto []string `json:"oculto"`
-	Topo   bool     `json:"topo"`
-	Larg   int      `json:"larg"`
-	Alt    int      `json:"alt"`
+	Oculto      []string `json:"oculto"`
+	Topo        bool     `json:"topo"`
+	Larg        int      `json:"larg"`
+	Alt         int      `json:"alt"`
+	ScopeHost   string   `json:"scope_host"`
+	ScopeMedida string   `json:"scope_medida"`
 }
 
 func (j *Janela) caminhoEstado() string {
@@ -42,6 +44,7 @@ func (j *Janela) carregarEstado() {
 	}
 	j.noTopo = e.Topo
 	j.largSalva, j.altSalva = e.Larg, e.Alt
+	j.scopeHost, j.scopeMedida = e.ScopeHost, e.ScopeMedida
 }
 
 func (j *Janela) salvarEstado() {
@@ -56,7 +59,8 @@ func (j *Janela) salvarEstado() {
 	sort.Strings(oculto)
 
 	e := estadoJanela{Oculto: oculto, Topo: j.noTopo,
-		Larg: j.largSalva, Alt: j.altSalva}
+		Larg: j.largSalva, Alt: j.altSalva,
+		ScopeHost: j.scopeHost, ScopeMedida: j.scopeMedida}
 	dados, err := json.MarshalIndent(e, "", "  ")
 	if err != nil {
 		return

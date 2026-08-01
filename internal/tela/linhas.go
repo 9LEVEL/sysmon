@@ -25,6 +25,21 @@ type Linha struct {
 	Serie   []float64
 	Secao   bool
 	Host    bool
+
+	// Partes e o detalhe repartido em pedacos de cores diferentes, para
+	// quando a cor separa DUAS COISAS em vez de indicar gravidade.
+	//
+	// Detalhe continua preenchido com o texto inteiro: o terminal e o calculo
+	// de largura leem dali e nao precisam saber que existe cor. Quem sabe
+	// desenhar em cor usa Partes; quem nao sabe usa Detalhe e mostra a mesma
+	// informacao.
+	Partes []Parte
+}
+
+// Parte e um pedaco colorido do detalhe.
+type Parte struct {
+	Texto string
+	Cor   color.NRGBA
 }
 
 // Campos que podem ser escondidos pela tela de exibicao.
@@ -107,7 +122,11 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 			secao("DESEMPENHO")
 			if oculto.Ver("p:cpu") {
 				det := fmt.Sprintf("%d nucleos", d.CPUs)
-				if m := limparModelo(d.CPUModelo); m != "" {
+				// O nome do processador e longo e nao muda nunca: informacao
+				// util no primeiro dia e ruido em todos os outros, ocupando a
+				// coluna onde o resto varia. Fica ligado por padrao, e quem se
+				// incomoda desliga.
+				if m := limparModelo(d.CPUModelo); m != "" && oculto.Ver("p:cpumodelo") {
 					det += " · " + m
 				}
 				medida("cpu", det, d.CPUPercent, 80, 95, serie(l.Host.Nome, "cpu"))
@@ -123,8 +142,18 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 					50, 80, nil)
 			}
 			if oculto.Ver("p:load") {
-				linha("carga", fmt.Sprintf("%.2f", d.Load[0]),
-					fmt.Sprintf("%.2f 5m · %.2f 15m", d.Load[1], d.Load[2]), Texto)
+				// O rotulo vem ANTES do numero. "0.72 5m" se le como se 0,72
+				// fosse a coisa e 5m o qualificador; "5m 0.72" diz de cara que
+				// ha tres janelas de tempo e qual e esta. O numero grande da
+				// direita e a de 1 minuto.
+				out = append(out, Linha{Recuo: 2, Nome: "carga", Pct: -1,
+					Cor: Texto, Valor: fmt.Sprintf("%.2f", d.Load[0]),
+					Detalhe: fmt.Sprintf("5m %.2f · 15m %.2f", d.Load[1], d.Load[2]),
+					Partes: []Parte{
+						{fmt.Sprintf("5m %.2f", d.Load[1]), Ciano},
+						{" · ", Fraco},
+						{fmt.Sprintf("15m %.2f", d.Load[2]), Magenta},
+					}})
 			}
 			if oculto.Ver("p:up") {
 				linha("no ar", nucleo.Uptime(&d.UptimeS), "", Texto)

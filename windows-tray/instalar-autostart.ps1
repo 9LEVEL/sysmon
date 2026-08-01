@@ -9,7 +9,7 @@
 # for o caminho, o outro e removido: os dois ativos fariam duas instancias
 # subirem no logon e uma morrer disputando a porta.
 #
-# Um processo so: sobe o dashboard e, se pystray/Pillow estiverem instalados,
+# Um processo so: sobe a janela e, no Windows,
 # o icone de bandeja junto.
 param(
     [switch]$Agendador,    # exige o Agendador; falha se nao houver admin

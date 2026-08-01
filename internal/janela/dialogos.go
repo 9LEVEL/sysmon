@@ -109,26 +109,53 @@ func (j *Janela) desenharHosts(gtx C) {
 	}()
 
 	// Rodape com as acoes.
+	//
+	// Os tres botoes tem largura de texto e o dialogo encolhe junto com a
+	// janela: numa janela estreita eles se sobrepunham, e o de adicionar
+	// ficava por baixo do de cancelar. Quando nao cabem lado a lado, o de
+	// adicionar sobe uma linha em vez de disputar o mesmo espaco.
 	y := alt - 42
+	wAdicionar := j.larguraBotao(gtx, d.adicionar)
+	wSalvar := j.larguraBotao(gtx, d.salvar)
+	wCancelar := j.larguraBotao(gtx, d.cancelar)
+
+	xCancelar := larg - 24 - wSalvar - wCancelar
+	yAdicionar := y
+	if 16+wAdicionar+12 > xCancelar {
+		yAdicionar = y - 30
+	}
 	func() {
-		defer op.Offset(image.Pt(16, y)).Push(gtx.Ops).Pop()
+		defer op.Offset(image.Pt(16, yAdicionar)).Push(gtx.Ops).Pop()
 		d.adicionar.Layout(gtx, j)
 	}()
 	if d.erro != "" {
-		j.Texto(gtx, 120, y+6, d.erro, tela.Vermelho, 12, false)
+		// O erro ocupa o que sobra entre adicionar e cancelar, e e cortado
+		// para nao invadir os botoes - texto de erro por baixo de botao nao
+		// e nem erro nem botao.
+		xErro := 16 + wAdicionar + 12
+		if yAdicionar != y {
+			xErro = 16
+		}
+		if sobra := xCancelar - 8 - xErro; sobra > 40 {
+			j.Texto(gtx, xErro, y+6, j.cortarPara(gtx, d.erro, sobra),
+				tela.Vermelho, 12, false)
+		}
 	}
-	larguraSalvar := j.Medir(gtx, d.salvar.Rotulo, 12, true) + 22
-	larguraCancelar := j.Medir(gtx, d.cancelar.Rotulo, 12, true) + 22
 	func() {
-		defer op.Offset(image.Pt(larg-16-larguraSalvar, y)).Push(gtx.Ops).Pop()
+		defer op.Offset(image.Pt(larg-16-wSalvar, y)).Push(gtx.Ops).Pop()
 		d.salvar.Layout(gtx, j)
 	}()
 	func() {
-		defer op.Offset(image.Pt(larg-24-larguraSalvar-larguraCancelar, y)).
-			Push(gtx.Ops).Pop()
+		defer op.Offset(image.Pt(xCancelar, y)).Push(gtx.Ops).Pop()
 		d.cancelar.Layout(gtx, j)
 	}()
+}
 
+// larguraBotao repete a conta que Botao.Layout faz para se medir. Sao os
+// mesmos 22 de padding; o rodape precisa saber antes de desenhar, para
+// decidir se os tres cabem na mesma linha.
+func (j *Janela) larguraBotao(gtx C, b *Botao) int {
+	return j.Medir(gtx, b.Rotulo, 12, true) + 22
 }
 
 // tratarHosts roda antes do desenho - ver Janela.tratarCliques.
@@ -168,13 +195,13 @@ func (j *Janela) linhaHostLayout(gtx C, d *dialogoHosts, i, larg int) D {
 		w(g)
 		x += larguraFixa + 8
 	}
-	desenha(func(g C) D { return l.nome.Layout(g, j) }, 110)
-	desenha(func(g C) D { return l.url.Layout(g, j) }, 300)
-	desenha(func(g C) D { return l.token.Layout(g, j) }, 170)
-	desenha(func(g C) D { return l.testar.Layout(g, j) },
-		j.Medir(gtx, "TESTAR", 12, true)+22)
-	desenha(func(g C) D { return l.remover.Layout(g, j) },
-		j.Medir(gtx, "×", 12, true)+22)
+	nome, url, token := larguraCampos(larg,
+		j.larguraBotao(gtx, l.testar), j.larguraBotao(gtx, l.remover))
+	desenha(func(g C) D { return l.nome.Layout(g, j) }, nome)
+	desenha(func(g C) D { return l.url.Layout(g, j) }, url)
+	desenha(func(g C) D { return l.token.Layout(g, j) }, token)
+	desenha(func(g C) D { return l.testar.Layout(g, j) }, j.larguraBotao(gtx, l.testar))
+	desenha(func(g C) D { return l.remover.Layout(g, j) }, j.larguraBotao(gtx, l.remover))
 
 	if l.resultado != "" {
 		cor := tela.Vermelho
@@ -184,6 +211,37 @@ func (j *Janela) linhaHostLayout(gtx C, d *dialogoHosts, i, larg int) D {
 		j.Texto(gtx, 2, 30, l.resultado, cor, 12, false)
 	}
 	return D{Size: image.Pt(larg, alt)}
+}
+
+// larguraCampos reparte a largura disponivel entre apelido, url e token.
+//
+// As tres larguras eram fixas (110, 300, 170). Somadas aos dois botoes e aos
+// espacos passavam de 700 px, e o dialogo encolhe junto com a janela: abaixo
+// disso o TESTAR e o × saiam pela borda, cortados ou por cima do token.
+//
+// Os botoes nao encolhem - o texto deles nao cabe menor - entao o que sobra
+// e repartido na mesma proporcao de antes, com um minimo por campo para que
+// nenhum vire uma fresta onde nao da para ler nada.
+func larguraCampos(larg, wTestar, wRemover int) (nome, url, token int) {
+	const (
+		pNome, pURL, pToken       = 110, 300, 170
+		minNome, minURL, minToken = 60, 110, 70
+		espacos                   = 4 * 8
+	)
+	sobra := larg - wTestar - wRemover - espacos
+	total := pNome + pURL + pToken
+	if sobra >= total {
+		// Cabe o desenho original; o que exceder vai para a url, que e o
+		// campo onde texto comprido de fato aparece.
+		return pNome, pURL + (sobra - total), pToken
+	}
+	if sobra < minNome+minURL+minToken {
+		return minNome, minURL, minToken
+	}
+	nome = max(minNome, sobra*pNome/total)
+	token = max(minToken, sobra*pToken/total)
+	url = max(minURL, sobra-nome-token)
+	return nome, url, token
 }
 
 // testar consulta o host numa goroutine: a interface nao pode congelar por

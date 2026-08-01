@@ -3,6 +3,7 @@ package janela
 import (
 	"image"
 	"image/color"
+	"math"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -104,7 +105,18 @@ func glow(gtx C, pts []f32.Point, c color.NRGBA) {
 }
 
 func circulo(gtx C, p f32.Point, r float32, c color.NRGBA) {
-	caixa := image.Rect(int(p.X-r), int(p.Y-r), int(p.X+r), int(p.Y+r))
+	// Arredonda para fora e garante ao menos 2px de lado: o clip.Ellipse
+	// truncado num retangulo de 3px sai como um traco horizontal, e um campo
+	// de particulas virava um campo de hifens.
+	x0, y0 := math.Floor(float64(p.X-r)), math.Floor(float64(p.Y-r))
+	x1, y1 := math.Ceil(float64(p.X+r)), math.Ceil(float64(p.Y+r))
+	if x1-x0 < 2 {
+		x1 = x0 + 2
+	}
+	if y1-y0 < 2 {
+		y1 = y0 + 2
+	}
+	caixa := image.Rect(int(x0), int(y0), int(x1), int(y1))
 	paint.FillShape(gtx.Ops, c, clip.Ellipse(caixa).Op(gtx.Ops))
 }
 

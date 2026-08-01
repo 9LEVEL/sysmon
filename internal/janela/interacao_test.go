@@ -2,6 +2,7 @@ package janela
 
 import (
 	"image"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,5 +287,91 @@ func TestTokenEmBrancoMantemOAnterior(t *testing.T) {
 	cfg, _ := nucleo.CarregarConfig(b.j.caminho)
 	if cfg.Hosts[0].Token != "segredo" {
 		t.Fatalf("token = %q, queria segredo", cfg.Hosts[0].Token)
+	}
+}
+
+// mover injeta um movimento de ponteiro, para exercitar hover.
+func (b *bancada) mover(x, y int) {
+	b.quadro()
+	b.r.Queue(pointer.Event{Kind: pointer.Move,
+		Position: f32.Pt(float32(x), float32(y))})
+	b.quadro()
+	b.quadro()
+}
+
+func TestDicaAparecePassandoOMouseNoIcone(t *testing.T) {
+	// Sete icones sem rotulo e um enigma novo a cada release. A versao Tkinter
+	// tinha essa dica e ela se perdeu na migracao para o Gio.
+	casos := []struct {
+		nome   string
+		indice int
+		trecho string
+	}{
+		{"hosts", 2, "hosts"},
+		{"exibir", 3, "aparece"},
+		{"alertas", 4, "limiares"},
+		{"topo", 6, "topo"},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			b := novaBancada(t)
+			b.mover(iconeX(b.tam.X, c.indice), 19)
+			if b.j.dicaBotao == "" {
+				t.Fatal("nenhuma dica sob o cursor")
+			}
+			if !strings.Contains(b.j.dicaBotao, c.trecho) {
+				t.Fatalf("dica = %q, esperava conter %q", b.j.dicaBotao, c.trecho)
+			}
+		})
+	}
+}
+
+func TestDicaSomeQuandoOCursorSai(t *testing.T) {
+	// Dica que fica presa na tela e pior que dica nenhuma: vira um rotulo
+	// errado apontando para um icone que o cursor ja deixou.
+	b := novaBancada(t)
+	b.mover(iconeX(b.tam.X, 2), 19)
+	if b.j.dicaBotao == "" {
+		t.Fatal("nao apareceu")
+	}
+	b.mover(b.tam.X/2, b.tam.Y/2)
+	if b.j.dicaBotao != "" {
+		t.Fatalf("dica ficou presa: %q", b.j.dicaBotao)
+	}
+}
+
+func TestBotaoDeTopoAcendeEDesligaComOEstado(t *testing.T) {
+	// Ate a v5.1 o clique so virava o booleano e a janela nao subia; agora o
+	// estado tambem vai para o disco, entao o texto da dica muda junto.
+	b := novaBancada(t)
+	if b.j.NoTopo() {
+		t.Fatal("nasceu ligado")
+	}
+	b.clique(iconeX(b.tam.X, 6), 19)
+	if !b.j.NoTopo() {
+		t.Fatal("o clique nao ligou")
+	}
+	b.mover(iconeX(b.tam.X, 6), 19)
+	if !strings.Contains(b.j.dicaBotao, "ligado") {
+		t.Fatalf("dica = %q", b.j.dicaBotao)
+	}
+}
+
+func TestCliqueNoSeletorTrocaAMedidaDoGrafico(t *testing.T) {
+	// O grafico do topo mostra UM host e UMA medida, e as duas etiquetas sao
+	// como se escolhe. Sem elas, o numero ali nao tem referencia.
+	b := novaBancada(t, nucleo.Host{Nome: "pve", URL: "http://x/metrics", Token: "t"})
+	b.j.mu.Lock()
+	b.j.hostsScope = []string{"pve"}
+	b.j.mu.Unlock()
+
+	if got := b.j.medidaScope(); got != "cpu" {
+		t.Fatalf("medida inicial = %q", got)
+	}
+	// A etiqueta da medida vem depois da do host, no canto do grafico.
+	larguraHost := b.j.Medir(b.gtx(), "pve", 11, false)
+	b.clique(Margem+4+larguraHost+16, AltCabec+6)
+	if got := b.j.medidaScope(); got != "ram" {
+		t.Fatalf("medida = %q, queria ram", got)
 	}
 }

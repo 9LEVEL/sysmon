@@ -15,6 +15,14 @@ type Estado struct {
 	Falhas     int
 }
 
+// versaoAgente devolve o que o host respondeu, para a mensagem dizer qual e.
+func versaoAgente(d *metricas.Snapshot) string {
+	if d == nil || d.V == "" {
+		return "instalado"
+	}
+	return d.V
+}
+
 // DiscosRelevantes filtra os filesystems que nao vale avaliar por espaco.
 func DiscosRelevantes(discos []metricas.Disco, lim Limiares) []metricas.Disco {
 	ign := make(map[string]bool, len(lim.IgnorarMounts))
@@ -132,6 +140,7 @@ func Avaliar(e Estado, lim Limiares) (int, []string) {
 		}
 	}
 
+	smartLegado := false
 	for _, b := range d.Blocos {
 		dev := b.Dev
 		if dev == "" {
@@ -159,6 +168,7 @@ func Avaliar(e Estado, lim Limiares) (int, []string) {
 		if n := faixa(s.DesgastePercent, lim.Desgaste.Aviso, lim.Desgaste.Critico); n >= Aviso {
 			marcar(n, fmt.Sprintf("disco %s com %.0f%% de vida consumida",
 				dev, *s.DesgastePercent))
+			smartLegado = true
 		} else {
 			marcar(n, "")
 		}
@@ -166,7 +176,18 @@ func Avaliar(e Estado, lim Limiares) (int, []string) {
 		if s.Realocados != nil && *s.Realocados >= lim.RealocadosAviso {
 			marcar(Aviso, fmt.Sprintf("disco %s com %d setores realocados",
 				dev, *s.Realocados))
+			smartLegado = true
 		}
+	}
+
+	// Sem isto, quem atualiza so o cliente ve as MESMAS reclamacoes de antes e
+	// conclui que as regras novas nao funcionam. Elas nao funcionam mesmo: a
+	// tabela de atributos e a variacao no tempo vem do agente, e um agente
+	// antigo nao tem o que mandar. Uma linha por host, e nao por disco.
+	if smartLegado {
+		marcar(Aviso, fmt.Sprintf("as regras de disco estao no modo antigo: "+
+			"o agente %s nao envia a tabela SMART - atualize o agente do host",
+			versaoAgente(d)))
 	}
 
 	// PSI 'some' alto significa que ha tarefa parada esperando o recurso - e o

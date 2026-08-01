@@ -56,6 +56,10 @@ const (
 	LarguraBotoes = 7*24 + 10 + 20
 
 	msAnim = 66 * time.Millisecond // ~15 quadros/s
+
+	// A alca de redimensionar, no canto inferior direito. Quem desenha perto
+	// dela precisa saber o tamanho para nao ficar por baixo.
+	larguraCanto = 18
 )
 
 // Janela e a interface do sysmon.
@@ -72,7 +76,8 @@ type Janela struct {
 	noTopo bool
 
 	btTopo, btBaixar, btAlerta, btExibir, btHosts widget.Clickable
-	btMin, btFechar                               widget.Clickable
+	btMin, btFechar, btMarca                      widget.Clickable
+	btScopeHost, btScopeMedida                    widget.Clickable
 	arrastoCanto                                  gesture.Drag
 
 	// Dialogos: sobreposicoes na propria janela, nao janelas do sistema.
@@ -88,14 +93,26 @@ type Janela struct {
 	alertas   []string
 	dica      string
 
+	// Dica do botao sob o cursor, colhida ao desenhar o cabecalho e desenhada
+	// no fim do quadro - senao a arvore, que vem depois, passaria por cima.
+	dicaBotao  string
+	dicaBotaoX int
+
 	// Historico curto por (host, medida) para os sparklines. Memoria de
 	// janela aberta, nao telemetria: nada disso e persistido.
-	hist             map[string][]float64
-	ultimoTS         map[string]float64
-	amostras         []float64 // cpu media da frota, para o osciloscopio
+	hist     map[string][]float64
+	ultimoTS map[string]float64
+	// O grafico do topo acompanha UM host e UMA medida.
+	//
+	// Ate a v5.1 ele era a media de cpu da frota. Media de hosts diferentes
+	// nao mede coisa nenhuma: dois servidores a 10% e a 90% viram 50%, que
+	// nao descreve nem um nem outro. Agora e uma evidencia so, escolhida.
+	scopeHost        string // "" = o primeiro host com dados
+	scopeMedida      string // cpu | ram | temp
 	ultimaAm         time.Time
 	ultimaAssinatura float64
 	nivelScope       int
+	hostsScope       []string // os que tem dados, para o clique circular
 	largSalva        int
 	altSalva         int
 
@@ -113,7 +130,13 @@ type Janela struct {
 	updatePedido bool
 }
 
-const janelaHist = 12
+const (
+	// O sparkline mostra a tendencia recente; o osciloscopio do topo mostra
+	// uma janela longa. Sao a mesma serie, cortada em dois tamanhos - antes o
+	// topo mantinha um historico proprio, paralelo a este.
+	janelaHist = 12
+	maxHist    = 200
+)
 
 // Nova cria a janela. Nao a abre: quem abre e Rodar.
 func Nova(f *nucleo.Frota, caminho string, versao string) *Janela {
@@ -155,6 +178,11 @@ func (j *Janela) Rodar(oculto bool) error {
 	j.carregarEstado()
 	if j.largSalva >= MinLarg && j.altSalva >= MinAlt {
 		j.w.Option(app.Size(unit.Dp(j.largSalva), unit.Dp(j.altSalva)))
+	}
+	// O estado guarda o sempre-no-topo, mas ate a v5.1 ninguem o aplicava na
+	// abertura: o botao voltava aceso e a janela voltava por baixo das outras.
+	if j.noTopo {
+		j.w.Option(app.TopMost(true))
 	}
 	j.coletar()
 	go j.laco()
@@ -203,7 +231,6 @@ func (j *Janela) coletar() {
 	cfg := j.frota.Cfg()
 	leituras := j.frota.Estados()
 
-	var cpus []float64
 	pior := nucleo.OK
 	assinatura := 0.0
 	for _, l := range leituras {
@@ -215,9 +242,6 @@ func (j *Janela) coletar() {
 			continue
 		}
 		assinatura += d.TS
-		if d.CPUPercent != nil {
-			cpus = append(cpus, *d.CPUPercent)
-		}
 		j.anotar(l.Host.Nome, d.TS, map[string]*float64{
 			"cpu": d.CPUPercent, "ram": d.Mem.Percent, "temp": d.CPUTemp,
 		})
@@ -253,7 +277,12 @@ func (j *Janela) coletar() {
 	j.alertas = alertas
 	j.resumo = tela.Juntar(partes)
 	j.corResumo = pior
-	j.empilharAmostra(cpus, pior, assinatura)
+	j.hostsScope = nomesComDados(leituras)
+	j.nivelScope = nivelDoScope(leituras, j.alvoScope(leituras), cfg.Limiares)
+	if assinatura != j.ultimaAssinatura {
+		j.ultimaAssinatura = assinatura
+		j.ultimaAm = time.Now()
+	}
 	j.mu.Unlock()
 
 	if j.AoMudarNivel != nil {
@@ -293,35 +322,110 @@ func (j *Janela) anotar(host string, ts float64, medidas map[string]*float64) {
 		}
 		k := host + ":" + nome
 		s := append(j.hist[k], *v)
-		if len(s) > janelaHist {
-			s = s[len(s)-janelaHist:]
+		if len(s) > maxHist {
+			s = s[len(s)-maxHist:]
 		}
 		j.hist[k] = s
 	}
 }
 
+// serie e o rabinho que cabe ao lado do valor, na linha da medida.
 func (j *Janela) serie(host, medida string) []float64 {
+	s := j.hist[host+":"+medida]
+	if len(s) > janelaHist {
+		s = s[len(s)-janelaHist:]
+	}
+	return s
+}
+
+// serieLonga e a mesma serie inteira, para o grafico do topo.
+func (j *Janela) serieLonga(host, medida string) []float64 {
 	return j.hist[host+":"+medida]
 }
 
-func (j *Janela) empilharAmostra(cpus []float64, nivel int, assinatura float64) {
-	j.nivelScope = nivel
-	if assinatura == j.ultimaAssinatura {
-		return
+// MedidasScope sao as tres que cabem no eixo de 0 a 100 do grafico do topo.
+//
+// Nao e uma limitacao de desenho e sim o que faz o grafico ser comparavel:
+// tres medidas na mesma escala percentual, e a temperatura em graus, que na
+// pratica tambem vive entre 0 e 100.
+var MedidasScope = []struct{ Chave, Rotulo string }{
+	{"cpu", "cpu"},
+	{"ram", "memoria"},
+	{"temp", "temperatura"},
+}
+
+func nomesComDados(leituras []nucleo.LeituraHost) []string {
+	var out []string
+	for _, l := range leituras {
+		if l.Estado.Dados != nil {
+			out = append(out, l.Host.Nome)
+		}
 	}
-	j.ultimaAssinatura = assinatura
-	media := 0.0
-	for _, v := range cpus {
-		media += v
+	return out
+}
+
+// alvoScope resolve qual host o grafico acompanha.
+//
+// Vazio, ou apontando para host que saiu do config, cai no primeiro que
+// tenha dados - o grafico nunca fica em branco por causa de uma preferencia
+// velha.
+func (j *Janela) alvoScope(leituras []nucleo.LeituraHost) string {
+	nomes := j.hostsScope
+	if leituras != nil {
+		nomes = nomesComDados(leituras)
 	}
-	if len(cpus) > 0 {
-		media /= float64(len(cpus))
+	for _, n := range nomes {
+		if n == j.scopeHost {
+			return n
+		}
 	}
-	j.amostras = append(j.amostras, media)
-	if len(j.amostras) > 200 {
-		j.amostras = j.amostras[len(j.amostras)-200:]
+	if len(nomes) > 0 {
+		return nomes[0]
 	}
-	j.ultimaAm = time.Now()
+	return ""
+}
+
+func (j *Janela) medidaScope() string {
+	for _, m := range MedidasScope {
+		if m.Chave == j.scopeMedida {
+			return m.Chave
+		}
+	}
+	return MedidasScope[0].Chave
+}
+
+func rotuloMedida(chave string) string {
+	for _, m := range MedidasScope {
+		if m.Chave == chave {
+			return m.Rotulo
+		}
+	}
+	return chave
+}
+
+// nivelDoScope pinta a curva pelo estado do host que ela mostra, e nao pelo
+// pior da frota: a cor tem que falar do que esta desenhado ali.
+func nivelDoScope(leituras []nucleo.LeituraHost, host string, lim nucleo.Limiares) int {
+	for _, l := range leituras {
+		if l.Host.Nome == host {
+			n, _ := nucleo.Avaliar(l.Estado, lim)
+			return n
+		}
+	}
+	return nucleo.OK
+}
+
+// proximo devolve o item seguinte de uma lista, circulando.
+func proximo(lista []string, atual string) string {
+	for i, v := range lista {
+		if v == atual {
+			return lista[(i+1)%len(lista)]
+		}
+	}
+	if len(lista) > 0 {
+		return lista[0]
+	}
+	return atual
 }
 
 // dicaBandeja evita que o pacote da janela importe o da bandeja so por uma
@@ -370,9 +474,14 @@ func (j *Janela) drenar() {
 
 func (j *Janela) alternarTopo() {
 	j.noTopo = !j.noTopo
-	// Gio ainda nao expoe sempre-no-topo por opcao de janela em todas as
-	// plataformas; onde nao houver, o botao acende sem efeito e isso e
-	// melhor que sumir com ele.
+	// Ate a v5.1 isto so virava o booleano: o botao acendia e a janela nao
+	// subia. O app.TopMost existe desde o Gio v0.9 e vale para Windows e
+	// macOS; no X11 e no Wayland ele nao faz nada, e ali o botao continua
+	// sendo so um indicador.
+	if j.w != nil {
+		j.w.Option(app.TopMost(j.noTopo))
+	}
+	j.salvarEstado()
 }
 
 // tratarCliques roda ANTES de desenhar, e a ordem nao e detalhe.
@@ -397,6 +506,23 @@ func (j *Janela) tratarCliques(gtx C) {
 	}
 	if j.btMin.Clicked(gtx) {
 		j.w.Perform(system.ActionMinimize)
+	}
+	if j.btMarca.Clicked(gtx) {
+		AbrirURL(marcaURL)
+	}
+	if j.btScopeHost.Clicked(gtx) {
+		j.mu.Lock()
+		j.scopeHost = proximo(j.hostsScope, j.alvoScope(nil))
+		j.mu.Unlock()
+		j.salvarEstado()
+	}
+	if j.btScopeMedida.Clicked(gtx) {
+		chaves := make([]string, len(MedidasScope))
+		for i, m := range MedidasScope {
+			chaves[i] = m.Chave
+		}
+		j.scopeMedida = proximo(chaves, j.medidaScope())
+		j.salvarEstado()
 	}
 	if j.btTopo.Clicked(gtx) {
 		j.alternarTopo()
@@ -498,6 +624,7 @@ func (j *Janela) desenhar(gtx C) {
 
 	retangulo(gtx, image.Rectangle{Max: gtx.Constraints.Max}, tela.Fundo)
 	larg, alt := gtx.Constraints.Max.X, gtx.Constraints.Max.Y
+	j.dicaBotao = "" // recolhida de novo pelo cabecalho, se houver hover
 
 	j.mu.Lock()
 	linhas := j.linhas
@@ -545,6 +672,7 @@ func (j *Janela) desenhar(gtx C) {
 	}
 	j.rodape(gtx, image.Rect(0, alt-AltRodape, larg, alt))
 	j.cantoRedimensionar(gtx, larg, alt)
+	j.dicaDoBotao(gtx, larg)
 
 	// Dialogo por ultimo: em immediate-mode quem desenha depois fica por
 	// cima, e a cortina precisa cobrir a frota inteira.
@@ -567,42 +695,57 @@ func (j *Janela) cabecalho(gtx C, larg int, resumo string, nivel int) {
 
 	// Da direita para a esquerda, na mesma ordem da versao Tkinter.
 	x := larg - Margem - 24
-	j.botao(gtx, x, 8, &j.btFechar, icFechar, tela.Vermelho)
+	j.botao(gtx, x, 8, &j.btFechar, icFechar, tela.Vermelho, textoFechar(j.NaBandeja))
 	x -= 24
-	j.botao(gtx, x, 8, &j.btMin, icMinimizar, tela.Texto)
+	j.botao(gtx, x, 8, &j.btMin, icMinimizar, tela.Texto, "minimizar")
 	x -= 10
 	retangulo(gtx, image.Rect(x+4, 12, x+5, 26), tela.Grade)
 	x -= 20
-	j.botao(gtx, x, 8, &j.btHosts, icHosts, tela.Texto)
+	j.botao(gtx, x, 8, &j.btHosts, icHosts, tela.Texto, "hosts monitorados")
 	x -= 24
-	j.botao(gtx, x, 8, &j.btExibir, icExibir, tela.Texto)
+	j.botao(gtx, x, 8, &j.btExibir, icExibir, tela.Texto, "escolher o que aparece")
 	x -= 24
-	j.botao(gtx, x, 8, &j.btAlerta, icAlerta, tela.Texto)
+	j.botao(gtx, x, 8, &j.btAlerta, icAlerta, tela.Texto, "limiares de alerta")
 	x -= 24
 	// tela.Verde quando ha versao pronta: azul ja quer dizer "ligado" no botao de
 	// sempre-no-topo, e isto aqui e outra coisa.
 	if j.Atual != nil && j.Atual.Estado().Pronta {
-		j.desenhaBotao(gtx, x, 8, &j.btBaixar, icBaixar, tela.Verde, true)
+		j.desenhaBotao(gtx, x, 8, &j.btBaixar, icBaixar, tela.Verde, true,
+			"instalar a versao "+j.Atual.Estado().Versao+" e reiniciar")
 	} else {
-		j.botao(gtx, x, 8, &j.btBaixar, icBaixar, tela.Texto)
+		j.botao(gtx, x, 8, &j.btBaixar, icBaixar, tela.Texto, "procurar atualizacao")
 	}
 	x -= 24
-	j.botaoLigado(gtx, x, 8, &j.btTopo, icTopo, j.noTopo)
+	j.botaoLigado(gtx, x, 8, &j.btTopo, icTopo, j.noTopo, textoTopo(j.noTopo))
+}
 
+func textoFechar(naBandeja bool) string {
+	if naBandeja {
+		return "fechar para a bandeja"
+	}
+	return "sair"
+}
+
+func textoTopo(ligado bool) string {
+	if ligado {
+		return "sempre no topo: ligado"
+	}
+	return "sempre no topo"
 }
 
 func (j *Janela) botao(gtx C, x, y int, c *widget.Clickable,
-	ic func(C, float32, float32, color.NRGBA), corHover color.NRGBA) {
-	j.desenhaBotao(gtx, x, y, c, ic, corHover, false)
+	ic func(C, float32, float32, color.NRGBA), corHover color.NRGBA, dica string) {
+	j.desenhaBotao(gtx, x, y, c, ic, corHover, false, dica)
 }
 
 func (j *Janela) botaoLigado(gtx C, x, y int, c *widget.Clickable,
-	ic func(C, float32, float32, color.NRGBA), ligado bool) {
-	j.desenhaBotao(gtx, x, y, c, ic, tela.Titulo, ligado)
+	ic func(C, float32, float32, color.NRGBA), ligado bool, dica string) {
+	j.desenhaBotao(gtx, x, y, c, ic, tela.Titulo, ligado, dica)
 }
 
 func (j *Janela) desenhaBotao(gtx C, x, y int, c *widget.Clickable,
-	ic func(C, float32, float32, color.NRGBA), corHover color.NRGBA, ligado bool) {
+	ic func(C, float32, float32, color.NRGBA), corHover color.NRGBA,
+	ligado bool, dica string) {
 	defer op.Offset(image.Pt(x, y)).Push(gtx.Ops).Pop()
 	g := gtx
 	g.Constraints = layout.Exact(image.Pt(24, 22))
@@ -616,10 +759,38 @@ func (j *Janela) desenhaBotao(gtx C, x, y int, c *widget.Clickable,
 			if !ligado {
 				cor = corHover
 			}
+			// So anota: desenhar aqui deixaria a dica atras da arvore.
+			j.dicaBotao, j.dicaBotaoX = dica, x
 		}
 		ic(g, 12, 11, cor)
 		return D{Size: image.Pt(24, 22)}
 	})
+}
+
+// dicaDoBotao desenha o balao do icone sob o cursor.
+//
+// Sete icones sem rotulo e um enigma novo a cada release. A versao Tkinter
+// tinha essa dica e ela se perdeu na migracao para o Gio - onde nao ha
+// tooltip pronto, entao e um retangulo e um texto.
+func (j *Janela) dicaDoBotao(gtx C, larg int) {
+	if j.dicaBotao == "" {
+		return
+	}
+	const alt = 20
+	w := j.Medir(gtx, j.dicaBotao, 11, false) + 14
+	// Ancorada no botao, mas sem sair pela borda da janela.
+	x := j.dicaBotaoX + 12 - w/2
+	if x+w > larg-4 {
+		x = larg - 4 - w
+	}
+	if x < 4 {
+		x = 4
+	}
+	y := AltCabec - 2
+	r := image.Rect(x, y, x+w, y+alt)
+	retangulo(gtx, image.Rect(r.Min.X-1, r.Min.Y-1, r.Max.X+1, r.Max.Y+1), tela.Titulo)
+	retangulo(gtx, r, tela.Painel)
+	j.Texto(gtx, x+7, y+4, j.dicaBotao, tela.Texto, 11, false)
 }
 
 func (j *Janela) osciloscopio(gtx C, r image.Rectangle) {
@@ -628,7 +799,14 @@ func (j *Janela) osciloscopio(gtx C, r image.Rectangle) {
 	const passo = 18
 
 	j.mu.Lock()
-	amostras := append([]float64(nil), j.amostras...)
+	host := j.alvoScope(nil)
+	if host == "" || !contem(j.hostsScope, host) {
+		if len(j.hostsScope) > 0 {
+			host = j.hostsScope[0]
+		}
+	}
+	medida := j.medidaScope()
+	amostras := append([]float64(nil), j.serieLonga(host, medida)...)
 	nivel := j.nivelScope
 	desde := time.Since(j.ultimaAm).Seconds()
 	j.mu.Unlock()
@@ -649,36 +827,115 @@ func (j *Janela) osciloscopio(gtx C, r image.Rectangle) {
 		cor = tela.Ativo // cyan: "esta vivo", nao "esta em alerta"
 	}
 
-	if len(amostras) < 2 {
+	if len(amostras) >= 2 {
+		cabem := r.Dx()/passo + 3
+		if len(amostras) > cabem {
+			amostras = amostras[len(amostras)-cabem:]
+		}
+		pts := make([]f32.Point, len(amostras))
+		for i, v := range amostras {
+			x := float32(r.Max.X) - float32(len(amostras)-1-i)*passo - desloca
+			y := base - (base-teto)*float32(clamp(v, 0, 100))/100
+			pts[i] = f32.Pt(x, y)
+		}
+		glow(gtx, pts, cor)
+
+		p := pts[len(pts)-1]
+		for _, c := range []struct {
+			r float32
+			a uint8
+		}{{7, 45}, {4, 110}, {2, 255}} {
+			circulo(gtx, p, c.r, tela.Alfa(cor, c.a))
+		}
+
+		// Tarja atras do numero: a curva passa por cima do canto direito e o
+		// halo do texto sozinho nao vence uma linha acesa cruzando a leitura.
+		txt := valorScope(medida, amostras[len(amostras)-1])
+		w := j.Medir(gtx, txt, 12, true)
+		retangulo(gtx, image.Rect(r.Max.X-w-14, r.Min.Y-1, r.Max.X, r.Min.Y+18),
+			tela.Fundo)
+		j.TextoGlow(gtx, r.Max.X-w-6, r.Min.Y, txt, cor, 12, true)
+	} else {
 		j.Texto(gtx, r.Min.X+4, r.Min.Y+8, "aguardando leitura", tela.Fraco, 12, false)
+	}
+
+	j.seletoresScope(gtx, r, host, medida)
+}
+
+// seletoresScope desenha as duas etiquetas clicaveis que dizem - e escolhem -
+// o que a curva mostra.
+//
+// Ficam por cima da curva, num canto: sem elas, "12%" no grafico e um numero
+// sem referencia, e nao havia como saber de qual host nem de que medida.
+func (j *Janela) seletoresScope(gtx C, r image.Rectangle, host, medida string) {
+	if host == "" {
 		return
 	}
-	cabem := r.Dx()/passo + 3
-	if len(amostras) > cabem {
-		amostras = amostras[len(amostras)-cabem:]
-	}
-	pts := make([]f32.Point, len(amostras))
-	for i, v := range amostras {
-		x := float32(r.Max.X) - float32(len(amostras)-1-i)*passo - desloca
-		y := base - (base-teto)*float32(clamp(v, 0, 100))/100
-		pts[i] = f32.Pt(x, y)
-	}
-	glow(gtx, pts, cor)
+	x := r.Min.X + 4
+	x = j.etiquetaScope(gtx, &j.btScopeHost, x, r.Min.Y-2, host, len(j.hostsScope) > 1)
+	j.etiquetaScope(gtx, &j.btScopeMedida, x+6, r.Min.Y-2, rotuloMedida(medida), true)
+}
 
-	p := pts[len(pts)-1]
-	for _, c := range []struct {
-		r float32
-		a uint8
-	}{{7, 45}, {4, 110}, {2, 255}} {
-		circulo(gtx, p, c.r, tela.Alfa(cor, c.a))
+func (j *Janela) etiquetaScope(gtx C, c *widget.Clickable, x, y int,
+	txt string, clicavel bool) int {
+	w := j.Medir(gtx, txt, 11, false)
+	if !clicavel {
+		// Um host so, ou uma medida so: continua sendo legenda, e nao um
+		// botao que nao leva a lugar nenhum.
+		j.Texto(gtx, x, y, txt, tela.Alfa(tela.Fraco, 170), 11, false)
+		return x + w
 	}
+	defer op.Offset(image.Pt(x, y)).Push(gtx.Ops).Pop()
+	g := gtx
+	g.Constraints = layout.Exact(image.Pt(w+10, 16))
+	c.Layout(g, func(g C) D {
+		cor := tela.Alfa(tela.Fraco, 170)
+		if c.Hovered() {
+			cor = tela.Titulo
+			pointer.CursorPointer.Add(g.Ops)
+			retangulo(g, image.Rect(0, 1, w+8, 15), tela.Alfa(tela.Grade, 200))
+		}
+		j.Texto(g, 3, 0, txt, cor, 11, false)
+		// A setinha diz que da para trocar, sem gastar uma linha de texto.
+		tracos(g, tela.Alfa(cor, 200), ptf(float32(w)+3, 6), ptf(float32(w)+5.5, 9),
+			ptf(float32(w)+8, 6))
+		return D{Size: image.Pt(w+10, 16)}
+	})
+	return x + w + 10
+}
 
-	// Tarja atras do numero: a curva passa por cima do canto direito e o
-	// halo do texto sozinho nao vence uma linha acesa cruzando a leitura.
-	txt := "cpu " + fmtPct(amostras[len(amostras)-1])
-	w := j.Medir(gtx, txt, 12, true)
-	retangulo(gtx, image.Rect(r.Max.X-w-14, r.Min.Y-1, r.Max.X, r.Min.Y+18), tela.Fundo)
-	j.TextoGlow(gtx, r.Max.X-w-6, r.Min.Y, txt, cor, 12, true)
+// valorScope formata a leitura atual na unidade da medida - por cento nas
+// duas primeiras, graus na terceira.
+func valorScope(medida string, v float64) string {
+	if medida == "temp" {
+		return fmt.Sprintf("%.0fC", v)
+	}
+	return fmtPct(v)
+}
+
+func contem(lista []string, v string) bool {
+	for _, x := range lista {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// detalhe desenha a coluna do meio, em cor unica ou repartida.
+//
+// Repartir importa quando a cor separa duas coisas em vez de indicar
+// gravidade - as duas janelas da carga sao o caso: o problema ali nao e saber
+// se esta ruim, e sim qual numero e qual.
+func (j *Janela) detalhe(gtx C, x int, l tela.Linha) {
+	if len(l.Partes) == 0 {
+		j.Texto(gtx, x, 3, l.Detalhe, tela.Fraco, 12, false)
+		return
+	}
+	for _, p := range l.Partes {
+		j.Texto(gtx, x, 3, p.Texto, p.Cor, 12, false)
+		x += j.Medir(gtx, p.Texto, 12, false)
+	}
 }
 
 func (j *Janela) tabela(gtx C, linhas []tela.Linha, r image.Rectangle) {
@@ -713,7 +970,7 @@ func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
 	}
 
 	j.Texto(gtx, xNome+40, 3, l.Nome, l.Cor, 12, false)
-	j.Texto(gtx, xDet, 3, l.Detalhe, tela.Fraco, 12, false)
+	j.detalhe(gtx, xDet, l)
 
 	// Coluna do valor: sparkline, barra e numero, colados na direita.
 	xFim := xValor - j.Medir(gtx, l.Valor, 12, false) - 8
@@ -766,7 +1023,29 @@ func (j *Janela) rodape(gtx C, r image.Rectangle) {
 			texto += " · " + u
 		}
 	}
+	// A assinatura fica na direita e o texto para antes dela: sem esse limite,
+	// uma dica comprida passaria por baixo do link e os dois ficariam
+	// ilegiveis.
+	fim := j.marca(gtx, r)
+	if l := j.Medir(gtx, texto, 12, false); Margem+l > fim-10 {
+		texto = j.cortarPara(gtx, texto, fim-10-Margem)
+	}
 	j.Texto(gtx, Margem, r.Min.Y+5, texto, tela.Fraco, 12, false)
+}
+
+// cortarPara encurta ate caber, com reticencias.
+func (j *Janela) cortarPara(gtx C, s string, larg int) string {
+	if larg <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	for len(r) > 1 {
+		r = r[:len(r)-1]
+		if j.Medir(gtx, string(r)+"…", 12, false) <= larg {
+			return string(r) + "…"
+		}
+	}
+	return ""
 }
 
 // cantoRedimensionar desenha a alca e trata o arrasto.
@@ -780,7 +1059,7 @@ func (j *Janela) rodape(gtx C, r image.Rectangle) {
 // o tamanho novo, e o calculo nao acumula erro conforme a janela cresce -
 // que e o defeito classico de somar deltas quadro a quadro.
 func (j *Janela) cantoRedimensionar(gtx C, larg, alt int) {
-	r := image.Rect(larg-18, alt-18, larg, alt)
+	r := image.Rect(larg-larguraCanto, alt-larguraCanto, larg, alt)
 	area := clip.Rect(r).Push(gtx.Ops)
 	j.arrastoCanto.Add(gtx.Ops)
 	pointer.CursorSouthEastResize.Add(gtx.Ops)

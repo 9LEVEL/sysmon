@@ -78,6 +78,6 @@ if (Test-Path $cfg) {
 
 Write-Host ""
 Write-Host "Limpo. Para comecar do zero:" -ForegroundColor Cyan
-Write-Host "  1. duplo clique em sysmon.bat        (abre com console, mostra erros)"
+Write-Host "  1. duplo clique em sysmon.exe        (ou .\sysmon.exe term, para ver erros)"
 Write-Host "  2. instalar-autostart.ps1            (so quando ja estiver funcionando)"
 Write-Host ""

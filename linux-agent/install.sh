@@ -204,7 +204,7 @@ else
 fi
 
 echo
-verde "Pronto. Para o cliente (sysmon.pyz):"
+verde "Pronto. Para o cliente:"
 echo "  url   : http://$BIND_IP:$PORT/metrics"
 echo "  token : $TOKEN"
 echo

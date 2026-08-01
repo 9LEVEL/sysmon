@@ -182,6 +182,21 @@ type Achado struct {
 
 func (a Achado) Nivel() string { return NomeNivel[a.Severidade] }
 
+// Curto e a mensagem sem o conselho, para onde couber uma linha so.
+//
+// Toda mensagem deste pacote e escrita como "o que aconteceu - o que fazer".
+// A interface tem os dois espacos: o alerta do rodape, onde a frase inteira
+// cabe e o conselho e o que economiza uma busca na internet, e a linha do
+// disco na tabela, onde so cabe o fato. Cortar por numero de caracteres, que
+// era o que a tabela fazia, produzia frases terminando no meio - "39 de 90
+// desligamentos foram".
+func (a Achado) Curto() string {
+	if i := strings.Index(a.Mensagem, " - "); i > 0 {
+		return a.Mensagem[:i]
+	}
+	return a.Mensagem
+}
+
 // Veredito e o resultado por disco, com uma severidade POR CATEGORIA.
 //
 // Nao existe severidade unica do disco de proposito: cabo ruim e fonte
@@ -366,12 +381,12 @@ func reserva(p map[string]Atributo, cfg Config) []Achado {
 		lim := *a.Limiar
 		if v <= lim {
 			return []Achado{{Dispositivo, Critico, "reserva:limiar_fabricante",
-				fmt.Sprintf("reserva em %d, no ou abaixo do limite do fabricante "+
+				fmt.Sprintf("reserva em %d - no ou abaixo do limite do fabricante "+
 					"(%d) - o drive declarou falha", v, lim), AgirAgora}}
 		}
 		if v <= lim+c.MargemAcimaDoLimiar {
 			return []Achado{{Dispositivo, Critico, "reserva:margem",
-				fmt.Sprintf("reserva em %d, a %d pontos do limite do fabricante (%d)",
+				fmt.Sprintf("reserva em %d - a %d pontos do limite do fabricante (%d)",
 					v, v-lim, lim), AgirAgora}}
 		}
 	}
@@ -530,7 +545,7 @@ func Taxa(papel string, a Atributo, cfg Config) ([]Achado, bool) {
 		mediaSemanal := float64(*a.Delta30d-*a.Delta7d) / 3.0
 		if mediaSemanal > 0 && float64(*a.Delta7d) > mediaSemanal*c.FatorAceleracao {
 			out = append(out, Achado{Dispositivo, Aviso, "taxa:" + papel + ":acelerou",
-				fmt.Sprintf("%s acelerou: %d em 7 dias contra %.1f/semana no mes "+
+				fmt.Sprintf("%s acelerou - %d em 7 dias contra %.1f/semana no mes "+
 					"anterior", rotulo, *a.Delta7d, mediaSemanal), AgirAgora})
 		}
 	}
@@ -591,8 +606,8 @@ func interconexao(p map[string]Atributo) []Achado {
 	}
 	if a.Delta7d != nil && *a.Delta7d > 0 {
 		return []Achado{{Interconexao, Aviso, "interconexao:crc",
-			fmt.Sprintf("%d novos erros de CRC no barramento (cabo, conector ou "+
-				"controladora - nao a midia)", *a.Delta7d), AgirAgora}}
+			fmt.Sprintf("%d novos erros de CRC no barramento - cabo, conector "+
+				"ou controladora, nao a midia", *a.Delta7d), AgirAgora}}
 	}
 	return []Achado{{Interconexao, Info, "interconexao:crc_estatico",
 		fmt.Sprintf("%d erros de CRC acumulados, sem novos - o contador nunca "+

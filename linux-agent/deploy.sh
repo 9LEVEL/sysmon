@@ -11,7 +11,7 @@
 #   backup      root@100.90.1.5      100.90.1.5             # IP do Tailscale
 #
 # No fim ele le o token de cada host e escreve um hosts.json pronto para o
-# sysmon.pyz (dashboard e bandeja) - o passo que na v1 voce fazia na mao,
+# o cliente (janela e bandeja) - o passo que na v1 voce fazia na mao,
 # copiando token por token.
 set -euo pipefail
 
@@ -115,8 +115,8 @@ fi
 chmod 600 "$SAIDA"
 
 verde "${#OK_APELIDO[@]} host(s) instalado(s). Config escrita em $SAIDA (modo 600)."
-echo "  Terminal Linux : python3 sysmon.py term --config $SAIDA"
-echo "  Windows        : copie para windows-tray/config.json"
+echo "  Terminal Linux : ./sysmon term --config $SAIDA"
+echo "  Windows        : copie para a pasta do sysmon.exe como config.json"
 
 if [[ ${#FALHOU[@]} -gt 0 ]]; then
     echo

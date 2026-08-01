@@ -30,6 +30,12 @@ var (
 	Selecao  = rgb(0x16, 0x1b, 0x26)
 	Ativo    = rgb(0x39, 0xc5, 0xcf)
 	Ocioso   = rgb(0x4a, 0x55, 0x63)
+
+	// Dois tons so para DISTINGUIR, nunca para dizer que algo esta mal - por
+	// isso ficam fora da escala de status. Sao usados nas duas janelas da
+	// carga, onde o problema nao e gravidade e sim saber qual numero e qual.
+	Ciano   = rgb(0x5c, 0xc8, 0xd4)
+	Magenta = rgb(0xc2, 0x8b, 0xdb)
 )
 
 func rgb(r, g, b uint8) color.NRGBA { return color.NRGBA{R: r, G: g, B: b, A: 255} }

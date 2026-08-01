@@ -32,11 +32,26 @@ func ler(t *testing.T, rel string) string {
 
 func scripts(t *testing.T, ext string) []string {
 	t.Helper()
-	nomes, err := filepath.Glob(filepath.Join(raiz(t), "windows-tray", "*"+ext))
-	if err != nil || len(nomes) == 0 {
-		t.Fatalf("nenhum %s em windows-tray/", ext)
+	return scriptsEm(t, ext, "windows-tray")
+}
+
+// scriptsEm varre uma ou mais pastas. Existe porque as checagens nasceram
+// olhando so o windows-tray, e o deploy.sh do linux-agent guardava a mesma
+// classe de erro sem ninguem olhar.
+func scriptsEm(t *testing.T, ext string, pastas ...string) []string {
+	t.Helper()
+	var out []string
+	for _, p := range pastas {
+		nomes, err := filepath.Glob(filepath.Join(raiz(t), p, "*"+ext))
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		out = append(out, nomes...)
 	}
-	return nomes
+	if len(out) == 0 {
+		t.Fatalf("nenhum %s em %v", ext, pastas)
+	}
+	return out
 }
 
 func TestVariavelNaoColideComParametro(t *testing.T) {
@@ -123,11 +138,16 @@ func TestNadaMaisMencionaPython(t *testing.T) {
 	// A migracao terminou. Uma mencao sobrando manda o usuario instalar algo
 	// que nao e mais preciso - e o tipo de instrucao errada que faz alguem
 	// desistir na primeira tentativa.
-	for _, ext := range []string{".ps1", ".json"} {
-		for _, arq := range scripts(t, ext) {
+	// Os .sh entraram depois: o deploy.sh ainda mandava rodar
+	// `python3 sysmon.py term` no fim da instalacao, e o install.sh chamava o
+	// cliente de "sysmon.pyz" - dois caminhos mortos na ULTIMA linha que o
+	// usuario le, que e a que ele vai seguir.
+	for _, ext := range []string{".ps1", ".json", ".sh"} {
+		for _, arq := range scriptsEm(t, ext, "windows-tray", "linux-agent") {
 			b, _ := os.ReadFile(arq)
 			texto := strings.ToLower(string(b))
-			for _, agulha := range []string{"python", ".pyz", "pystray", "tkinter"} {
+			for _, agulha := range []string{"python", ".pyz", "pystray", "tkinter",
+				"sysmon.bat", "sysmon.vbs", "sysmon.py ", "diagnostico.bat"} {
 				// O comentario historico do proprio arquivo explica o que
 				// mudou; o que nao pode e INSTRUCAO viva.
 				for _, linha := range strings.Split(texto, "\n") {

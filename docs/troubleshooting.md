@@ -205,6 +205,32 @@ systemctl start sysmon-smart.service    # não espere a próxima hora
 Sem `smartmontools`, o campo fica nulo e todo o resto funciona — é ausência
 prevista, não erro.
 
+### As regras novas de disco não pegaram: continua reclamando dos mesmos setores
+
+Atualizar o **cliente** não basta. A tabela de atributos e a variação no tempo
+vêm do **agente**, e um agente anterior à v5.1 não tem o que mandar — o cliente
+cai nas checagens antigas, em que um único setor realocado já vira aviso.
+
+Desde a v5.1 o cliente diz isso em voz alta, num alerta por host:
+
+```
+as regras de disco estao no modo antigo: o agente 5.0.0 nao envia a
+tabela SMART - atualize o agente do host
+```
+
+Atualize o agente naquele host e o alerta some junto com as reclamações que
+não faziam sentido:
+
+    tar xzf sysmon-agent-<versão>-linux-amd64.tar.gz
+    cd sysmon-agent-<versão>-linux-amd64
+    sudo ./install.sh <IP_DE_BIND>
+
+Para conferir qual versão cada host está rodando:
+
+```bash
+curl -s -H "Authorization: Bearer SEU_TOKEN" http://IP:9109/metrics | grep -o '"v":"[^"]*"'
+```
+
 ### "sem dados" nas regras de taxa
 
 O agente precisa de histórico para responder "quanto esse contador subiu em 7

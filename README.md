@@ -304,6 +304,21 @@ o programa existe para vigiar. Se a janela ficar curta demais para os dois, ele
 se recolhe sozinho e volta quando há espaço: enfeite não espreme a lista. Pode
 ser desligado de vez em *exibir*.
 
+#### O gráfico do topo mostra um host, e você escolhe qual
+
+Duas etiquetas no canto do gráfico dizem o que está desenhado ali — **host** e
+**medida** — e clicar em cada uma troca. As medidas são **cpu**, **memória** e
+**temperatura**, as três que vivem na mesma escala de 0 a 100.
+
+Até a v5.1 era a média de CPU da frota. Média de hosts diferentes não mede
+coisa nenhuma: dois servidores a 10% e a 90% viram 50%, que não descreve nem um
+nem outro. E não havia nada dizendo o que o número era.
+
+#### Os ícones do cabeçalho têm dica
+
+Passe o mouse: aparece o que cada um faz. São sete sem rótulo, e a dica existe
+justamente para não virar um enigma novo a cada versão.
+
 #### Cinco degraus de cor, não três
 
 Sair de 3% para 30% de CPU é a variação que interessa no dia a dia, e com
@@ -373,8 +388,9 @@ uma caixa para cada campo:
   ☑ sistema operacional           ☑ ARMAZENAMENTO
 ☑ DESEMPENHO                        ☑ filesystems montados
   ☑ uso de cpu                      ☑ thin pool LVM (Proxmox)
-  ☑ memoria                       ☑ REDE
-  ☑ swap                            ☑ interfaces ativas
+  ☑ modelo do processador         ☑ REDE
+  ☑ memoria                         ☑ interfaces ativas
+  ☑ swap
   ☑ carga (load average)
   ☑ tempo no ar
 ```
@@ -382,6 +398,9 @@ uma caixa para cada campo:
 A lista mostra **tudo**, mesmo o que você desmarcou — ela serve também de
 inventário do que está sendo coletado. Desmarcar uma seção esconde o bloco
 inteiro.
+
+O **modelo do processador** é um bom candidato a desmarcar: é longo, não muda
+nunca, e ocupa a coluna onde o resto varia.
 
 **Esconder não silencia alerta.** Se você tirar o thin pool da tela e ele
 encher, o aviso continua aparecendo no rodapé. Preferência de exibição não
