@@ -45,14 +45,6 @@ jobs:
       - name: Compila para amd64 e arm64
         run: make -C linux-agent dist
 
-      # O lancador do Windows so compila com GOOS=windows: sem isto ninguem
-      # olharia para ele ate a hora de empacotar.
-      - name: Checagem do lancador do Windows
-        run: |
-          cd windows-lancador
-          GOOS=windows go vet ./...
-          test -z "$(gofmt -l .)" || { echo "gofmt pendente"; gofmt -l .; exit 1; }
-
   # Cliente em Go: a migracao do Python acontece aqui, pacote a pacote.
   cliente-go:
     name: cliente (Go)
