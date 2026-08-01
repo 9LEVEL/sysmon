@@ -23,28 +23,38 @@ import (
 // AltRodapeDlg e a altura de uma linha de botoes, com folga.
 const AltRodapeDlg = 30
 
-// rodapeDialogo desenha os botoes e devolve quantas LINHAS ocupou.
-//
-// O chamador usa o retorno para saber onde o corpo do dialogo pode terminar -
-// sem isso, a linha extra apareceria por cima do conteudo.
-func (j *Janela) rodapeDialogo(gtx C, larg, base int, esq, dir []*Botao) int {
-	largura := func(bs []*Botao) int {
-		total := 0
-		for i, b := range bs {
-			if i > 0 {
-				total += 8
-			}
-			total += j.larguraBotao(gtx, b)
+// larguraGrupo soma as larguras de um grupo de botoes, com o espaco entre eles.
+func (j *Janela) larguraGrupo(gtx C, bs []*Botao) int {
+	total := 0
+	for i, b := range bs {
+		if i > 0 {
+			total += 8
 		}
-		return total
+		total += j.larguraBotao(gtx, b)
 	}
+	return total
+}
 
-	wDir, wEsq := largura(dir), largura(esq)
-	linhas := 1
-	yEsq := base
+// linhasRodape diz quantas linhas os botoes vao ocupar, sem desenhar.
+//
+// O chamador precisa saber ANTES de posicionar o resto: e o que define onde o
+// corpo do dialogo pode terminar. Calcular depois de desenhar significaria
+// descobrir a sobreposicao com o conteudo ja no lugar errado.
+func (j *Janela) linhasRodape(gtx C, larg int, esq, dir []*Botao) int {
+	wDir, wEsq := j.larguraGrupo(gtx, dir), j.larguraGrupo(gtx, esq)
 	// 12px de folga entre os dois grupos: encostados, parecem um grupo so.
 	if wEsq > 0 && wDir > 0 && 16+wEsq+12+wDir+16 > larg {
-		linhas = 2
+		return 2
+	}
+	return 1
+}
+
+// rodapeDialogo desenha os botoes e devolve quantas LINHAS ocupou.
+func (j *Janela) rodapeDialogo(gtx C, larg, base int, esq, dir []*Botao) int {
+	wDir := j.larguraGrupo(gtx, dir)
+	linhas := j.linhasRodape(gtx, larg, esq, dir)
+	yEsq := base
+	if linhas == 2 {
 		yEsq = base - AltRodapeDlg
 	}
 

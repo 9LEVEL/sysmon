@@ -76,7 +76,7 @@ func novaLinhaHost(nome, url, token string) *linhaHost {
 		url:     NovoCampo("http://ip:9109/metrics", 300),
 		token:   NovoCampo("token", 170),
 		testar:  NovoBotao("TESTAR", tela.Titulo),
-		remover: NovoBotao("×", tela.Vermelho),
+		remover: NovoBotao("REMOVER", tela.Vermelho),
 	}
 	l.nome.Definir(nome)
 	l.url.Definir(url)
@@ -147,63 +147,96 @@ func (j *Janela) tratarHosts(gtx C) {
 	}
 }
 
-func (j *Janela) linhaHostLayout(gtx C, d *dialogoHosts, i, larg int) D {
+func (j *Janela) linhaHostLayout(gtx C, d *dialogoHosts, i, largTotal int) D {
 	l := d.linhas[i]
-	const alt = 58
-	x := 0
-	desenha := func(w func(C) D, larguraFixa int) {
-		defer op.Offset(image.Pt(x, 0)).Push(gtx.Ops).Pop()
+
+	// Margem a direita, dentro da lista.
+	//
+	// A material.List recorta os itens na propria largura E desenha a barra
+	// de rolagem por cima, encostada a direita. Um botao colado na borda
+	// perdia o traco direito - a caixa aparecia aberta de um lado, que se le
+	// como falha de desenho - e, com muitos hosts, ficava por baixo da barra.
+	larg := largTotal - MargemLista
+
+	// Duas linhas por host, e nao uma.
+	//
+	// Numa linha so eram cinco caixas lado a lado - apelido, url, token,
+	// TESTAR e o botao de remover - e em janela estreita nada disso cabia: os
+	// campos viravam frestas, o botao de remover ficava cortado na borda e os
+	// tres campos, colados, nao pareciam campos diferentes.
+	//
+	// Esta ferramenta monitora de 4 a 10 hosts; acima disso ela perde o
+	// proposito. Com esse teto, altura por host e barata e legibilidade nao e.
+	campo := func(w func(C) D, x, y, larguraFixa int) {
+		defer op.Offset(image.Pt(x, y)).Push(gtx.Ops).Pop()
 		g := gtx
 		g.Constraints.Max.X = larguraFixa
 		w(g)
-		x += larguraFixa + 8
 	}
-	nome, url, token := larguraCampos(larg,
-		j.larguraBotao(gtx, l.testar), j.larguraBotao(gtx, l.remover))
-	desenha(func(g C) D { return l.nome.Layout(g, j) }, nome)
-	desenha(func(g C) D { return l.url.Layout(g, j) }, url)
-	desenha(func(g C) D { return l.token.Layout(g, j) }, token)
-	desenha(func(g C) D { return l.testar.Layout(g, j) }, j.larguraBotao(gtx, l.testar))
-	desenha(func(g C) D { return l.remover.Layout(g, j) }, j.larguraBotao(gtx, l.remover))
+
+	const (
+		alt       = 84
+		alturaC   = 26
+		respiro   = 8
+		yPrimeira = 4
+	)
+	ySegunda := yPrimeira + alturaC + respiro
+
+	wTestar := j.larguraBotao(gtx, l.testar)
+	wRemover := j.larguraBotao(gtx, l.remover)
+	nome, url, token := larguraCampos(larg, wTestar, wRemover)
+
+	// Primeira linha: quem e o host.
+	campo(func(g C) D { return l.nome.Layout(g, j) }, 0, yPrimeira, nome)
+	campo(func(g C) D { return l.url.Layout(g, j) }, nome+respiro, yPrimeira, url)
+
+	// Segunda: o segredo e as acoes, separadas do resto pela quebra de linha.
+	campo(func(g C) D { return l.token.Layout(g, j) }, 0, ySegunda, token)
+	campo(func(g C) D { return l.testar.Layout(g, j) },
+		larg-wTestar-wRemover-respiro, ySegunda, wTestar)
+	campo(func(g C) D { return l.remover.Layout(g, j) },
+		larg-wRemover, ySegunda, wRemover)
 
 	if l.resultado != "" {
 		cor := tela.Vermelho
 		if l.ok {
 			cor = tela.Verde
 		}
-		j.Texto(gtx, 2, 30, l.resultado, cor, 12, false)
+		j.Texto(gtx, 2, ySegunda+alturaC+2,
+			j.cortarPara(gtx, l.resultado, larg-4), cor, 11, false)
 	}
-	return D{Size: image.Pt(larg, alt)}
+
+	// Um fio entre hosts: sem ele, dois blocos de duas linhas viram quatro
+	// linhas soltas e nao se sabe qual token pertence a qual url.
+	if i < len(d.linhas)-1 {
+		retangulo(gtx, image.Rect(0, alt-1, larg, alt), tela.Alfa(tela.Grade, 180))
+	}
+
+	return D{Size: image.Pt(largTotal, alt)}
 }
 
-// larguraCampos reparte a largura disponivel entre apelido, url e token.
+// larguraCampos reparte a largura de cada uma das duas linhas.
 //
-// As tres larguras eram fixas (110, 300, 170). Somadas aos dois botoes e aos
-// espacos passavam de 700 px, e o dialogo encolhe junto com a janela: abaixo
-// disso o TESTAR e o × saiam pela borda, cortados ou por cima do token.
-//
-// Os botoes nao encolhem - o texto deles nao cabe menor - entao o que sobra
-// e repartido na mesma proporcao de antes, com um minimo por campo para que
-// nenhum vire uma fresta onde nao da para ler nada.
+// Devolve, nesta ordem: apelido e url (que dividem a primeira linha) e token
+// (que divide a segunda com os dois botoes). Os botoes nao encolhem - o texto
+// deles nao cabe menor -, entao o que sobra e do token.
 func larguraCampos(larg, wTestar, wRemover int) (nome, url, token int) {
 	const (
-		pNome, pURL, pToken       = 110, 300, 170
-		minNome, minURL, minToken = 60, 110, 70
-		espacos                   = 4 * 8
+		respiro  = 8
+		minNome  = 70
+		minURL   = 110
+		minToken = 90
+		pNome    = 130 // largura preferida do apelido, quando ha espaco
 	)
-	sobra := larg - wTestar - wRemover - espacos
-	total := pNome + pURL + pToken
-	if sobra >= total {
-		// Cabe o desenho original; o que exceder vai para a url, que e o
-		// campo onde texto comprido de fato aparece.
-		return pNome, pURL + (sobra - total), pToken
+
+	nome = pNome
+	if disponivel := larg - respiro; nome > disponivel/3 {
+		nome = max(minNome, disponivel/3)
 	}
-	if sobra < minNome+minURL+minToken {
-		return minNome, minURL, minToken
-	}
-	nome = max(minNome, sobra*pNome/total)
-	token = max(minToken, sobra*pToken/total)
-	url = max(minURL, sobra-nome-token)
+	url = max(minURL, larg-respiro-nome)
+
+	token = larg - wTestar - wRemover - 2*respiro
+	token = max(minToken, token)
 	return nome, url, token
 }
 
@@ -273,6 +306,12 @@ type dialogoExibir struct {
 	nada     *Botao
 	aplicar  *Botao
 	cancelar *Botao
+
+	// Altura do grafico do topo: um preset, e nao uma caixa de marcar. Mora
+	// aqui porque e a mesma pergunta das outras - o que aparece e quanto -,
+	// e um segundo dialogo so para isto seria uma porta a mais.
+	alturas   []*Botao
+	alturaSel string
 }
 
 func (j *Janela) abrirExibir() {
@@ -282,6 +321,13 @@ func (j *Janela) abrirExibir() {
 		nada:     NovoBotao("NADA", tela.Texto),
 		aplicar:  NovoBotao("APLICAR", tela.Verde),
 		cancelar: NovoBotao("CANCELAR", tela.Fraco),
+	}
+	d.alturaSel = j.scopeAlt
+	if d.alturaSel == "" {
+		d.alturaSel = AlturasScope[0].Chave
+	}
+	for _, a := range AlturasScope {
+		d.alturas = append(d.alturas, NovoBotao(strings.ToUpper(a.Rotulo), tela.Texto))
 	}
 	for _, s := range tela.Catalogo {
 		d.secoes = append(d.secoes, NovaCaixa(s.Nome, !j.oculto["sec:"+s.Nome]))
@@ -316,7 +362,17 @@ func (j *Janela) desenharExibir(gtx C) {
 		}
 	}
 
-	corpo := image.Rect(16, 68, larg-16, alt-56)
+	// A parte de baixo e montada DE BAIXO PARA CIMA, e o corpo fica com o que
+	// sobrar. Calcular assim - em vez de somar constantes ate parecer certo -
+	// e o que faz o rodape de duas linhas empurrar tudo sem ninguem lembrar
+	// de ajustar um numero.
+	linhasRodape := j.linhasRodape(gtx, larg, []*Botao{d.tudo, d.nada},
+		[]*Botao{d.cancelar, d.aplicar})
+	yRodape := alt - 42
+	topoRodape := yRodape - (linhasRodape-1)*AltRodapeDlg
+	yAlturas := topoRodape - 14 - 26 // folga + altura do botao
+	yRotulo := yAlturas - 16
+	corpo := image.Rect(16, 68, larg-16, yRotulo-8)
 	func() {
 		defer op.Offset(corpo.Min).Push(gtx.Ops).Pop()
 		g := gtx
@@ -338,16 +394,27 @@ func (j *Janela) desenharExibir(gtx C) {
 		})
 	}()
 
-	y := alt - 42
-	pos := 16
-	for _, b := range []*Botao{d.tudo, d.nada} {
+	// Altura do grafico do topo, logo acima dos botoes: e um ajuste de
+	// aparencia como os outros, e nao merece dialogo proprio.
+	j.Texto(gtx, 16, yRotulo, "altura do grafico do topo", tela.Fraco, 12, false)
+	xa := 16
+	for i, a := range AlturasScope {
+		b := d.alturas[i]
+		// O selecionado acende em ciano: sao quatro opcoes exclusivas, e sem
+		// marca nenhuma o clique nao daria retorno de ter funcionado.
+		b.Cor = tela.Fraco
+		if a.Chave == d.alturaSel {
+			b.Cor = tela.Ativo
+		}
 		func(b *Botao, x int) {
-			defer op.Offset(image.Pt(x, y)).Push(gtx.Ops).Pop()
+			defer op.Offset(image.Pt(x, yAlturas)).Push(gtx.Ops).Pop()
 			b.Layout(gtx, j)
-		}(b, pos)
-		pos += j.Medir(gtx, b.Rotulo, 12, true) + 30
+		}(b, xa)
+		xa += j.larguraBotao(gtx, b) + 6
 	}
-	j.rodapeDialogo(gtx, larg, y, nil, []*Botao{d.cancelar, d.aplicar})
+
+	j.rodapeDialogo(gtx, larg, yRodape, []*Botao{d.tudo, d.nada},
+		[]*Botao{d.cancelar, d.aplicar})
 }
 
 func (j *Janela) tratarExibir(gtx C) {
@@ -360,6 +427,11 @@ func (j *Janela) tratarExibir(gtx C) {
 	}
 	if d.nada.Clicado(gtx) {
 		j.marcarTudo(d, false)
+	}
+	for i, b := range d.alturas {
+		if b.Clicado(gtx) {
+			d.alturaSel = AlturasScope[i].Chave
+		}
 	}
 	if d.cancelar.Clicado(gtx) {
 		j.dialogo = semDialogo
@@ -391,6 +463,7 @@ func (j *Janela) aplicarExibir(d *dialogoExibir) {
 		}
 	}
 	j.oculto = oculto
+	j.scopeAlt = d.alturaSel
 	j.salvarEstado()
 	j.dialogo = semDialogo
 	j.coletar()

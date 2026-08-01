@@ -23,6 +23,7 @@ type estadoJanela struct {
 	Alt         int      `json:"alt"`
 	ScopeHost   string   `json:"scope_host"`
 	ScopeMedida string   `json:"scope_medida"`
+	ScopeAlt    string   `json:"scope_altura"`
 }
 
 func (j *Janela) caminhoEstado() string {
@@ -44,7 +45,7 @@ func (j *Janela) carregarEstado() {
 	}
 	j.noTopo = e.Topo
 	j.largSalva, j.altSalva = e.Larg, e.Alt
-	j.scopeHost, j.scopeMedida = e.ScopeHost, e.ScopeMedida
+	j.scopeHost, j.scopeMedida, j.scopeAlt = e.ScopeHost, e.ScopeMedida, e.ScopeAlt
 }
 
 func (j *Janela) salvarEstado() {
@@ -60,7 +61,7 @@ func (j *Janela) salvarEstado() {
 
 	e := estadoJanela{Oculto: oculto, Topo: j.noTopo,
 		Larg: j.largSalva, Alt: j.altSalva,
-		ScopeHost: j.scopeHost, ScopeMedida: j.scopeMedida}
+		ScopeHost: j.scopeHost, ScopeMedida: j.scopeMedida, ScopeAlt: j.scopeAlt}
 	dados, err := json.MarshalIndent(e, "", "  ")
 	if err != nil {
 		return

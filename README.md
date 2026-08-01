@@ -310,6 +310,11 @@ Duas etiquetas no canto do gráfico dizem o que está desenhado ali — **host**
 **medida** — e clicar em cada uma troca. As medidas são **cpu**, **memória** e
 **temperatura**, as três que vivem na mesma escala de 0 a 100.
 
+A **altura** é um preset no `☰`: baixo, médio, alto ou cheio. Em 46 px a curva
+diz "está vivo"; em 130 px ela mostra a forma, que é o que importa quando você
+está acompanhando um pico. Se o preset escolhido não couber junto com a lista,
+o gráfico se recolhe sozinho — enfeite não espreme informação.
+
 Até a v5.1 era a média de CPU da frota. Média de hosts diferentes não mede
 coisa nenhuma: dois servidores a 10% e a 90% viram 50%, que não descreve nem um
 nem outro. E não havia nada dizendo o que o número era.
@@ -328,6 +333,11 @@ não cabem, e os botões dos diálogos passam para uma segunda linha em vez de s
 sobreporem.
 
 O mínimo é 470 × 260. **ESC** fecha qualquer diálogo.
+
+Na tela de hosts, cada host ocupa duas linhas — apelido e url em cima, token e
+as ações embaixo. Numa linha só eram cinco caixas lado a lado, e em janela
+estreita os campos viravam frestas. A ferramenta é feita para **4 a 10 hosts**;
+acima disso ela perde o propósito, e com esse teto altura por host é barata.
 
 #### Cinco degraus de cor, não três
 

@@ -45,6 +45,8 @@ const (
 	AltLinhaHost = 26
 	CorpoHost    = 14
 
+	// Altura padrao do grafico do topo. E um preset, escolhido no menu
+	// exibir: ver AlturasScope.
 	AltScope  = 46
 	AltCabec  = 38
 	AltRodape = 28
@@ -70,6 +72,10 @@ const (
 	// A alca de redimensionar, no canto inferior direito. Quem desenha perto
 	// dela precisa saber o tamanho para nao ficar por baixo.
 	larguraCanto = 18
+
+	// Reservado a direita dentro de uma lista rolavel: a material.List
+	// recorta na propria largura e desenha a barra de rolagem ali.
+	MargemLista = 12
 )
 
 // Janela e a interface do sysmon.
@@ -121,6 +127,7 @@ type Janela struct {
 	// nao descreve nem um nem outro. Agora e uma evidencia so, escolhida.
 	scopeHost        string // "" = o primeiro host com dados
 	scopeMedida      string // cpu | ram | temp
+	scopeAlt         string // baixo | medio | alto | cheio
 	ultimaAm         time.Time
 	ultimaAssinatura float64
 	nivelScope       int
@@ -694,10 +701,11 @@ func (j *Janela) desenhar(gtx C) {
 		}
 	}
 	sobra := alt - AltCabec - AltRodape - altAlertas
-	mostrarScope := j.Ver("sec:TELA", "c:scope") && sobra-AltScope >= MinArvore
+	altScope := j.alturaScope()
+	mostrarScope := j.Ver("sec:TELA", "c:scope") && sobra-altScope >= MinArvore
 	if mostrarScope {
-		j.osciloscopio(gtx, image.Rect(Margem, y+4, larg-Margem, y+4+AltScope))
-		y += AltScope + 6
+		j.osciloscopio(gtx, image.Rect(Margem, y+4, larg-Margem, y+4+altScope))
+		y += altScope + 6
 	}
 
 	fimLista := alt - AltRodape - altAlertas
