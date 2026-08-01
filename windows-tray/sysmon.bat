@@ -46,8 +46,25 @@ if errorlevel 1 (
     echo.
 )
 
+REM Diz o que vai rodar ANTES de rodar. Sem isto, quem abre a versao nova com
+REM a antiga ainda na bandeja ve a janela antiga na tela e conclui que a nova
+REM nao tem as novidades - foi o que aconteceu de verdade num teste.
+for /f "delims=" %%v in ('python "sysmon.pyz" --version 2^>^&1') do set VERSAO=%%v
+echo   sysmon %VERSAO%
+echo   pasta: %CD%
+echo.
+
 python "sysmon.pyz" %*
+set CODIGO=%ERRORLEVEL%
 
 echo.
-echo   O sysmon encerrou. Se foi por erro, a mensagem esta acima.
+if "%CODIGO%"=="0" (
+    echo   O sysmon encerrou normalmente.
+) else (
+    echo   O sysmon encerrou com codigo %CODIGO%. A mensagem esta acima.
+    echo.
+    echo   Para um relatorio completo do que esta instalado, rode:
+    echo       diagnostico.bat
+)
+echo.
 pause

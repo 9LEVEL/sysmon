@@ -25,9 +25,12 @@ Distribuicao: `make bundle` empacota isto num unico sysmon.pyz, que roda com
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 
 # Funciona tanto do repositorio (tools/ ao lado) quanto de dentro do .pyz,
@@ -44,11 +47,18 @@ from sysmon_nucleo import (  # noqa: E402
     Config, ErroConfig, Frota, achar_config, avisar_permissao, carregar_config,
 )
 
-__version__ = "4.2.0"
+__version__ = "4.2.1"
 
 # Porta de loopback usada so como trava de instancia unica e canal para
 # "traga a janela para a frente". Nunca escuta fora de 127.0.0.1.
 PORTA_CONTROLE = 9110
+
+# Prazo da caixa de aviso de conflito de versao. Ver _avisar_conflito.
+SEGUNDOS_AVISO = 45.0
+
+# Banner sem versao = sysmon 4.2.0 ou anterior. Sabemos de antemao que essas
+# nao entendem o pedido de encerrar, entao nem tentamos negociar com elas.
+ANTIGA = "anterior"
 
 
 def _comuns(p: argparse.ArgumentParser) -> None:
@@ -73,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sem-update", action="store_true",
                    help="nao verificar atualizacao")
     p.add_argument("--version", action="version", version=__version__)
+    p.add_argument("--diagnostico", action="store_true",
+                   help="imprime o estado da instalacao e sai")
 
     sub = p.add_subparsers(dest="cmd")
 
@@ -94,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
 
     args = p.parse_args(argv)
 
+    if getattr(args, "diagnostico", False):
+        return _diagnostico(args)
     if args.cmd == "local":
         import sysmon_local
         return sysmon_local.main(args) or 0
@@ -105,23 +119,162 @@ def main(argv: list[str] | None = None) -> int:
     return _janela(args)
 
 
+def _diagnostico(args) -> int:
+    """Estado da instalacao, num texto so para colar numa conversa.
+
+    Nasceu de um teste no Windows em que o botao de atualizar "nao aparecia": a
+    causa era outra instancia, mais antiga, ja rodando - e nao havia como ver
+    isso de fora. Cada linha aqui responde uma pergunta que ja custou tempo.
+    """
+    linhas = [f"sysmon {__version__}"]
+    ap = linhas.append
+    ap(f"  python          : {sys.version.split()[0]}  ({sys.executable})")
+    ap(f"  argv[0]         : {sys.argv[0]}")
+    ap(f"  pasta atual     : {Path.cwd()}")
+
+    try:
+        import sysmon_update
+        alvo = sysmon_update.alvo()
+        ap(f"  bundle (.pyz)   : {alvo or 'nao - rodando do repositorio'}")
+        if alvo:
+            lanc = sysmon_update.lancador(alvo)
+            ap(f"  lancador        : {lanc.name if lanc else 'NENHUM ao lado do .pyz'}")
+            ap(f"  modo de troca   : {sysmon_update.como_aplicar(os.name == 'nt', lanc is not None)}")
+            ap(f"  pendente        : {'sim' if alvo.with_name('sysmon-novo.pyz').is_file() else 'nao'}")
+        ap(f"  botao ⭳         : {'aparece' if alvo else 'NAO (so existe rodando do .pyz)'}"
+           + ("" if not getattr(args, "sem_update", False) else "  [--sem-update ligado]"))
+    except Exception as e:  # noqa: BLE001
+        ap(f"  auto-update     : INDISPONIVEL ({e})")
+
+    try:
+        caminho = achar_config(args.config)
+        ap(f"  config          : {caminho}")
+        try:
+            cfg = carregar_config(caminho)
+            ap(f"  hosts           : {len(cfg.hosts)}")
+        except ErroConfig as e:
+            ap(f"  hosts           : config invalido ({e.args[0].splitlines()[0]})")
+    except Exception as e:  # noqa: BLE001
+        ap(f"  config          : nao encontrado ({e})")
+
+    porta = getattr(args, "porta", None) or PORTA_CONTROLE
+    outra = _InstanciaUnica(porta).quem_esta_ai()
+    if outra is None:
+        ap(f"  porta {porta}     : livre (nenhum sysmon rodando)")
+    else:
+        alerta = "" if outra == __version__ else "  <== E OUTRA VERSAO"
+        ap(f"  porta {porta}     : sysmon {outra} JA RODANDO{alerta}")
+
+    try:
+        import tkinter
+        ap(f"  tkinter         : {tkinter.TkVersion}")
+    except Exception as e:  # noqa: BLE001
+        ap(f"  tkinter         : AUSENTE ({e})")
+    try:
+        import pystray  # noqa: F401
+        import PIL      # noqa: F401
+        ap("  bandeja         : pystray + pillow ok")
+    except Exception:  # noqa: BLE001
+        ap("  bandeja         : sem pystray/pillow (opcional; so a janela)")
+
+    print("\n".join(linhas))
+    return 0
+
+
+def _num(versao: str) -> tuple:
+    """'4.10.0' -> (4,10,0). Numero, nao texto: '4.10' vem depois de '4.9'."""
+    return tuple(int(n) for n in re.findall(r"\d+", versao or "")[:3]) or (0,)
+
+
+def _mais_novo(a: str, b: str) -> bool:
+    return _num(a) > _num(b)
+
+
+def _ceder_lugar(inst: "_InstanciaUnica", janela) -> None:
+    """Uma versao mais nova pediu a vez: solta a porta JA e encerra.
+
+    A ordem importa. Encerrar primeiro e soltar a porta depois foi o que
+    quebrou na primeira tentativa: o inst.fechar() so acontece no finally,
+    depois do frota.parar(), e parar a frota pode levar segundos quando ha
+    host inalcancavel terminando um timeout. A instancia nova desistia de
+    esperar, avisava do conflito e saia - e esta aqui, ja a caminho do fim,
+    saia tambem. O usuario ficava sem nenhuma das duas.
+
+    Soltando a porta antes, a nova assume em menos de um tique enquanto esta
+    termina de desligar no seu proprio ritmo.
+    """
+    inst.fechar()
+    janela.pedir("sair")
+
+
+def _avisar_conflito(rodando: str) -> None:
+    """Conta o que houve, inclusive quando nao ha console para contar.
+
+    Sob pythonw - que e como o atalho do Windows abre o programa - nada do que
+    vai para stdout aparece em lugar nenhum. Uma versao nova aberta com a
+    antiga rodando ficava, para o usuario, "nao aconteceu nada"; e a janela
+    antiga na tela ainda dava a entender que a versao nova nao tinha as
+    novidades. Por isso a caixa de dialogo: e o unico canal que sempre existe.
+    """
+    quem = ("uma versao anterior a 4.2.1" if rodando == ANTIGA
+            else f"a versao {rodando}")
+    msg = (f"Ja existe um sysmon rodando nesta maquina - {quem} - e voce "
+           f"acabou de abrir a {__version__}.\n\n"
+           "A janela na tela e a da instancia ANTIGA, entao as novidades desta "
+           "versao parecem nao existir.\n\n"
+           "Encerre a antiga pelo menu do icone na bandeja (Sair) e abra esta "
+           "de novo.")
+    print(msg, file=sys.stderr)
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        raiz = tk.Tk()
+        raiz.withdraw()
+        # Caixa modal com prazo: isto pode disparar no logon, com a maquina
+        # sozinha. Um dialogo esperando clique para sempre seguraria o
+        # processo indefinidamente, e ninguem estaria la para ver.
+        raiz.after(int(SEGUNDOS_AVISO * 1000), raiz.destroy)
+        messagebox.showwarning("sysmon", msg)
+        raiz.destroy()
+    except Exception:  # noqa: BLE001 - sem Tk, o texto no console ja foi
+        pass
+
+
 class _InstanciaUnica:
     """Trava de instancia unica por socket de loopback.
 
     Serve tambem de IPC minimo para "traga a janela para a frente" quando o
     sysmon e aberto uma segunda vez - no lugar da antiga deteccao pela porta do
-    servidor web. Um pequeno banner ("sysmon") na conexao distingue a nossa
-    instancia de outro programa que por acaso ocupe a porta.
+    servidor web. Um pequeno banner na conexao distingue a nossa instancia de
+    outro programa que por acaso ocupe a porta.
+
+    O banner carrega a VERSAO ("sysmon 4.2.1") porque so "esta ocupado" nao
+    basta: abrir a versao nova com a antiga rodando trazia a janela ANTIGA para
+    a frente e saia calado, entao a novidade parecia nao existir. Versoes ate a
+    4.2.0 mandam so "sysmon", e sao reconhecidas como versao desconhecida.
     """
+
+    BANNER = b"sysmon"
 
     def __init__(self, porta: int) -> None:
         self.porta = porta
         self._srv: socket.socket | None = None
         self._mostrar = None
+        self._sair = None
 
     def adquirir(self) -> bool:
         """Tenta segurar a porta. False = ja existe outra instancia."""
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if os.name != "nt":
+            # Rede de seguranca para o caso de sobrar um TIME_WAIT nesta porta
+            # (instancia morta a forca no meio de uma conexao): sem isto o
+            # bind falha por ate um minuto e o programa acusa "porta ocupada
+            # por outro programa", que e falso.
+            #
+            # So no Unix. No Windows o SO_REUSEADDR permite roubar uma porta
+            # que outro processo esta ESCUTANDO, e ai a trava de instancia
+            # unica - a razao de este socket existir - deixaria de valer.
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("127.0.0.1", self.porta))
             s.listen(4)
@@ -134,35 +287,82 @@ class _InstanciaUnica:
 
     def _servir(self) -> None:
         while True:
+            srv = self._srv
+            if srv is None:
+                return          # fechar() enquanto cediamos o lugar
             try:
-                conn, _ = self._srv.accept()   # type: ignore[union-attr]
+                conn, _ = srv.accept()
             except OSError:
                 return
+            pedido = b""
             with conn:
                 try:
-                    conn.sendall(b"sysmon\n")
+                    conn.sendall(f"sysmon {__version__}\n".encode())
                     pedido = conn.recv(16)
+                    # Deixa o CLIENTE fechar primeiro. Quem fecha antes fica
+                    # com o TIME_WAIT, e um TIME_WAIT nesta porta impede o
+                    # proximo bind por perto de um minuto - foi o que fez a
+                    # instancia nova desistir de assumir o lugar da antiga,
+                    # mesmo com a antiga ja tendo saido da escuta. Fechando
+                    # depois, o TIME_WAIT nasce na porta efemera do cliente,
+                    # onde nao atrapalha ninguem.
+                    conn.settimeout(2.0)
+                    while conn.recv(16):
+                        pass
                 except OSError:
-                    pedido = b""
-            if pedido.strip() == b"mostrar" and self._mostrar:
+                    pass
+            acao = {b"mostrar": self._mostrar, b"sair": self._sair}.get(
+                pedido.strip())
+            if acao:
                 try:
-                    self._mostrar()
+                    acao()
                 except Exception:  # noqa: BLE001 - IPC nao pode derrubar a janela
                     pass
 
-    def pedir_para_aparecer(self) -> bool:
-        """Confirma que quem ocupa a porta e um sysmon, e pede a janela dele."""
+    def _conversar(self, comando: bytes | None) -> str | None:
+        """Fala com quem esta na porta. Devolve a versao dela, ou None.
+
+        None quer dizer "nao e um sysmon" - a porta e de outro programa, e ai
+        trocar de porta e o unico caminho.
+        """
         try:
             with socket.create_connection(("127.0.0.1", self.porta), timeout=2) as c:
-                if not c.recv(16).startswith(b"sysmon"):
-                    return False   # a porta e de outro programa
-                c.sendall(b"mostrar")
-            return True
+                banner = c.recv(32)
+                if not banner.startswith(self.BANNER):
+                    return None
+                if comando:
+                    c.sendall(comando)
         except OSError:
-            return False
+            return None
+        partes = banner.decode("utf-8", "replace").split()
+        return partes[1] if len(partes) > 1 else ANTIGA
 
-    def ligar(self, mostrar) -> None:
+    def quem_esta_ai(self) -> str | None:
+        return self._conversar(None)
+
+    def pedir_para_aparecer(self) -> bool:
+        return self._conversar(b"mostrar") is not None
+
+    def pedir_para_sair(self) -> bool:
+        """Pede a instancia em curso que encerre, para assumirmos o lugar.
+
+        Versoes ate a 4.2.0 nao entendem este pedido e simplesmente ignoram;
+        quem decide se funcionou e o esperar_livre(), nao esta resposta.
+        """
+        return self._conversar(b"sair") is not None
+
+    def esperar_livre(self, limite: float = 8.0) -> bool:
+        """Tenta tomar a porta ate o limite. False = o outro nao saiu."""
+        fim = time.monotonic() + limite
+        while time.monotonic() < fim:
+            if self.adquirir():
+                return True
+            time.sleep(0.25)
+        return False
+
+    def ligar(self, mostrar, sair=None) -> None:
         self._mostrar = mostrar
+        self._sair = sair
 
     def fechar(self) -> None:
         if self._srv:
@@ -197,13 +397,29 @@ def _janela(args) -> int:
         cfg.extra.get("porta_controle") or cfg.extra.get("porta_web") or PORTA_CONTROLE)
     inst = _InstanciaUnica(porta)
     if not inst.adquirir():
-        if inst.pedir_para_aparecer():
-            print("sysmon ja esta rodando; trouxe a janela para a frente.")
+        rodando = inst.quem_esta_ai()
+        if rodando is None:
+            print(f"erro: a porta de controle {inst.porta} esta ocupada por outro "
+                  "programa.", file=sys.stderr)
+            print("Use --porta para escolher outra.", file=sys.stderr)
+            return 1
+        if rodando == __version__:
+            inst.pedir_para_aparecer()
+            print(f"sysmon {rodando} ja esta rodando; trouxe a janela para a frente.")
             return 0
-        print(f"erro: a porta de controle {inst.porta} esta ocupada por outro "
-              "programa.", file=sys.stderr)
-        print("Use --porta para escolher outra.", file=sys.stderr)
-        return 1
+        # Versoes diferentes. Antes este caso caia no ramo de cima e a janela
+        # ANTIGA vinha para a frente sem avisar - quem tinha acabado de abrir a
+        # versao nova concluia, com razao, que ela nao tinha as novidades.
+        #
+        # Com a versao conhecida e menor que a nossa, pedimos o lugar. Com o
+        # banner antigo nem tentamos: aquelas versoes ignoram o pedido, e
+        # insistir seria so oito segundos de espera antes do mesmo aviso.
+        pode_assumir = rodando != ANTIGA and _mais_novo(__version__, rodando)
+        if pode_assumir and inst.pedir_para_sair() and inst.esperar_livre():
+            print(f"a instancia {rodando} encerrou; assumindo com a {__version__}.")
+        else:
+            _avisar_conflito(rodando)
+            return 1
 
     try:
         import sysmon_win
@@ -263,7 +479,9 @@ def _janela(args) -> int:
         sysmon_win.rodar(frota, caminho, intervalo=max(2.0, cfg.intervalo),
                          com_bandeja=com_bandeja, oculto=oculto,
                          atualizador=atualizador,
-                         ao_criar=lambda j: inst.ligar(lambda: j.pedir("mostrar")))
+                         ao_criar=lambda j: inst.ligar(
+                             lambda: j.pedir("mostrar"),
+                             sair=lambda: _ceder_lugar(inst, j)))
     finally:
         frota.parar()
         inst.fechar()

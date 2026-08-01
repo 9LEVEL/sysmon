@@ -245,6 +245,22 @@ Para desligar: `--sem-update`, ou `"horas_entre_updates": 0` no `config.json`.
 Rodando do repositório (`sysmon.py` em vez de `sysmon.pyz`) o auto-update fica
 inativo e o botão nem aparece — ali quem atualiza é o `git`.
 
+### Quando algo não bate
+
+```
+python sysmon.pyz --diagnostico      # ou, no Windows, duplo clique em diagnostico.bat
+```
+
+Sai um relatório de uma tela: versão, de onde está rodando, se o botão ⭳ deve
+aparecer, qual lançador foi encontrado, se há atualização pendente e — a
+pergunta que mais custa tempo — **se já existe outro sysmon rodando nesta
+máquina**.
+
+Uma instância mais antiga na bandeja é a causa mais comum de "a novidade não
+apareceu": abrir a versão nova apenas trazia a janela da antiga para a frente.
+Desde a v4.2.1 isso não passa mais calado — a versão nova assume o lugar da
+antiga, ou avisa numa caixa de diálogo quando não consegue.
+
 ### A janela
 
 Sem moldura, escura, monoespaçada. No corpo, **nenhum ícone**: a hierarquia e a

@@ -93,12 +93,30 @@ class TestPowerShell(unittest.TestCase):
 
 class TestLancadores(unittest.TestCase):
     def test_aplicam_atualizacao_pendente(self):
-        """O .pyz so pode ser trocado ANTES do Python abri-lo."""
-        for arq, agulha in ((JANELA / "sysmon.vbs", "sysmon-novo.pyz"),
-                            (JANELA / "sysmon.bat", "sysmon-novo.pyz")):
-            texto = arq.read_text(encoding="utf-8")
-            self.assertIn(agulha, texto,
-                          f"{arq.name} nao aplica atualizacao pendente")
+        """O .pyz so pode ser trocado ANTES do Python abri-lo.
+
+        O sysmon.sh entrou nesta lista na v4.2.0: sem ele o pacote de Linux
+        nao tinha ninguem para promover o download, e a atualizacao automatica
+        parava no meio do caminho.
+        """
+        for nome in ("sysmon.vbs", "sysmon.bat", "sysmon.sh"):
+            texto = (JANELA / nome).read_text(encoding="utf-8")
+            self.assertIn("sysmon-novo.pyz", texto,
+                          f"{nome} nao aplica atualizacao pendente")
+
+    def test_lancadores_insistem_na_troca(self):
+        """Quando quem pede e o botao, o lancador comeca antes de o processo
+        antigo terminar de sair, e a primeira tentativa pega o arquivo em uso.
+        No Unix a troca nunca falha por isso, entao so os dois do Windows."""
+        for nome in ("sysmon.vbs", "sysmon.bat"):
+            texto = (JANELA / nome).read_text(encoding="utf-8").lower()
+            self.assertTrue("for " in texto or "loop" in texto,
+                            f"{nome} tenta a troca uma vez so")
+
+    def test_sh_repassa_argumentos(self):
+        texto = (JANELA / "sysmon.sh").read_text(encoding="utf-8")
+        self.assertIn('"$@"', texto, "sysmon.sh engole os argumentos")
+        self.assertIn("exec ", texto, "sysmon.sh deixa um shell sobrando")
 
     def test_bat_pausa_para_o_erro_ficar_visivel(self):
         texto = (JANELA / "sysmon.bat").read_text(encoding="utf-8")

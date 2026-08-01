@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-__version__ = "4.2.0"
+__version__ = "4.2.1"
 
 # ------------------------------------------------------------------ severidade
 OK, AVISO, CRITICO, OFFLINE = 0, 1, 2, 3

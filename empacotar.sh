@@ -128,7 +128,8 @@ PASTA="$DIST/$NOME"
 mkdir -p "$PASTA"
 install -m 755 "$DIST/sysmon.pyz" "$PASTA/"
 for f in config.example.json requirements.txt sysmon.vbs sysmon.bat \
-         instalar-autostart.ps1 desinstalar-autostart.ps1 limpar.ps1; do
+         diagnostico.bat instalar-autostart.ps1 desinstalar-autostart.ps1 \
+         limpar.ps1; do
     install -m 644 "$AQUI/windows-tray/$f" "$PASTA/"
 done
 install -m 644 "$AQUI/LICENSE" "$PASTA/"
@@ -156,6 +157,12 @@ E ESTE o pacote do Windows. Extraia numa pasta sua (nao dentro de Downloads) e:
 
    A partir dai use o atalho da area de trabalho, sem console. Fechar a janela
    nao encerra: o programa fica na bandeja. Sair e pelo menu do icone.
+
+Alguma coisa estranha? Duplo clique em diagnostico.bat e leia o relatorio.
+Ele diz a versao que esta rodando, se o botao de atualizar deve aparecer e,
+principalmente, se JA HA outro sysmon rodando nesta maquina - versao antiga
+ainda na bandeja, com a janela dela na tela, e a causa mais comum de "a
+novidade nao apareceu". Encerre a antiga pelo menu do icone (Sair).
 
 Deu errado alguma tentativa anterior? Limpe tudo e recomece:
 

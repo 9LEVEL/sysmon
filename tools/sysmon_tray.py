@@ -36,7 +36,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import pystray
 
-__version__ = "4.2.0"
+__version__ = "4.2.1"
 
 BASE = Path(__file__).resolve().parent
 LOG_PATH = Path(os.environ.get("TEMP", BASE)) / "traymon.log"
