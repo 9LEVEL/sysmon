@@ -17,14 +17,18 @@ func Bytes(n *int64) string {
 	v := float64(*n)
 	for _, u := range []string{"B", "K", "M", "G", "T"} {
 		if v < 1024 || u == "T" {
-			if u == "B" {
-				return fmt.Sprintf("%.0f%s", v, u)
+			// Uma casa abaixo de 100. Sem ela, um disco de 480G aparecia
+			// como "0G" perto do teto da unidade anterior, e 14,9G de RAM
+			// virava "15G" - resolucao pior que a do df -h, que e a
+			// referencia que todo mundo ja tem na cabeca.
+			if u != "B" && v < 100 {
+				return fmt.Sprintf("%.1f%s", v, u)
 			}
 			return fmt.Sprintf("%.0f%s", v, u)
 		}
 		v /= 1024
 	}
-	return fmt.Sprintf("%.0fT", v)
+	return fmt.Sprintf("%.1fT", v)
 }
 
 // BytesV e a versao para valores nao opcionais.
