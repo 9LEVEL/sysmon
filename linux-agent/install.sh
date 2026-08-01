@@ -162,7 +162,16 @@ if [[ -f "$AQUI/sysmon-smart.sh" ]]; then
 fi
 
 systemctl daemon-reload
-systemctl enable --now sysmon-agent.service
+systemctl enable sysmon-agent.service
+
+# restart, e nao "enable --now".
+#
+# O --now so INICIA se estiver parado: reinstalando por cima - que e como se
+# atualiza o agente - o binario novo ia para /opt e o servico seguia rodando o
+# antigo, indefinidamente. O host reportava a versao velha e ninguem entendia
+# por que a correcao nao chegou. Levei uma sessao inteira para achar isso
+# olhando /health dizer 5.2.0 com o binario em 5.7.0.
+systemctl restart sysmon-agent.service
 
 # Thin pool so existe onde ha LVM thin. ZFS e ext4 puro nao precisam.
 if command -v lvs >/dev/null && \

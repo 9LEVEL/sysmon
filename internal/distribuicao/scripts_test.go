@@ -270,3 +270,21 @@ func TestOComandoDoLeiameExisteNoRelease(t *testing.T) {
 		}
 	}
 }
+
+func TestOInstaladorReiniciaOServico(t *testing.T) {
+	// Atualizar o agente e rodar o install.sh por cima - e o README manda
+	// fazer exatamente isso. Com `systemctl enable --now`, que so INICIA o que
+	// esta parado, o binario novo ia para /opt e o servico continuava rodando
+	// o antigo indefinidamente: o host reportava a versao velha e a correcao
+	// nunca chegava.
+	t.Parallel()
+	texto := ler(t, "linux-agent/install.sh")
+	if !strings.Contains(texto, "systemctl restart sysmon-agent.service") {
+		t.Error("o install.sh nao reinicia o servico; reinstalar nao troca a " +
+			"versao em execucao")
+	}
+	if regexp.MustCompile(`enable --now sysmon-agent`).MatchString(texto) {
+		t.Error("`enable --now sysmon-agent` de volta: ele nao reinicia o que " +
+			"ja esta rodando")
+	}
+}

@@ -22,7 +22,8 @@ sem `pip`, sem root:
 
 ```bash
 curl -LO https://github.com/9LEVEL/sysmon/releases/latest/download/sysmon-agent-linux-amd64.tar.gz
-tar xzf sysmon-agent-linux-amd64.tar.gz && cd sysmon-agent-*
+tar xzf sysmon-agent-linux-amd64.tar.gz
+cd sysmon-agent-*-linux-amd64
 sudo ./install.sh 192.168.0.10        # o IP da LAN deste host
 ```
 
@@ -71,6 +72,63 @@ Pronto — é isso. Para os próximos hosts, repita o passo 1 e clique em `+ HOS
   conforme o pior estado da frota — serve direto num cron.
 
 → [A janela em detalhe, e o que cada cor significa](docs/interface.md)
+
+## O dia a dia
+
+### No Windows
+
+O `sysmon.exe` é autocontido: a pasta onde ele está guarda o `config.json` e as
+preferências de tela. Mover a pasta leva tudo junto.
+
+| O que fazer | Como |
+|---|---|
+| **Subir junto com o Windows** | `instalar-autostart.ps1`, na pasta do zip — ele sobe minimizado na bandeja |
+| **Ver o erro quando algo não abre** | `.\sysmon.exe term --once` num PowerShell: o executável é *windowsgui*, então sem console ele morre calado |
+| **Atualizar** | o botão **⭳**. Ele baixa, confere o SHA256 e reinicia sozinho |
+| **Mudar host, token ou intervalo** | o `⌂` na janela — não precisa editar arquivo |
+| **Voltar do zero** | `limpar.ps1` apaga autostart e preferências, preservando o `config.json` |
+
+Fechar a janela **não** encerra o programa: ele fica na bandeja, e é de lá que
+sai o menu com *sair*.
+
+### No Linux (o agente)
+
+Ele é um serviço systemd que só lê `/sys` e `/proc` e responde HTTP. Não executa
+comandos, não aceita escrita e roda sem root — com `DynamicUser`, sandbox do
+systemd e `CapabilityBoundingSet=` vazio.
+
+```bash
+systemctl status sysmon-agent          # está no ar?
+journalctl -u sysmon-agent -n 30       # o que ele disse
+ss -lntp | grep 9109                   # está escutando onde eu mandei?
+curl -s localhost:9109/health          # responde? (não precisa de token)
+```
+
+| O que fazer | Como |
+|---|---|
+| **Atualizar** | baixe o pacote novo e rode `sudo ./install.sh <IP>` de novo — o token é preservado |
+| **Mudar o IP ou a porta** | `sudo ./install.sh <IP_NOVO>`, ou edite o `ExecStart` em `/etc/systemd/system/sysmon-agent.service` |
+| **Ver o token** | `sudo grep SYSMON_TOKEN /etc/sysmon/token.env` |
+| **Remover** | `sudo ./uninstall.sh` |
+
+**Feche a porta para o resto da rede.** O transporte é HTTP puro e o token viaja
+em texto claro — ele protege contra leitura acidental, não contra quem está
+ouvindo o cabo. Numa LAN doméstica está de bom tamanho; entre redes, use um
+túnel (WireGuard, Tailscale):
+
+```bash
+iptables -A INPUT -p tcp --dport 9109 -s <IP_DO_CLIENTE> -j ACCEPT
+iptables -A INPUT -p tcp --dport 9109 -j DROP
+```
+
+**Duas coisas opcionais** que o instalador liga sozinho se achar:
+
+- `smartmontools` → um timer roda `smartctl` de hora em hora e alimenta as
+  [regras de disco](docs/smart.md). Sem ele, o campo fica vazio e o resto
+  funciona. Vale instalar: `apt install smartmontools`.
+- **LVM thin pool** (Proxmox) → um timer coleta o uso de dados e metadados.
+
+→ [Instalação em vários hosts, e compilar do código](docs/instalacao.md)
 
 ## Para quem é, e para quem não é
 
