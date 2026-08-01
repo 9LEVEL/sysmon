@@ -97,6 +97,12 @@ type Janela struct {
 
 	// Pedidos vindos de outra thread (bandeja, instancia unica).
 	fila chan string
+
+	// Ligacao com a bandeja. A janela nao conhece Win32: ela so informa o
+	// nivel e recebe pedidos pela fila, como qualquer outra origem.
+	AoMudarNivel func(nivel int, dica string)
+	AoAlertar    func(titulo, texto string)
+	nivelAvisado int
 }
 
 const janelaHist = 12
@@ -241,6 +247,27 @@ func (j *Janela) coletar() {
 	j.corResumo = pior
 	j.empilharAmostra(cpus, pior, assinatura)
 	j.mu.Unlock()
+
+	if j.AoMudarNivel != nil {
+		j.AoMudarNivel(pior, dicaBandeja(n, offline, len(alertas)))
+	}
+	// Balao so na SUBIDA de severidade. Avisar a cada coleta seria ruido, e
+	// avisar na descida ("voltou ao normal") interrompe sem pedir acao.
+	if j.AoAlertar != nil && pior > j.nivelAvisado && pior >= nucleo.Aviso {
+		titulo := "sysmon: atencao"
+		if pior == nucleo.Critico {
+			titulo = "sysmon: critico"
+		}
+		texto := "sem detalhes"
+		if len(alertas) > 0 {
+			texto = alertas[0]
+			if len(alertas) > 1 {
+				texto = fmt.Sprintf("%s (e mais %d)", alertas[0], len(alertas)-1)
+			}
+		}
+		j.AoAlertar(titulo, texto)
+	}
+	j.nivelAvisado = pior
 }
 
 // anotar guarda uma amostra por COLETA, nao por redesenho.
@@ -287,6 +314,28 @@ func (j *Janela) empilharAmostra(cpus []float64, nivel int, assinatura float64) 
 		j.amostras = j.amostras[len(j.amostras)-200:]
 	}
 	j.ultimaAm = time.Now()
+}
+
+// dicaBandeja evita que o pacote da janela importe o da bandeja so por uma
+// string - a dependencia correria no sentido errado.
+func dicaBandeja(hosts, offline, alertas int) string {
+	s := fmt.Sprintf("sysmon · %d host", hosts)
+	if hosts != 1 {
+		s += "s"
+	}
+	if offline > 0 {
+		s += fmt.Sprintf(" · %d offline", offline)
+	}
+	if alertas > 0 {
+		s += fmt.Sprintf(" · %d alerta", alertas)
+		if alertas > 1 {
+			s += "s"
+		}
+	}
+	if offline == 0 && alertas == 0 {
+		s += " · sem alertas"
+	}
+	return s
 }
 
 func (j *Janela) drenar() {
@@ -685,3 +734,7 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// NoTopo diz se o modo sempre-no-topo esta ligado. Usado pelo menu da
+// bandeja para desenhar a marca de selecao.
+func (j *Janela) NoTopo() bool { return j.noTopo }

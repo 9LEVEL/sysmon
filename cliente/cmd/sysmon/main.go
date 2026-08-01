@@ -1,8 +1,9 @@
 // Comando sysmon - o cliente.
 //
 // Um binario para a maquina de onde voce olha. Consulta os agentes por HTTP,
-// avalia e mostra numa janela nativa. Sem servidor, sem banco, sem runtime
-// instalado: e o que separa esta ferramenta de um Zabbix e de um script.
+// avalia e mostra numa janela nativa, com o icone da bandeja mudando de cor
+// pelo pior host. Sem servidor, sem banco, sem runtime instalado: e o que
+// separa esta ferramenta de um Zabbix e de um script.
 package main
 
 import (
@@ -13,6 +14,7 @@ import (
 
 	"gioui.org/app"
 
+	"sysmon-cliente/internal/bandeja"
 	"sysmon-cliente/internal/janela"
 	"sysmon-cliente/internal/nucleo"
 )
@@ -24,6 +26,7 @@ func main() {
 	var (
 		caminho = flag.String("config", "", "caminho do config.json")
 		oculto  = flag.Bool("oculto", false, "abrir minimizado na bandeja")
+		semTray = flag.Bool("sem-bandeja", false, "nao criar o icone da bandeja")
 		mostrar = flag.Bool("version", false, "imprime a versao e sai")
 	)
 	flag.Parse()
@@ -51,12 +54,44 @@ func main() {
 	frota.Iniciar()
 	defer frota.Parar()
 
+	j := janela.Nova(frota, c, versao)
+
+	var bnd bandeja.Bandeja
+	if !*semTray && bandeja.Disponivel() {
+		bnd, err = bandeja.Iniciar(bandeja.Acoes{
+			// Tudo passa pela fila da janela: a bandeja roda noutra thread,
+			// e a interface do Gio so pode ser tocada pela dela.
+			Mostrar:   func() { j.Pedir("mostrar") },
+			Atualizar: func() { j.Pedir("atualizar") },
+			Topo:      func() { j.Pedir("topo") },
+			Sair:      func() { j.Pedir("sair") },
+			NoTopo:    j.NoTopo,
+		})
+		if err != nil {
+			// Bandeja e um extra: sem ela a janela funciona igual, e morrer
+			// aqui deixaria o usuario sem nada.
+			fmt.Fprintf(os.Stderr, "bandeja indisponivel (%v); seguindo so "+
+				"com a janela\n", err)
+		} else {
+			j.NaBandeja = true
+			j.AoMudarNivel = bnd.Estado
+			j.AoAlertar = bnd.Notificar
+			defer bnd.Fechar()
+			fmt.Println("bandeja ativa; fechar a janela nao encerra - use " +
+				"Sair no icone")
+		}
+	}
+
 	fmt.Printf("sysmon %s   %d host(s)\n", versao, len(cfg.Hosts))
 	frota.EsperarPrimeiraLeitura(2500 * time.Millisecond)
 
-	j := janela.Nova(frota, c, versao)
 	go func() {
-		if err := j.Rodar(*oculto); err != nil {
+		err := j.Rodar(*oculto)
+		if bnd != nil {
+			bnd.Fechar()
+		}
+		frota.Parar()
+		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
