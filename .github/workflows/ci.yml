@@ -63,12 +63,32 @@ jobs:
         with:
           go-version-file: cliente/go.mod
           cache: false
+      # O Gio so precisa de CGO no Linux (X11/Wayland). Para Windows ele
+      # cross-compila sem nada disso - por isso o build de release nao carrega
+      # esta lista, so a checagem que roda aqui.
+      - name: Bibliotecas de janela (Linux)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            pkg-config libx11-dev libx11-xcb-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libgles2-mesa-dev libegl1-mesa-dev libxcursor-dev libxfixes-dev
+
       - name: Checagem
         run: |
           cd cliente
           go vet ./...
           test -z "$(gofmt -l .)" || { echo "gofmt pendente:"; gofmt -l .; exit 1; }
           go test ./...
+
+      # O alvo que de fato sera distribuido: sem CGO, do Linux, sem runner
+      # Windows. Se isto quebrar, a migracao perdeu a razao de ser.
+      - name: Cross-compila para Windows
+        run: |
+          cd cliente
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -ldflags "-s -w -H windowsgui" -o /tmp/sysmon.exe ./cmd/sysmon
+          ls -lh /tmp/sysmon.exe
 
   clientes:
     name: clientes (Python ${{ matrix.python }})
