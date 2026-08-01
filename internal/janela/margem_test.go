@@ -45,3 +45,25 @@ func TestALinhaDoHostNaoSegueAMargem(t *testing.T) {
 		t.Fatalf("margem padrao = %d, queria 0", outra.j.margemEsq)
 	}
 }
+
+func TestONomeDaMedidaNaoAlcancaAColunaDoMeio(t *testing.T) {
+	// A coluna do meio andou 35px para a esquerda. O limite de quanto ela
+	// pode andar e o nome mais longo da arvore: se ele passar de ColNome, o
+	// texto do meio comeca por cima do nome da medida.
+	b := novaBancada(t)
+	b.quadro()
+	g := b.gtx()
+
+	// Os nomes mais longos que a arvore produz hoje.
+	longos := []string{"temperatura", "package id 0", "armazenamento",
+		"/var/lib/vz", "enp0s31f6"}
+	for _, margem := range []int{0, 5, 10, 20} {
+		for _, nome := range longos {
+			fim := margem + RecuoMedida + b.j.Medir(g, nome, 12, false)
+			if fim >= Margem+ColNome {
+				t.Errorf("margem %d: %q termina em %d e invade a coluna do meio (%d)",
+					margem, nome, fim, Margem+ColNome)
+			}
+		}
+	}
+}

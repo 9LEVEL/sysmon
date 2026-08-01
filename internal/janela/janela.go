@@ -51,8 +51,14 @@ const (
 	AltCabec  = 38
 	AltRodape = 28
 	Margem    = 10
-	ColNome   = 190
-	ColValor  = 230
+	// Onde a coluna do meio comeca, medida da margem da janela.
+	//
+	// Eram 190, herdados de quando os nomes das medidas ficavam recuados em
+	// 110px: a coluna precisava desviar deles. Com o recuo agora saindo da
+	// margem escolhida, o nome mais longo ("temperatura") termina bem antes,
+	// e os 190 viravam uma faixa vazia no meio da tela - cara numa janela de
+	// 470, que e como esta ferramenta e usada.
+	ColNome = 155
 
 	// Tamanho minimo, num lugar so. Sem moldura do sistema, o gerenciador de
 	// janelas nao impoe limite nenhum: o arrasto do canto tem que respeitar.
