@@ -134,20 +134,47 @@ for f in config.example.json requirements.txt sysmon.vbs sysmon.bat \
 done
 install -m 644 "$AQUI/LICENSE" "$PASTA/"
 
+# Lancador nativo, cross-compilado daqui. Em Go porque o repositorio ja
+# compila Go - o agente e escrito nele -, entao nao entra toolchain nova.
+# -H windowsgui e o que tira a janela de console.
+( cd "$AQUI/windows-lancador" && \
+  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+  go build -trimpath -ldflags "-s -w -H windowsgui -X main.versao=$VERSAO" \
+    -o "$PASTA/sysmon.exe" . )
+
+# Compilado como console, o lancador abriria justamente a janela preta que
+# ele existe para eliminar - e isso nao aparece em teste nenhum, so no
+# duplo clique do usuario. O subsistema fica no cabecalho PE: 2 = GUI.
+python3 - "$PASTA/sysmon.exe" <<'PYEOF'
+import struct, sys
+d = open(sys.argv[1], "rb").read()
+if d[:2] != b"MZ":
+    sys.exit("ERRO: sysmon.exe nao e um executavel do Windows")
+pe = struct.unpack_from("<I", d, 0x3C)[0]
+sub, = struct.unpack_from("<H", d, pe + 24 + 68)
+if sub != 2:
+    sys.exit(f"ERRO: sysmon.exe saiu com subsistema {sub}; esperado 2 (GUI)")
+PYEOF
+verde "    sysmon.exe  ($(du -h "$PASTA/sysmon.exe" | cut -f1), GUI)"
+
 cat > "$PASTA/LEIAME.txt" <<EOF
 sysmon para Windows $VERSAO
 
 E ESTE o pacote do Windows. Extraia numa pasta sua (nao dentro de Downloads) e:
 
-1) Duplo clique em sysmon.bat
+1) Duplo clique em sysmon.exe
 
-   A janela usa Tkinter, que ja vem com o Python - nao instala nada. Na
-   primeira vez ele instala so o icone de bandeja (pystray + pillow, dois
-   pacotes do pip, opcionais); sem eles a janela funciona igual.
+   Sem janela preta. Ele acha o Python, aplica atualizacao ja baixada e sobe
+   o programa; se o Python nao estiver instalado, diz isso numa caixa de
+   dialogo em vez de nao abrir.
 
-   Abre com console, entao qualquer erro aparece na tela. A interface abre na
-   TELA DE CONFIGURACAO: preencha apelido, url e token de cada host Linux,
-   clique em Testar e salve. Nao precisa editar arquivo nenhum.
+   A janela usa Tkinter, que ja vem com o Python - nao instala nada. O icone
+   de bandeja (pystray + pillow) e opcional; sem ele a janela funciona igual.
+
+   A interface abre na TELA DE CONFIGURACAO: preencha apelido, url e token de
+   cada host Linux, clique em Testar e salve. Nao precisa editar arquivo.
+
+   Prefere ver o que acontece? sysmon.bat faz o mesmo COM console.
 
    A url e o token sao os que o install.sh imprimiu em cada host monitorado.
 

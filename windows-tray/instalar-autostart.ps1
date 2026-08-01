@@ -22,19 +22,37 @@ $ErrorActionPreference = "Continue"
 
 $pasta = Split-Path -Parent $MyInvocation.MyCommand.Path
 $vbs   = Join-Path $pasta "sysmon.vbs"
+$exe   = Join-Path $pasta "sysmon.exe"
 $pyz   = Join-Path $pasta "sysmon.pyz"
+
+# Lancador preferido: o sysmon.exe. Ele avisa em caixa de dialogo quando nao
+# acha o Python, enquanto o wscript+vbs simplesmente nao abre e nao diz nada -
+# a falha de partida mais chata de diagnosticar no Windows. O .vbs continua
+# aqui como reserva, para pacote antigo que ainda nao tenha o executavel.
+if (Test-Path $exe) {
+    $execAlvo  = $exe
+    $argsLogon = ""                        # sem argumento = modo logon
+    $argsAgora = "/agora"                  # sobe ja, e visivel
+} else {
+    $execAlvo  = "wscript.exe"
+    $argsLogon = "`"$vbs`""
+    $argsAgora = "`"$vbs`" --nao-oculto"
+}
 
 function Ok($m)    { Write-Host "    $m" -ForegroundColor Green }
 function Aviso($m) { Write-Host "    $m" -ForegroundColor Yellow }
 function Erro($m)  { Write-Host $m -ForegroundColor Red }
 
 # ---------------------------------------------------------------- checagens
-foreach ($f in @($pyz, $vbs)) {
-    if (-not (Test-Path $f)) {
-        Erro "$(Split-Path -Leaf $f) nao encontrado nesta pasta."
-        Erro "Baixe sysmon.pyz do release e deixe junto do sysmon.vbs."
-        exit 1
-    }
+if (-not (Test-Path $pyz)) {
+    Erro "sysmon.pyz nao encontrado nesta pasta."
+    Erro "Extraia o pacote inteiro do release, nao so este script."
+    exit 1
+}
+if (-not (Test-Path $exe) -and -not (Test-Path $vbs)) {
+    Erro "Nenhum lancador nesta pasta (sysmon.exe ou sysmon.vbs)."
+    Erro "Extraia o pacote inteiro do release."
+    exit 1
 }
 if (-not (Test-Path (Join-Path $pasta "config.json"))) {
     Erro "config.json nao encontrado."
@@ -88,10 +106,10 @@ Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 Ok "OK"
 
 # ------------------------------------------------------------------ atalhos
-function Criar-Atalho($destino, $argumentos, $descricao) {
+function Criar-Atalho($destino, $alvo, $argumentos, $descricao) {
     $ws  = New-Object -ComObject WScript.Shell
     $lnk = $ws.CreateShortcut($destino)
-    $lnk.TargetPath       = "wscript.exe"
+    $lnk.TargetPath       = $alvo
     $lnk.Arguments        = $argumentos
     $lnk.WorkingDirectory = $pasta
     $lnk.Description      = $descricao
@@ -103,7 +121,7 @@ Write-Host "==> Atalhos" -ForegroundColor Cyan
 try {
     # Sem --oculto: clicar no atalho e pedir a janela agora.
     Criar-Atalho (Join-Path ([Environment]::GetFolderPath("Desktop")) "sysmon.lnk") `
-                 "`"$vbs`" --nao-oculto" "Monitor da frota Linux"
+                 $execAlvo $argsAgora "Monitor da frota Linux"
     Ok "atalho criado na area de trabalho"
 } catch {
     Aviso "nao consegui criar o atalho da area de trabalho: $($_.Exception.Message)"
@@ -135,8 +153,13 @@ function Remover-Tarefa($nome) {
 }
 
 function Registrar-Tarefa {
-    $acao = New-ScheduledTaskAction -Execute "wscript.exe" `
-            -Argument "`"$vbs`"" -WorkingDirectory $pasta
+    # -Argument vazio nao e aceito; com o .exe simplesmente nao passamos.
+    if ($argsLogon) {
+        $acao = New-ScheduledTaskAction -Execute $execAlvo `
+                -Argument $argsLogon -WorkingDirectory $pasta
+    } else {
+        $acao = New-ScheduledTaskAction -Execute $execAlvo -WorkingDirectory $pasta
+    }
     $gatilho = New-ScheduledTaskTrigger -AtLogOn
     $gatilho.Delay = "PT$($AtrasoSeg)S"
     $cfg = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
@@ -169,7 +192,8 @@ if (-not $Inicializar) {
 if (-not $metodo) {
     try {
         # Com --oculto (padrao do vbs): no logon sobe minimizado na bandeja.
-        Criar-Atalho $atalhoInicio "`"$vbs`"" "Monitor da frota Linux (inicio automatico)"
+        Criar-Atalho $atalhoInicio $execAlvo $argsLogon `
+                     "Monitor da frota Linux (inicio automatico)"
         $metodo = "inicializar"
         Ok "registrado na pasta Inicializar"
     } catch {

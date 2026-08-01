@@ -127,5 +127,45 @@ class TestLancadores(unittest.TestCase):
         self.assertIn("--oculto", texto)
 
 
+class TestLancadorGo(unittest.TestCase):
+    """O sysmon.exe. Nao da para executa-lo aqui, entao vale o mesmo criterio
+    dos scripts: conferir o que ja quebrou ou quebraria em silencio."""
+
+    FONTE = (Path(__file__).resolve().parent.parent
+             / "windows-lancador" / "main.go").read_text(encoding="utf-8")
+    EMPACOTAR = (Path(__file__).resolve().parent.parent
+                 / "empacotar.sh").read_text(encoding="utf-8")
+
+    def test_so_compila_para_windows(self):
+        # Sem a tag, um `go build ./...` no Linux tentaria compilar chamadas
+        # de user32.dll e quebraria o CI por um arquivo que nao roda aqui.
+        self.assertTrue(self.FONTE.lstrip().startswith("//go:build windows"))
+
+    def test_aplica_atualizacao_pendente(self):
+        self.assertIn("sysmon-novo.pyz", self.FONTE)
+
+    def test_consome_o_agora_em_vez_de_repassar(self):
+        """/agora e do lancador. Repassado adiante, o argparse do Python
+        aborta com "argumento desconhecido" e a janela nao abre."""
+        self.assertIn("/agora", self.FONTE)
+        self.assertIn("continue", self.FONTE.split("func separarAgora")[1][:400])
+
+    def test_prefere_o_python_sem_console(self):
+        i_w = self.FONTE.index("pythonw.exe")
+        i_c = self.FONTE.index('LookPath("python.exe")')
+        self.assertLess(i_w, i_c, "python.exe com console vem antes do pythonw")
+
+    def test_avisa_em_caixa_de_dialogo(self):
+        """Compilado com -H windowsgui nao ha console: sem MessageBox, toda
+        falha de partida vira um programa que simplesmente nao abre."""
+        self.assertIn("MessageBoxW", self.FONTE)
+
+    def test_empacotar_compila_como_gui_e_confere(self):
+        self.assertIn("-H windowsgui", self.EMPACOTAR)
+        # A conferencia do subsistema no cabecalho PE: compilado como console,
+        # o lancador abriria a janela preta que ele existe para eliminar.
+        self.assertIn("subsistema", self.EMPACOTAR)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

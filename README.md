@@ -187,8 +187,10 @@ página web. O `sysmon.pyz` busca os dados direto dos agentes remotos e mostra
 tudo numa janela nativa (o diagrama no topo mostra o fluxo). Baixe o `.pyz` do
 release, ponha numa pasta, e:
 
-**Windows:** duplo clique em `sysmon.bat` (abre com console, então qualquer
-erro aparece). **Linux/macOS:** `python3 sysmon.pyz`.
+**Windows:** duplo clique em `sysmon.exe` — sem janela preta; se faltar Python,
+ele diz numa caixa de diálogo em vez de não abrir. (`sysmon.bat` faz o mesmo
+**com** console, quando você quer ver o que acontece.) **Linux/macOS:**
+`./sysmon.sh`.
 
 Na primeira vez a janela abre na **tela de configuração** — preencha apelido,
 URL e token de cada host, clique em **Testar** e salve. Não precisa editar
@@ -202,7 +204,7 @@ Atualizar é clicar no **⭳** do cabeçalho. O `config.json` fica.
 
 | Comando | O que faz |
 |---|---|
-| `./sysmon.sh` · `sysmon.bat` | lançador: aplica atualização pendente e sobe |
+| `sysmon.exe` · `./sysmon.sh` | lançador: aplica atualização pendente e sobe |
 | `python sysmon.pyz` | janela nativa + bandeja (padrão) |
 | `python sysmon.pyz --oculto` | sobe minimizado na bandeja (autostart) |
 | `python sysmon.pyz term` | tabela no terminal, atualiza sozinha |
@@ -234,7 +236,14 @@ lançador:
 | Sistema | Como |
 |---|---|
 | Linux/macOS | `./sysmon.sh` — o Unix permite substituir arquivo aberto, então a troca acontece na hora e o programa se reexecuta |
-| Windows | `sysmon.vbs`/`sysmon.bat` — o Windows não deixa sobrescrever arquivo em uso, então o sysmon sai e o lançador promove o `sysmon-novo.pyz` antes do Python abri-lo |
+| Windows | `sysmon.exe` — o Windows não deixa sobrescrever arquivo em uso, então o sysmon sai e o lançador promove o `sysmon-novo.pyz` antes do Python abri-lo |
+
+O `sysmon.exe` é um lançador de 1,8 MB escrito em Go — a mesma linguagem do
+agente, então não entra toolchain nova e ele cross-compila do Linux no CI, sem
+máquina Windows envolvida. Ele **não embute o Python**: troca a janela preta do
+`.bat` por um executável com ícone, mas o Python continua sendo requisito. O que
+ele ganha além da aparência é ter para onde falar: sem Python instalado, aparece
+uma caixa de diálogo dizendo isso, em vez de o programa simplesmente não abrir.
 
 > Chamando `python3 sysmon.pyz` direto, sem o lançador, a versão baixada fica
 > esperando ao lado sem entrar. Use o lançador — no Linux ele passou a
@@ -420,7 +429,7 @@ sysmon se comporta como qualquer app de bandeja:
 python -m pip install pystray pillow
 ```
 
-No Windows o `sysmon.bat` já instala esses dois sozinho na primeira execução.
+No Windows o `sysmon.bat` instala esses dois sozinho na primeira execução.
 Sem eles, a janela funciona igual — só não há ícone na bandeja.
 
 ### Bandeja

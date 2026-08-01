@@ -10,8 +10,12 @@ seguranca um .pyz que o proprio processo tem aberto.
 Fluxo completo:
 
     sysmon.pyz  roda, verifica, baixa  ->  sysmon-novo.pyz
-    voce reinicia (botao ou logon)
-    sysmon.vbs  ve o -novo, troca      ->  sysmon.pyz atualizado
+    voce reinicia (botao ⭳ ou logon)
+    o lancador  ve o -novo e troca     ->  sysmon.pyz atualizado
+
+O lancador e o sysmon.exe no Windows e o sysmon.sh no Unix. No Unix a troca
+tambem pode acontecer no proprio processo, porque la substituir um arquivo
+aberto e legitimo; o botao ⭳ usa esse caminho e reexecuta na hora.
 
 Falhar aqui nunca pode atrapalhar o monitoramento: qualquer erro de rede,
 JSON ou disco vira "sem atualizacao" e a vida segue.
@@ -31,7 +35,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-__version__ = "4.2.1"
+__version__ = "4.3.0"
 
 REPO = "9LEVEL/sysmon"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -217,7 +221,10 @@ def lancador(pyz: Path) -> Path | None:
     No Windows e ele quem troca o arquivo, entao a existencia dele decide se
     da para aplicar a atualizacao sozinho ou se resta pedir para o usuario.
     """
-    for nome in ("sysmon.vbs", "sysmon.bat", "sysmon.sh"):
+    # Ordem de preferencia. O .exe primeiro: e o unico que mostra caixa de
+    # dialogo quando a partida falha - o .vbs e o .bat falham calados ou numa
+    # janela que fecha.
+    for nome in ("sysmon.exe", "sysmon.vbs", "sysmon.bat", "sysmon.sh"):
         p = pyz.with_name(nome)
         if p.is_file():
             return p
@@ -244,9 +251,11 @@ def comando_reinicio(pyz: Path, lanc: Path | None, argv: list[str],
                      executavel: str, windows: bool) -> list[str]:
     """A linha de comando que sobe a versao nova no lugar desta."""
     if windows and lanc is not None:
+        # /agora e consumido pelo proprio lancador: pula a espera de logon,
+        # que aqui seria meio minuto olhando para nada, e nao minimiza.
+        if lanc.suffix.lower() == ".exe":
+            return [str(lanc), "/agora", *argv]
         if lanc.suffix.lower() == ".vbs":
-            # /agora e consumido pelo proprio .vbs: pula a espera de logon,
-            # que aqui seria meio minuto olhando para nada.
             return ["wscript.exe", str(lanc), "/agora", *argv]
         return ["cmd.exe", "/c", str(lanc), *argv]
     return [executavel, str(pyz), *argv]

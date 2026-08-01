@@ -237,9 +237,14 @@ class TestPorOndeTrocar(unittest.TestCase):
         self.assertIsNone(U.lancador(pyz))
         (d / "sysmon.sh").write_text("#!/bin/sh\n")
         self.assertEqual(U.lancador(pyz).name, "sysmon.sh")
-        # O .vbs tem precedencia: e o que roda sem console no Windows.
+        (d / "sysmon.bat").write_text("@echo off\n")
+        self.assertEqual(U.lancador(pyz).name, "sysmon.bat")
         (d / "sysmon.vbs").write_text("'x\n")
         self.assertEqual(U.lancador(pyz).name, "sysmon.vbs")
+        # O .exe vence todos: e o unico que avisa em caixa de dialogo quando
+        # a partida falha, em vez de nao abrir e nao dizer nada.
+        (d / "sysmon.exe").write_bytes(b"MZ")
+        self.assertEqual(U.lancador(pyz).name, "sysmon.exe")
 
 
 class TestComandoReinicio(unittest.TestCase):
@@ -257,6 +262,12 @@ class TestComandoReinicio(unittest.TestCase):
             U.comando_reinicio(self.PYZ, Path("/opt/sysmon/sysmon.sh"), [],
                                "/usr/bin/python3", windows=False),
             ["/usr/bin/python3", str(self.PYZ)])
+
+    def test_windows_chama_o_exe_direto(self):
+        exe = Path("C:/sysmon/sysmon.exe")
+        cmd = U.comando_reinicio(self.PYZ, exe, [], "python.exe", windows=True)
+        # Sem wscript nem cmd no meio: o executavel e o proprio lancador.
+        self.assertEqual(cmd, [str(exe), "/agora"])
 
     def test_windows_passa_pelo_vbs_sem_esperar_o_logon(self):
         vbs = Path("C:/sysmon/sysmon.vbs")

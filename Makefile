@@ -1,12 +1,13 @@
 # Atalhos do projeto inteiro. O build do agente fica em linux-agent/Makefile.
 
-.PHONY: ajuda teste teste-go teste-py versao build dist bundle pacote limpar
+.PHONY: ajuda teste teste-go teste-py versao build dist lancador bundle pacote limpar
 
 ajuda:
 	@echo "make teste    - roda todos os testes (agente Go + clientes Python)"
 	@echo "make versao   - confere se todo modulo declara a mesma versao"
 	@echo "make build    - compila o agente para esta arquitetura"
 	@echo "make dist     - compila o agente para amd64 e arm64"
+	@echo "make lancador - compila o sysmon.exe (lancador do Windows)"
 	@echo "make bundle   - gera o dist/sysmon.pyz (cliente em arquivo unico)"
 	@echo "make pacote   - gera os tarballs de distribuicao em dist/"
 	@echo "make limpar   - remove os binarios e pacotes"
@@ -29,6 +30,12 @@ build:
 
 dist:
 	@$(MAKE) -C linux-agent dist
+
+# Cross-compila do Linux: nenhuma maquina Windows envolvida.
+lancador:
+	@cd windows-lancador && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+		go build -trimpath -ldflags "-s -w -H windowsgui" -o ../dist/sysmon.exe .
+	@ls -lh dist/sysmon.exe
 
 bundle: pacote
 	@ls -lh dist/sysmon.pyz
