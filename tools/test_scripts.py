@@ -169,3 +169,20 @@ class TestLancadorGo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestBundle(unittest.TestCase):
+    """O .pyz e montado a partir de uma lista fixa de modulos no empacotar.sh.
+
+    Modulo novo que fique de fora funciona no repositorio e explode so no
+    bundle, na maquina de quem baixou - o pior lugar para descobrir.
+    """
+
+    def test_todo_modulo_entra_no_pyz(self):
+        tools = Path(__file__).resolve().parent
+        empacotar = (tools.parent / "empacotar.sh").read_text(encoding="utf-8")
+        listados = set(re.findall(r"\bsysmon_\w+", empacotar))
+        for arq in sorted(tools.glob("sysmon_*.py")):
+            self.assertIn(arq.stem, listados,
+                          f"{arq.name} nao entra no sysmon.pyz: "
+                          f"acrescente ao empacotar.sh")

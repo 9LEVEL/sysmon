@@ -104,7 +104,7 @@ done
 # scripts soltos - que era a principal reclamacao de manutencao.
 PALCO="$DIST/.palco"
 mkdir -p "$PALCO"
-for m in sysmon_nucleo sysmon_dash sysmon_local sysmon_tray sysmon_update sysmon_win; do
+for m in sysmon_nucleo sysmon_dash sysmon_local sysmon_smart sysmon_tray sysmon_update sysmon_win; do
     install -m 644 "$AQUI/tools/$m.py" "$PALCO/"
 done
 install -m 644 "$AQUI/sysmon.py" "$PALCO/"
