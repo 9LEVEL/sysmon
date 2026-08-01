@@ -104,5 +104,8 @@ jobs:
           echo "$NOMES" | grep -qx 'sysmon-linux-amd64'
           echo "$NOMES" | grep -qx 'SHA256SUMS'
           echo "$NOMES" | grep -qx "sysmon-agent-$VERSAO-linux-amd64.tar.gz"
+          # Nome sem versao: e o que o passo 1 do README baixa por
+          # /releases/latest/download/. Sem ele o comando do README da 404.
+          echo "$NOMES" | grep -qx "sysmon-agent-linux-amd64.tar.gz"
           echo "$NOMES" | grep -qx "sysmon-windows-$VERSAO.zip"
           echo "$NOMES" | grep -qx "sysmon-linux-$VERSAO.tar.gz"

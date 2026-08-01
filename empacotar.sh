@@ -100,6 +100,14 @@ Documentacao completa: https://github.com/9LEVEL/sysmon
 EOF
 
     ( cd "$DIST" && tar czf "$NOME.tar.gz" "$NOME" && rm -rf "$NOME" )
+
+    # Uma copia com nome SEM versao.
+    #
+    # E o que faz o passo 1 do README ser copiavel: a URL
+    # .../releases/latest/download/<nome> exige um nome fixo, e com a versao
+    # embutida quem instala precisa saber qual e antes de baixar - o que
+    # obriga a abrir o navegador no meio de um passo de terminal.
+    cp "$DIST/$NOME.tar.gz" "$DIST/sysmon-agent-linux-$ARCO.tar.gz"
     verde "    $NOME.tar.gz"
 done
 

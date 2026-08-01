@@ -94,6 +94,7 @@ jobs:
         run: |
           test -f dist/sysmon-windows-amd64.exe
           test -f dist/sysmon-linux-amd64
+          test -f dist/sysmon-agent-linux-amd64.tar.gz
           grep -q ' sysmon-windows-amd64.exe$' dist/SHA256SUMS
           ( cd dist && sha256sum -c SHA256SUMS )
 

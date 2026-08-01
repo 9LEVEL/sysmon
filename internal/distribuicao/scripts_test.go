@@ -245,3 +245,28 @@ func TestInstaladorCompilaOPacoteCerto(t *testing.T) {
 		t.Errorf("cmd/sysmon-agent nao existe: %v", err)
 	}
 }
+
+func TestOComandoDoLeiameExisteNoRelease(t *testing.T) {
+	// O passo 1 do README baixa por
+	// /releases/latest/download/sysmon-agent-linux-amd64.tar.gz - um nome FIXO,
+	// sem versao. Com a versao embutida, quem instala precisaria saber qual e
+	// antes de baixar, o que obriga a abrir o navegador no meio de um passo de
+	// terminal. Este teste liga as duas pontas.
+	readme := ler(t, "README.md")
+	empacotar := ler(t, "empacotar.sh")
+
+	re := regexp.MustCompile(`releases/latest/download/([A-Za-z0-9._-]+)`)
+	achados := re.FindAllStringSubmatch(readme, -1)
+	if len(achados) == 0 {
+		t.Skip("o README nao usa mais o atalho de download direto")
+	}
+	// O script escreve o nome com a arquitetura numa variavel; expandimos a
+	// unica que ele usa hoje para comparar com o que o README pede.
+	expandido := strings.ReplaceAll(empacotar, "$ARCO", "amd64")
+	for _, m := range achados {
+		if !strings.Contains(expandido, m[1]) {
+			t.Errorf("o README baixa %q por /releases/latest/download/, e o "+
+				"empacotar.sh nao gera esse nome - o comando daria 404", m[1])
+		}
+	}
+}
