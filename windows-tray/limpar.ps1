@@ -16,8 +16,8 @@ Write-Host "=== Limpando instalacoes anteriores do sysmon ===" -ForegroundColor 
 Write-Host ""
 
 # ------------------------------------------------------------- 1. processos
-$procs = Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
-         Where-Object { $_.CommandLine -like "*sysmon.pyz*" -or
+$procs = Get-CimInstance Win32_Process -Filter "Name = 'sysmon.exe'" -ErrorAction SilentlyContinue |
+         Where-Object { $true -or
                         $_.CommandLine -like "*traymon.py*" -or
                         $_.CommandLine -like "*sysmon.py*" }
 if ($procs) {
@@ -58,7 +58,8 @@ foreach ($v in @("SYSMON_URL", "SYSMON_TOKEN", "SYSMON_NOME", "SYSMON_CONFIG")) 
 
 # ------------------------------------------------- 5. restos de atualizacao
 $pasta = Split-Path -Parent $MyInvocation.MyCommand.Path
-foreach ($f in @("sysmon-novo.pyz", "sysmon-novo.pyz.parcial")) {
+# Sobra da troca de binario: ver internal/atualizar.
+foreach ($f in @("sysmon.exe.old")) {
     $p = Join-Path $pasta $f
     if (Test-Path $p) { Remove-Item $p -Force; Ok $f } else { Nada $f }
 }

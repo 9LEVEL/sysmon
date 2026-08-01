@@ -90,36 +90,10 @@ jobs:
             go build -ldflags "-s -w -H windowsgui" -o /tmp/sysmon.exe ./cmd/sysmon
           ls -lh /tmp/sysmon.exe
 
-  clientes:
-    name: clientes (Python ${{ matrix.python }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # O piso e o que o README promete; o topo e o que a maioria tem hoje.
-        python: ['3.9', '3.13']
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python }}
-
-      # sysmon_win importa tkinter no topo do modulo, entao o import precisa
-      # funcionar mesmo sem display (os testes nao abrem janela).
-      - name: Bibliotecas do Tk
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends tk
-          python -c "import tkinter; print('tkinter', tkinter.TkVersion)"
-
-      - name: Testes
-        run: python -m unittest discover -s tools -t tools -v
-
   pacote:
     name: pacote
     runs-on: ubuntu-latest
-    needs: [versao, agente, clientes]
+    needs: [versao, agente, cliente-go]
     steps:
       - uses: actions/checkout@v7
 
@@ -128,31 +102,33 @@ jobs:
           go-version-file: linux-agent/go.mod
           cache: false
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.13'
-
-      - name: Bibliotecas do Tk
+      # O empacotar compila o cliente Linux, e a janela la exige CGO.
+      - name: Bibliotecas de janela
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends tk
+          sudo apt-get install -y -qq --no-install-recommends \
+            pkg-config libx11-dev libx11-xcb-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libgles2-mesa-dev libegl1-mesa-dev libxcursor-dev libxfixes-dev
 
-      # Sem argumento, o empacotar.sh tira a versao do main.go - que e
-      # exatamente o que queremos conferir aqui.
+      # Sem argumento, o empacotar.sh tira a versao do arquivo VERSAO - que
+      # e exatamente o que queremos conferir aqui.
       - name: Empacota
         run: ./empacotar.sh
 
-      # O auto-update baixa o .pyz e confere contra o SHA256SUMS. Se um dos
-      # dois sumir do pacote, o cliente instalado recusa a atualizacao.
+      # O auto-update baixa o binario e o confere contra o SHA256SUMS. Se um
+      # dos dois sumir do release, o cliente instalado recusa a atualizacao -
+      # e fica preso na versao que tem, sem saber por que.
       - name: Confere o que o auto-update precisa
         run: |
-          test -f dist/sysmon.pyz
-          grep -q ' sysmon.pyz$' dist/SHA256SUMS
+          test -f dist/sysmon-windows-amd64.exe
+          test -f dist/sysmon-linux-amd64
+          grep -q ' sysmon-windows-amd64.exe$' dist/SHA256SUMS
           ( cd dist && sha256sum -c SHA256SUMS )
 
-      # Roda o bundle de verdade: um .pyz que nao abre nao serve de nada.
-      - name: Fuma o .pyz
-        run: python dist/sysmon.pyz --help
+      # Roda o binario de verdade: um cliente que nao abre nao serve de nada.
+      - name: Fuma o cliente
+        run: ./dist/sysmon-linux-amd64 --version
 
       - uses: actions/upload-artifact@v7
         with:

@@ -1,5 +1,5 @@
 {
-  "_comentario": "Copie para config.json e preencha. Ou gere pronto com linux-agent/deploy.sh. Rode com: python sysmon.pyz",
+  "_comentario": "Copie para config.json e preencha. Ou gere pronto com linux-agent/deploy.sh. Rode com: sysmon.exe (Windows) ou ./sysmon (Linux)",
 
   "hosts": [
     {

@@ -23,8 +23,7 @@ foreach ($t in @("sysmon", "traymon")) {
 $desktop = Join-Path ([Environment]::GetFolderPath("Desktop")) "sysmon.lnk"
 if (Test-Path $desktop) { Remove-Item $desktop -Force }
 
-Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*sysmon.pyz*" -or $_.CommandLine -like "*traymon.py*" } |
+Get-CimInstance Win32_Process -Filter "Name = 'sysmon.exe'" -ErrorAction SilentlyContinue |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 Write-Host "sysmon removido do autostart." -ForegroundColor Green

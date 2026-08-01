@@ -45,12 +45,13 @@ processo.
 | `linux-agent/deploy.sh` | sua máquina | instala em N hosts por SSH e gera o config |
 | `linux-agent/sysmon-agent.service` | cada host | unit systemd com hardening + watchdog |
 | `linux-agent/sysmon-thinpool.{service,timer}` | Proxmox | snapshot do thin pool LVM |
-| `sysmon.py` | sua máquina | ponto de entrada único dos clientes |
-| `tools/sysmon_nucleo.py` | clientes | config, polling e regras de alerta (compartilhado) |
-| `tools/sysmon_dash.py` | sua máquina | dashboard de N hosts no terminal |
-| `tools/sysmon_win.py` | sua máquina | **janela nativa (Tkinter), o padrão** |
-| `tools/sysmon_tray.py` | Windows | ícone de bandeja + overlay multi-host |
-| `tools/sysmon_local.py` | um host | leitor local de sensores, sem rede nem token |
+| `cliente/cmd/sysmon` | sua máquina | o cliente: um binário, sem runtime |
+| `cliente/internal/nucleo` | cliente | config, polling e regras de alerta |
+| `cliente/internal/tela` | cliente | o que aparece — compartilhado pela janela e pelo terminal |
+| `cliente/internal/janela` | cliente | **janela nativa (Gio), o padrão** |
+| `cliente/internal/terminal` | cliente | tabela no terminal |
+| `cliente/internal/bandeja` | Windows | ícone de bandeja em Win32 puro |
+| `cliente/internal/atualizar` | cliente | troca o próprio binário pela versão nova |
 | `windows-tray/instalar-autostart.ps1` | Windows | registra no Agendador de Tarefas |
 
 ## Instalação nos hosts Linux
@@ -75,11 +76,11 @@ release.
 
 | Arquivo | Para que serve |
 |---|---|
-| `sysmon-windows-<v>.zip` | **Windows** — app completo: `.pyz`, lançadores e instaladores |
-| `sysmon-linux-<v>.tar.gz` | **Linux/macOS** — cliente (janela e terminal) |
+| `sysmon-windows-<v>.zip` | **Windows** — o executável e os scripts de autostart |
+| `sysmon-linux-<v>.tar.gz` | **Linux** — o executável |
 | `sysmon-agent-<v>-linux-amd64.tar.gz` | agente, em **cada host monitorado** (x86_64) |
 | `sysmon-agent-<v>-linux-arm64.tar.gz` | agente, em **cada host monitorado** (ARM) |
-| `sysmon.pyz` | só o programa, para substituir manualmente |
+| `sysmon-windows-amd64.exe` · `sysmon-linux-amd64` | só o binário — é o que o auto-update baixa |
 | `SHA256SUMS` | conferência |
 
 Repare que são coisas diferentes: o **agente** vai nas máquinas Linux que você
@@ -177,98 +178,67 @@ Depois de editar, reinicie o tray (menu → **Sair**, e abra de novo) — o
 Confira antes de mexer no tray:
 
 ```bash
-python3 sysmon.py term --config config.json --once
+sysmon term --config config.json --once
 ```
 
-## Os clientes
+## O cliente
 
-Tudo roda a partir de **um arquivo**, **na sua máquina** — sem servidor nem
-página web. O `sysmon.pyz` busca os dados direto dos agentes remotos e mostra
-tudo numa janela nativa (o diagrama no topo mostra o fluxo). Baixe o `.pyz` do
-release, ponha numa pasta, e:
+Tudo roda a partir de **um executável**, **na sua máquina** — sem servidor,
+sem banco, sem runtime instalado. Ele busca os dados direto dos agentes
+remotos e mostra tudo numa janela nativa (o diagrama no topo mostra o fluxo).
 
-**Windows:** duplo clique em `sysmon.exe` — sem janela preta; se faltar Python,
-ele diz numa caixa de diálogo em vez de não abrir. (`sysmon.bat` faz o mesmo
-**com** console, quando você quer ver o que acontece.) **Linux/macOS:**
-`./sysmon.sh`.
+**Windows:** duplo clique em `sysmon.exe`.
+**Linux:** `./sysmon`.
 
-Na primeira vez a janela abre na **tela de configuração** — preencha apelido,
-URL e token de cada host, clique em **Testar** e salve. Não precisa editar
-arquivo nenhum. Depois, o botão **⌂** no cabeçalho reabre essa tela a qualquer
-momento.
-
-É uma **janela do sistema** — sem barra de endereço, sem aba de browser — com o
-ícone de bandeja junto, no mesmo processo. Um autostart, um processo.
-
-Atualizar é clicar no **⭳** do cabeçalho. O `config.json` fica.
+A janela abre na **tela de configuração** se ainda não houver `config.json`:
+preencha apelido, url e token de cada host, clique em Testar e salve. Não
+precisa editar arquivo nenhum.
 
 | Comando | O que faz |
 |---|---|
-| `sysmon.exe` · `./sysmon.sh` | lançador: aplica atualização pendente e sobe |
-| `python sysmon.pyz` | janela nativa + bandeja (padrão) |
-| `python sysmon.pyz --oculto` | sobe minimizado na bandeja (autostart) |
-| `python sysmon.pyz term` | tabela no terminal, atualiza sozinha |
-| `python sysmon.pyz term --once` | imprime uma vez e sai (script/cron) |
-| `python sysmon.pyz term --host pve` | detalhe completo de um host |
-| `python sysmon.pyz tray` | só o ícone de bandeja (overlay multi-host) |
-| `python sysmon.pyz local` | sensores **desta** máquina, sem rede |
+| `sysmon` | janela nativa (+ bandeja no Windows) |
+| `sysmon --oculto` | sobe minimizado na bandeja (autostart) |
+| `sysmon term` | tabela no terminal, atualiza sozinha |
+| `sysmon term --once` | imprime uma vez e sai (script/cron) |
+| `sysmon term --json` | estado bruto em JSON |
+| `sysmon term --host pve` | só um host |
+| `sysmon --sem-bandeja` · `--sem-update` | desliga o que o nome diz |
 
-Rodando do repositório em vez do `.pyz`, troque `sysmon.pyz` por `sysmon.py` —
-os argumentos são os mesmos.
+O `--once` sai com código útil para script: **0** tudo bem, **1** há alerta,
+**2** há host fora do ar. Dá para escrever `sysmon term --once || avisar`.
+
+> **De Python para Go.** Até a v4 o cliente era um `sysmon` de 54 KB que
+> exigia Python instalado — e, com ele, um lançador por sistema só para
+> conseguir trocar o arquivo durante a atualização. Da v5 em diante é um
+> binário de ~13 MB sem dependência nenhuma. Você troca 13 MB de download por
+> nunca mais precisar instalar interpretador, e a atualização passou a ser o
+> programa se substituindo sozinho.
 
 ### Atualização automática
 
 **Pelo botão.** O **⭳** no cabeçalho procura versão nova; havendo, baixa e o
-botão fica **verde**. Clicar de novo troca o arquivo e reinicia já na versão
+botão fica **verde**. Clicar de novo troca o binário e reinicia já na versão
 nova. Sem ir ao GitHub, sem descompactar nada.
 
-Sozinho, ele também verifica ao iniciar e a cada 6 horas, e avisa na barra de
-status quando há versão pronta.
+Sozinho, ele também verifica ao iniciar e a cada 6 horas, e avisa no rodapé
+quando há versão pronta.
 
-Em qualquer caminho, **o SHA256 é conferido contra o `SHA256SUMS` do release**
-e o arquivo é aberto como zipapp antes de valer. Se algo não bater, **nada é
-trocado** — o erro fica registrado e a versão atual continua. Falha de rede
-nunca derruba o monitoramento.
+Três barreiras antes de qualquer troca, porque este é o único código do
+projeto que pode fazer estrago sério — ele roda como você, na sua máquina:
 
-**Quem troca o arquivo** muda por sistema, e é por isso que o pacote traz um
-lançador:
+- **SHA256** conferido contra o `SHA256SUMS` do release;
+- **assinatura do arquivo** (`MZ` no Windows, `ELF` no Linux) — pega download
+  truncado e, principalmente, página de erro servida com código 200;
+- release **sem o binário da sua plataforma** vira erro explícito, não
+  tentativa de instalar o de outra.
 
-| Sistema | Como |
-|---|---|
-| Linux/macOS | `./sysmon.sh` — o Unix permite substituir arquivo aberto, então a troca acontece na hora e o programa se reexecuta |
-| Windows | `sysmon.exe` — o Windows não deixa sobrescrever arquivo em uso, então o sysmon sai e o lançador promove o `sysmon-novo.pyz` antes do Python abri-lo |
-
-O `sysmon.exe` é um lançador de 1,8 MB escrito em Go — a mesma linguagem do
-agente, então não entra toolchain nova e ele cross-compila do Linux no CI, sem
-máquina Windows envolvida. Ele **não embute o Python**: troca a janela preta do
-`.bat` por um executável com ícone, mas o Python continua sendo requisito. O que
-ele ganha além da aparência é ter para onde falar: sem Python instalado, aparece
-uma caixa de diálogo dizendo isso, em vez de o programa simplesmente não abrir.
-
-> Chamando `python3 sysmon.pyz` direto, sem o lançador, a versão baixada fica
-> esperando ao lado sem entrar. Use o lançador — no Linux ele passou a
-> acompanhar o pacote a partir da v4.2.0.
+A troca em si aproveita uma particularidade do Windows: não dá para
+**sobrescrever** um executável em uso, mas dá para **renomear**. Então o atual
+vira `.old`, o novo assume o nome, o processo novo sobe e o `.old` some no
+arranque seguinte. Se o último passo falhar, o anterior volta — ficar sem
+binário nenhum é o pior desfecho possível de uma atualização.
 
 Para desligar: `--sem-update`, ou `"horas_entre_updates": 0` no `config.json`.
-
-Rodando do repositório (`sysmon.py` em vez de `sysmon.pyz`) o auto-update fica
-inativo e o botão nem aparece — ali quem atualiza é o `git`.
-
-### Quando algo não bate
-
-```
-python sysmon.pyz --diagnostico      # ou, no Windows, duplo clique em diagnostico.bat
-```
-
-Sai um relatório de uma tela: versão, de onde está rodando, se o botão ⭳ deve
-aparecer, qual lançador foi encontrado, se há atualização pendente e — a
-pergunta que mais custa tempo — **se já existe outro sysmon rodando nesta
-máquina**.
-
-Uma instância mais antiga na bandeja é a causa mais comum de "a novidade não
-apareceu": abrir a versão nova apenas trazia a janela da antiga para a frente.
-Desde a v4.2.1 isso não passa mais calado — a versão nova assume o lugar da
-antiga, ou avisa numa caixa de diálogo quando não consegue.
 
 ### A janela
 
@@ -293,8 +263,7 @@ dependem de fonte, então aparecem iguais em qualquer sistema: **sempre no topo*
 e **hosts**; depois de um separador, **minimizar** e **fechar** (que fica vermelho
 ao passar o mouse). Cada ícone diz o que faz no hover. Não há botão para recarregar
 os dados: a janela já atualiza sozinha no intervalo, e **F5** força quando você
-quiser. O **⭳** é outra coisa — atualiza o *programa*, e só aparece rodando do
-`.pyz`.
+quiser. O **⭳** é outra coisa — atualiza o *programa*.
 
 **Três colunas com papéis fixos.** O nome nunca é truncado; o detalhe no meio é
 quem cede quando você estreita a janela; os números ficam **colados na borda
@@ -342,7 +311,9 @@ transformaria ruído em drama.
 prende sobre as outras janelas. Botão direito no topo abre o menu — inclusive
 para trazer a moldura do sistema de volta.
 
-**Não depende de nada.** É Tkinter, que vem junto com o Python do python.org.
+**Não depende de nada.** A janela é desenhada pelo próprio programa: não há
+toolkit do sistema envolvido, e por isso ela sai idêntica no Windows e no
+Linux.
 
 O `⌂` abre a configuração de hosts, com botão **Testar**.
 
@@ -416,20 +387,23 @@ cron ou health check.
 
 ### É um app de bandeja
 
-A janela usa **Tkinter, que vem com o Python** — abre sem instalar nada. Para o
-**ícone de bandeja**, dois pacotes opcionais (`pystray` e `pillow`); com eles, o
-sysmon se comporta como qualquer app de bandeja:
+No Windows o sysmon se comporta como qualquer app de bandeja:
 
 - **fechar a janela não encerra o programa**: ele fica no ícone da bandeja, e
   a janela reabre pelo ícone ou pelo atalho
 - **Sair** no menu da bandeja é o que encerra de verdade
-- o ícone muda de cor conforme o pior host, e notifica quando algo muda
+- o ícone muda de cor conforme o pior host, e um balão avisa quando a
+  severidade **sobe** — a cada coleta seria ruído, e "voltou ao normal"
+  interromperia sem pedir ação
 
-```
-python -m pip install pystray pillow
-```
+A bandeja é feita em Win32 puro, sem biblioteca: o ícone é gerado em tempo de
+execução, porque a forma é sempre a mesma e só a cor muda.
 
-No Windows o `sysmon.bat` instala esses dois sozinho na primeira execução.
+**No Linux não há bandeja, e é decisão.** O mecanismo varia entre ambientes de
+desktop — StatusNotifierItem por DBus nos novos, XEmbed nos antigos — e
+nenhum está em toda parte. Uma implementação pela metade seria pior que
+nenhuma: o programa pareceria ter sumido ao fechar a janela. Ali, fechar
+encerra.
 Sem eles, a janela funciona igual — só não há ícone na bandeja.
 
 ### Bandeja
@@ -443,7 +417,7 @@ acende para qualquer alerta.
 
 Ao lado da janela nativa o menu é enxuto: **Mostrar janela**, **Sempre no
 topo**, atualizar, sair. O overlay do tkinter seria redundante com a janela —
-para tê-lo, use `sysmon.pyz tray`, que traz o modo antigo com submenu por host,
+para tê-lo, use `sysmon tray`, que traz o modo antigo com submenu por host,
 modo compacto e cliques atravessando.
 
 Autostart:
@@ -508,7 +482,7 @@ avulso — útil para checar um agente sem configurar nada:
 
 ```bash
 SYSMON_URL=http://192.168.0.10:9109/metrics SYSMON_TOKEN=... \
-  python3 sysmon.py term --once
+  sysmon term --once
 ```
 
 ### No Windows

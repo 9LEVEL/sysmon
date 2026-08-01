@@ -2,16 +2,16 @@
 # Confere que todo lugar que declara versao diz o mesmo numero.
 #
 #   ./checar-versao.sh          -> exige que todos concordem entre si
-#   ./checar-versao.sh 4.0.0    -> exige, alem disso, que o numero seja esse
+#   ./checar-versao.sh 5.0.0    -> exige, alem disso, que o numero seja esse
 #
 # O segundo uso e o do corte de release: a tag e a fonte da verdade e tudo
 # que foi compilado tem que dizer o mesmo. Um agente que responde /version
 # diferente do que o release diz e um bug caro de diagnosticar - o host esta
 # rodando o que voce acha que esta rodando?
 #
-# A lista de arquivos NAO e escrita a mao: sai de uma varredura. Modulo novo
-# com __version__ entra na conferencia sozinho, que era justamente onde a
-# checagem antiga (dois arquivos fixos) deixava passar.
+# A fonte e o arquivo VERSAO. O cliente recebe o numero por -ldflags no
+# build, entao nao tem literal para divergir; o agente tem dois, e sao esses
+# que precisam ser conferidos.
 set -euo pipefail
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,37 +22,21 @@ verde()    { printf '\033[32m%s\033[0m\n' "$*"; }
 
 arquivos=()
 versoes=()
+anotar() { arquivos+=("$1"); versoes+=("$2"); }
 
-anotar() {  # <arquivo> <versao>
-    arquivos+=("${1#"$AQUI"/}")
-    versoes+=("$2")
-}
+anotar "VERSAO" "$(tr -d ' \n' < "$AQUI/VERSAO")"
 
-# --- Python: __version__ = "X" no topo do modulo
-# Testes ficam de fora: nenhum declara versao, e nao deveriam.
-while IFS= read -r arq; do
-    v=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$arq" | head -n1)
-    if [[ -n "$v" ]]; then anotar "$arq" "$v"; fi
-done < <(find "$AQUI" -name '*.py' \
-             -not -path '*/__pycache__/*' \
-             -not -path '*/dist/*' \
-             -not -path '*/.git/*' \
-             -not -name 'test_*' | sort)
-
-# --- Go: a versao compilada no binario do agente
 v=$(sed -n 's/^var versao = "\(.*\)"$/\1/p' "$AQUI/linux-agent/main.go" | head -n1)
-if [[ -n "$v" ]]; then anotar "$AQUI/linux-agent/main.go" "$v"; fi
+if [[ -n "$v" ]]; then anotar "linux-agent/main.go" "$v"; fi
 
-# --- Makefile do agente: o padrao do -ldflags quando se builda a mao
 v=$(sed -n 's/^VERSAO[[:space:]]*?=[[:space:]]*\(.*\)$/\1/p' "$AQUI/linux-agent/Makefile" | head -n1)
-if [[ -n "$v" ]]; then anotar "$AQUI/linux-agent/Makefile" "$v"; fi
+if [[ -n "$v" ]]; then anotar "linux-agent/Makefile" "$v"; fi
 
 if [[ ${#arquivos[@]} -eq 0 ]]; then
     vermelho "ERRO: nenhuma declaracao de versao encontrada - a varredura quebrou?"
     exit 1
 fi
 
-# Nao sobra declaracao sem conferencia: mostra todas, sempre.
 largura=0
 for a in "${arquivos[@]}"; do
     if (( ${#a} > largura )); then largura=${#a}; fi

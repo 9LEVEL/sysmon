@@ -21,37 +21,23 @@ param(
 $ErrorActionPreference = "Continue"
 
 $pasta = Split-Path -Parent $MyInvocation.MyCommand.Path
-$vbs   = Join-Path $pasta "sysmon.vbs"
-$exe   = Join-Path $pasta "sysmon.exe"
-$pyz   = Join-Path $pasta "sysmon.pyz"
+$exe = Join-Path $pasta "sysmon.exe"
 
-# Lancador preferido: o sysmon.exe. Ele avisa em caixa de dialogo quando nao
-# acha o Python, enquanto o wscript+vbs simplesmente nao abre e nao diz nada -
-# a falha de partida mais chata de diagnosticar no Windows. O .vbs continua
-# aqui como reserva, para pacote antigo que ainda nao tenha o executavel.
-if (Test-Path $exe) {
-    $execAlvo  = $exe
-    $argsLogon = ""                        # sem argumento = modo logon
-    $argsAgora = "/agora"                  # sobe ja, e visivel
-} else {
-    $execAlvo  = "wscript.exe"
-    $argsLogon = "`"$vbs`""
-    $argsAgora = "`"$vbs`" --nao-oculto"
-}
+# Nao ha mais lancador: o proprio executavel e o programa. Ate a v4 era
+# preciso um .vbs para achar o Python e para trocar o .pyz na atualizacao;
+# com um binario unico os dois motivos sumiram.
+$execAlvo  = $exe
+$argsLogon = "--oculto"    # no logon sobe minimizado na bandeja
+$argsAgora = ""            # clicar no atalho pede a janela agora
 
 function Ok($m)    { Write-Host "    $m" -ForegroundColor Green }
 function Aviso($m) { Write-Host "    $m" -ForegroundColor Yellow }
 function Erro($m)  { Write-Host $m -ForegroundColor Red }
 
 # ---------------------------------------------------------------- checagens
-if (-not (Test-Path $pyz)) {
-    Erro "sysmon.pyz nao encontrado nesta pasta."
+if (-not (Test-Path $exe)) {
+    Erro "sysmon.exe nao encontrado nesta pasta."
     Erro "Extraia o pacote inteiro do release, nao so este script."
-    exit 1
-}
-if (-not (Test-Path $exe) -and -not (Test-Path $vbs)) {
-    Erro "Nenhum lancador nesta pasta (sysmon.exe ou sysmon.vbs)."
-    Erro "Extraia o pacote inteiro do release."
     exit 1
 }
 if (-not (Test-Path (Join-Path $pasta "config.json"))) {
@@ -61,45 +47,21 @@ if (-not (Test-Path (Join-Path $pasta "config.json"))) {
     exit 1
 }
 
-$python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $python) {
-    Erro "python nao esta no PATH. Instale o Python do python.org (marque"
-    Erro "'Add python.exe to PATH' no instalador)."
-    exit 1
-}
-
-# A janela nao precisa de pacote nenhum: Tkinter vem com o Python. So o icone
-# de bandeja precisa, e ele e opcional.
-Write-Host "==> Componentes" -ForegroundColor Cyan
-& $python.Source -c "import tkinter" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Erro "    este Python veio sem Tkinter - provavelmente o da Microsoft Store."
-    Erro "    Instale o oficial de https://python.org"
-    exit 1
-}
-Ok "Tkinter presente (a janela nao depende de mais nada)"
-
-& $python.Source -c "import pystray, PIL" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "    instalando o icone de bandeja (opcional)..." -ForegroundColor Cyan
-    & $python.Source -m pip install --disable-pip-version-check --quiet pystray pillow
-    & $python.Source -c "import pystray, PIL" 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Aviso "sem icone de bandeja; a janela funciona igual"
-    } else { Ok "icone de bandeja instalado" }
-} else { Ok "icone de bandeja disponivel" }
-
 # Teste rapido antes de registrar: falhar aqui e melhor que falhar no boot.
-# Em modo --oculto sobe minimizado na bandeja, sem piscar janela na tela; o que
-# se quer verificar e que a config carrega e o processo nao morre no arranque.
+# Em --oculto sobe minimizado na bandeja, sem piscar janela na tela; o que se
+# quer verificar e que a config carrega e o processo nao morre no arranque.
+#
+# Nao ha mais nada para checar antes disto. Ate a v4 este trecho procurava o
+# Python no PATH, conferia se aquele Python tinha Tkinter - o da Microsoft
+# Store nao tem - e instalava dois pacotes do pip para o icone de bandeja.
+# Com um binario unico, nenhuma dessas perguntas existe.
 Write-Host "==> Testando (6s)..." -ForegroundColor Cyan
-$p = Start-Process $python.Source -ArgumentList "`"$pyz`"", "--oculto" `
+$p = Start-Process $exe -ArgumentList "--oculto" `
      -WorkingDirectory $pasta -PassThru -WindowStyle Hidden
 Start-Sleep 6
 if ($p.HasExited) {
     Erro "O sysmon morreu durante o teste."
-    Erro "Rode 'python sysmon.pyz' num terminal para ver o erro."
-    Erro "Log da bandeja: $env:TEMP\traymon.log"
+    Erro "Rode 'sysmon.exe term --once' num terminal para ver o erro."
     exit 1
 }
 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
@@ -113,7 +75,7 @@ function Criar-Atalho($destino, $alvo, $argumentos, $descricao) {
     $lnk.Arguments        = $argumentos
     $lnk.WorkingDirectory = $pasta
     $lnk.Description      = $descricao
-    $lnk.IconLocation     = "$($python.Source),0"
+    $lnk.IconLocation     = "$exe,0"
     $lnk.Save()
 }
 
@@ -191,7 +153,7 @@ if (-not $Inicializar) {
 
 if (-not $metodo) {
     try {
-        # Com --oculto (padrao do vbs): no logon sobe minimizado na bandeja.
+        # Com --oculto: no logon sobe minimizado na bandeja.
         Criar-Atalho $atalhoInicio $execAlvo $argsLogon `
                      "Monitor da frota Linux (inicio automatico)"
         $metodo = "inicializar"

@@ -13,7 +13,10 @@
 set -euo pipefail
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSAO="${1:-$(sed -n 's/^var versao = "\(.*\)"$/\1/p' "$AQUI/linux-agent/main.go")}"
+# A versao mora num arquivo so. Antes ela era literal em oito lugares e um
+# script conferia se concordavam; com o cliente em Go ela entra por -ldflags,
+# entao guardar o numero e mais simples que conferir copias.
+VERSAO="${1:-$(tr -d " \n" < "$AQUI/VERSAO")}"
 DIST="$AQUI/dist"
 
 verde() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -98,120 +101,103 @@ EOF
     verde "    $NOME.tar.gz"
 done
 
-# ------------------------------------------------------- cliente: arquivo unico
-# zipapp da stdlib: um .pyz e um zip com __main__.py que o Python executa
-# direto. Vira UM arquivo para copiar e atualizar, em vez de uma arvore de
-# scripts soltos - que era a principal reclamacao de manutencao.
-PALCO="$DIST/.palco"
-mkdir -p "$PALCO"
-for m in sysmon_nucleo sysmon_dash sysmon_local sysmon_smart sysmon_tray sysmon_update sysmon_win; do
-    install -m 644 "$AQUI/tools/$m.py" "$PALCO/"
+# ------------------------------------------------------------------ cliente
+# Um binario por plataforma, sem runtime nenhum. Ate a v4 aqui se montava um
+# .pyz que exigia Python instalado, mais um lancador por sistema so para
+# conseguir trocar o arquivo na atualizacao. Sumiu tudo.
+#
+# Os nomes SOLTOS (sysmon-<so>-<arco>) sao o que o auto-update procura no
+# release: mudar um deles quebra a atualizacao de quem ja tem a ferramenta.
+azul "==> cliente"
+# So amd64 no cliente. A janela no Linux exige CGO, e cross-compilar isso
+# para arm64 pediria uma toolchain cruzada inteira - custo alto para um
+# desktop Linux em ARM, que e raro. O AGENTE continua saindo em arm64: e ele
+# que roda nos hosts, onde Raspberry Pi e comum.
+for ALVO in "windows/amd64" "linux/amd64"; do
+    SO="${ALVO%%/*}"; ARCO="${ALVO##*/}"
+    NOME="sysmon-$SO-$ARCO"
+    LD="-s -w -X main.versao=$VERSAO"
+    if [ "$SO" = "windows" ]; then
+        NOME="$NOME.exe"
+        LD="$LD -H windowsgui"
+    fi
+
+    # CGO so e preciso para a janela no Linux (X11/Wayland), e so da para
+    # usa-lo na arquitetura desta maquina. O Windows cross-compila daqui sem
+    # nada disso, que e o que mantem o CI simples.
+    CGO=0
+    if [ "$SO" = "linux" ] && [ "$ARCO" = "$(go env GOHOSTARCH)" ]; then
+        CGO=1
+    fi
+
+    ( cd "$AQUI/cliente" && CGO_ENABLED=$CGO GOOS="$SO" GOARCH="$ARCO" \
+        go build -trimpath -ldflags "$LD" -o "$DIST/$NOME" ./cmd/sysmon )
+    verde "    $NOME  ($(du -h "$DIST/$NOME" | cut -f1))"
 done
-install -m 644 "$AQUI/sysmon.py" "$PALCO/"
-cat > "$PALCO/__main__.py" <<'EOF'
-import sysmon, sys
-sys.exit(sysmon.main())
-EOF
 
-python3 -m zipapp "$PALCO" -o "$DIST/sysmon.pyz" -p "/usr/bin/env python3" -c
-rm -rf "$PALCO"
-chmod 755 "$DIST/sysmon.pyz"
-verde "    sysmon.pyz  ($(du -h "$DIST/sysmon.pyz" | cut -f1))"
+# Compilado como console, a janela abriria uma janela preta junto - e isso
+# nao aparece em teste nenhum, so no duplo clique de quem baixou.
+python3 - "$DIST/sysmon-windows-amd64.exe" <<'PYEOF'
+import struct, sys
+d = open(sys.argv[1], "rb").read()
+if d[:2] != b"MZ":
+    sys.exit("ERRO: o binario do Windows nao e um executavel")
+pe = struct.unpack_from("<I", d, 0x3C)[0]
+sub, = struct.unpack_from("<H", d, pe + 24 + 68)
+if sub != 2:
+    sys.exit(f"ERRO: subsistema {sub}; esperado 2 (GUI)")
+PYEOF
 
-# ---------------------------------------------------------------- clientes
-# Um pacote por sistema, com o nome dizendo para quem e. Antes era um so
-# chamado "clientes", e ninguem adivinha que o .zip e o do Windows.
+# ------------------------------------------------------ pacotes por sistema
+# Um pacote por sistema, com o nome dizendo para quem e.
 
-# --- Windows: .pyz + lancadores + scripts de instalacao
+# --- Windows: o executavel, o exemplo de config e os scripts de autostart
 NOME="sysmon-windows-$VERSAO"
 PASTA="$DIST/$NOME"
 mkdir -p "$PASTA"
-install -m 755 "$DIST/sysmon.pyz" "$PASTA/"
-for f in config.example.json requirements.txt sysmon.vbs sysmon.bat \
-         diagnostico.bat instalar-autostart.ps1 desinstalar-autostart.ps1 \
+install -m 755 "$DIST/sysmon-windows-amd64.exe" "$PASTA/sysmon.exe"
+for f in config.example.json instalar-autostart.ps1 desinstalar-autostart.ps1 \
          limpar.ps1; do
     install -m 644 "$AQUI/windows-tray/$f" "$PASTA/"
 done
 install -m 644 "$AQUI/LICENSE" "$PASTA/"
 
-# Lancador nativo, cross-compilado daqui. Em Go porque o repositorio ja
-# compila Go - o agente e escrito nele -, entao nao entra toolchain nova.
-# -H windowsgui e o que tira a janela de console.
-( cd "$AQUI/windows-lancador" && \
-  CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
-  go build -trimpath -ldflags "-s -w -H windowsgui -X main.versao=$VERSAO" \
-    -o "$PASTA/sysmon.exe" . )
-
-# Compilado como console, o lancador abriria justamente a janela preta que
-# ele existe para eliminar - e isso nao aparece em teste nenhum, so no
-# duplo clique do usuario. O subsistema fica no cabecalho PE: 2 = GUI.
-python3 - "$PASTA/sysmon.exe" <<'PYEOF'
-import struct, sys
-d = open(sys.argv[1], "rb").read()
-if d[:2] != b"MZ":
-    sys.exit("ERRO: sysmon.exe nao e um executavel do Windows")
-pe = struct.unpack_from("<I", d, 0x3C)[0]
-sub, = struct.unpack_from("<H", d, pe + 24 + 68)
-if sub != 2:
-    sys.exit(f"ERRO: sysmon.exe saiu com subsistema {sub}; esperado 2 (GUI)")
-PYEOF
-verde "    sysmon.exe  ($(du -h "$PASTA/sysmon.exe" | cut -f1), GUI)"
-
 cat > "$PASTA/LEIAME.txt" <<EOF
 sysmon para Windows $VERSAO
 
-E ESTE o pacote do Windows. Extraia numa pasta sua (nao dentro de Downloads) e:
+Um executavel. Sem Python, sem instalar nada.
 
-1) Duplo clique em sysmon.exe
+1) Extraia numa pasta sua (nao dentro de Downloads) e de duplo clique em
+   sysmon.exe.
 
-   Sem janela preta. Ele acha o Python, aplica atualizacao ja baixada e sobe
-   o programa; se o Python nao estiver instalado, diz isso numa caixa de
-   dialogo em vez de nao abrir.
+   A janela abre na TELA DE CONFIGURACAO: preencha apelido, url e token de
+   cada host Linux, clique em Testar e salve. A url e o token sao os que o
+   install.sh imprimiu em cada host monitorado.
 
-   A janela usa Tkinter, que ja vem com o Python - nao instala nada. O icone
-   de bandeja (pystray + pillow) e opcional; sem ele a janela funciona igual.
+   Fechar a janela nao encerra: o programa fica no icone da bandeja, que
+   muda de cor pelo pior host. Sair e pelo menu do icone.
 
-   A interface abre na TELA DE CONFIGURACAO: preencha apelido, url e token de
-   cada host Linux, clique em Testar e salve. Nao precisa editar arquivo.
-
-   Prefere ver o que acontece? sysmon.bat faz o mesmo COM console.
-
-   A url e o token sao os que o install.sh imprimiu em cada host monitorado.
-
-2) Funcionando, registre o inicio automatico:
+2) Para subir junto com o Windows:
 
     powershell -ExecutionPolicy Bypass -File instalar-autostart.ps1
 
-   A partir dai use o atalho da area de trabalho, sem console. Fechar a janela
-   nao encerra: o programa fica na bandeja. Sair e pelo menu do icone.
+Tabela no terminal, para olhar rapido ou para script:
 
-Alguma coisa estranha? Duplo clique em diagnostico.bat e leia o relatorio.
-Ele diz a versao que esta rodando, se o botao de atualizar deve aparecer e,
-principalmente, se JA HA outro sysmon rodando nesta maquina - versao antiga
-ainda na bandeja, com a janela dela na tela, e a causa mais comum de "a
-novidade nao apareceu". Encerre a antiga pelo menu do icone (Sair).
+    sysmon.exe term
+    sysmon.exe term --once      (imprime uma vez; codigo 0 ok, 1 alerta,
+                                 2 host fora do ar)
+    sysmon.exe term --json
 
-Deu errado alguma tentativa anterior? Limpe tudo e recomece:
-
-    powershell -ExecutionPolicy Bypass -File limpar.ps1
+Atualizar: o botao no cabecalho procura, baixa conferindo o SHA256 e
+reinicia ja na versao nova. Ele tambem verifica sozinho a cada 6h.
 
 O config.json guarda os tokens de TODOS os hosts em texto claro. Proteja:
 
     icacls config.json /inheritance:r /grant:r "%USERNAME%:R"
 
-Atualizar: o botao ⭳ no cabecalho procura, baixa (conferindo o SHA256) e
-reinicia ja na versao nova. Ele tambem verifica a cada 6h sozinho e avisa na
-barra de status quando ha versao pronta - a troca em si acontece no arranque
-seguinte, feita por este .bat ou pelo atalho, porque o Windows nao deixa um
-programa sobrescrever o proprio arquivo em uso.
-
-Manualmente, basta substituir o sysmon.pyz - o config.json fica.
-
 Documentacao: https://github.com/9LEVEL/sysmon
 EOF
 
-( cd "$DIST" && tar czf "$NOME.tar.gz" "$NOME" >/dev/null 2>&1 || true )
-rm -f "$DIST/$NOME.tar.gz"
 if command -v zip >/dev/null; then
     ( cd "$DIST" && zip -qr "$NOME.zip" "$NOME" )
 else
@@ -223,43 +209,31 @@ fi
 rm -rf "$PASTA"
 verde "    $NOME.zip"
 
-# --- Linux/macOS: .pyz + exemplo de config, sem os scripts do Windows
+# --- Linux: o binario e o exemplo de config
 NOME="sysmon-linux-$VERSAO"
 PASTA="$DIST/$NOME"
 mkdir -p "$PASTA"
-install -m 755 "$DIST/sysmon.pyz" "$PASTA/"
-install -m 755 "$AQUI/windows-tray/sysmon.sh" "$PASTA/"
+install -m 755 "$DIST/sysmon-linux-amd64" "$PASTA/sysmon"
 install -m 644 "$AQUI/windows-tray/config.example.json" "$PASTA/"
 install -m 644 "$AQUI/LICENSE" "$PASTA/"
 
 cat > "$PASTA/LEIAME.txt" <<EOF
-sysmon para Linux/macOS $VERSAO
+sysmon para Linux $VERSAO
 
-Cliente para acompanhar seus hosts. Precisa de Python 3.9 ou mais novo.
+Um binario. Sem Python, sem pip, sem instalar nada.
 
     cp config.example.json config.json    # preencha url e token de cada host
     chmod 600 config.json
-    ./sysmon.sh                           # janela nativa + bandeja (padrao)
-    ./sysmon.sh term                      # tabela no terminal
+    ./sysmon                              # janela nativa
+    ./sysmon term                         # tabela no terminal
+    ./sysmon term --once                  # uma vez so (cron, script)
 
-Sem config, a janela abre direto na tela de configuracao. O modo terminal
-exige o arquivo pronto.
+Nao ha icone de bandeja no Linux: o mecanismo varia entre ambientes de
+desktop e uma implementacao pela metade seria pior que nenhuma. Aqui fechar
+a janela encerra o programa.
 
-Use SEMPRE o ./sysmon.sh, e nao o python3 sysmon.pyz direto: e ele quem
-aplica a atualizacao ja baixada antes de subir. Chamando o .pyz na mao, a
-versao nova fica esperando ao lado sem nunca entrar.
-
-Para o icone de bandeja (opcional):  pip install pystray pillow
-
-Atualizar: o botao ⭳ no cabecalho procura, baixa (conferindo o SHA256) e
-reinicia ja na versao nova. Sozinho, ele tambem verifica a cada 6h e avisa
-na barra de status quando ha versao pronta.
-
-Outros modos:
-
-    ./sysmon.sh term --once               # imprime uma vez e sai (cron)
-    ./sysmon.sh term --host pve           # detalhe de um host
-    ./sysmon.sh local                     # sensores DESTA maquina, sem rede
+Para monitorar ESTA maquina tambem, instale o agente nela e acrescente
+http://127.0.0.1:9109/metrics ao config.
 
 Documentacao: https://github.com/9LEVEL/sysmon
 EOF
@@ -269,16 +243,20 @@ rm -rf "$PASTA"
 verde "    $NOME.tar.gz"
 
 # ---------------------------------------------------------------- somas
-# O .pyz PRECISA estar aqui: o auto-update confere o download contra esta
-# lista antes de trocar o binario. Sem a entrada, ele recusa a atualizacao.
+# Os binarios PRECISAM estar aqui: o auto-update confere o download contra
+# esta lista antes de trocar o executavel. Sem a entrada, ele recusa - e o
+# usuario fica preso na versao que tem, sem saber por que.
 # nullglob para que a ausencia do zip (sem o utilitario instalado) nao passe
 # o padrao literal para o sha256sum e derrube o script pelo set -e.
-( shopt -s nullglob; cd "$DIST" && sha256sum ./*.tar.gz ./*.zip ./*.pyz \
+( shopt -s nullglob; cd "$DIST" && sha256sum ./*.tar.gz ./*.zip \
+    ./sysmon-windows-amd64.exe ./sysmon-linux-amd64 \
     | sed 's|\./||' > SHA256SUMS )
-grep -q ' sysmon.pyz$' "$DIST/SHA256SUMS" || {
-    echo "ERRO: SHA256SUMS sem sysmon.pyz - o auto-update ficaria quebrado." >&2
-    exit 1
-}
+for n in sysmon-windows-amd64.exe sysmon-linux-amd64; do
+    grep -q " $n\$" "$DIST/SHA256SUMS" || {
+        echo "ERRO: SHA256SUMS sem $n - o auto-update ficaria quebrado." >&2
+        exit 1
+    }
+done
 verde "    SHA256SUMS"
 
 echo

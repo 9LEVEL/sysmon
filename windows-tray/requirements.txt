@@ -1,7 +1,0 @@
-# NENHUM destes e obrigatorio. A janela principal usa Tkinter, que ja vem
-# com o Python do python.org.
-#
-#   pystray + pillow   icone de bandeja (recomendado)
-#
-pystray>=0.19.5
-pillow>=10.0.0

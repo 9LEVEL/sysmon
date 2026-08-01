@@ -29,14 +29,13 @@ jobs:
           go-version-file: linux-agent/go.mod
           cache: false
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.13'
-
-      - name: Bibliotecas do Tk
+      - name: Bibliotecas de janela
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends tk
+          sudo apt-get install -y -qq --no-install-recommends \
+            pkg-config libx11-dev libx11-xcb-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libgles2-mesa-dev libegl1-mesa-dev libxcursor-dev libxfixes-dev
 
       # A tag e a fonte da verdade do numero, mas cada modulo carrega a sua
       # versao dentro dele. Divergir aqui significa um agente que responde
@@ -59,10 +58,10 @@ jobs:
 
       - name: Confere o que o auto-update precisa
         run: |
-          test -f dist/sysmon.pyz
-          grep -q ' sysmon.pyz$' dist/SHA256SUMS
+          test -f dist/sysmon-windows-amd64.exe
+          grep -q ' sysmon-windows-amd64.exe$' dist/SHA256SUMS
           ( cd dist && sha256sum -c SHA256SUMS )
-          python dist/sysmon.pyz --help >/dev/null
+          ./dist/sysmon-linux-amd64 --version >/dev/null
 
       # Titulo = primeira linha da mensagem da tag; notas = o resto. Tag sem
       # mensagem (leve) cai no changelog automatico do proprio GitHub.
@@ -101,7 +100,8 @@ jobs:
         run: |
           NOMES=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
           echo "$NOMES"
-          echo "$NOMES" | grep -qx 'sysmon.pyz'
+          echo "$NOMES" | grep -qx 'sysmon-windows-amd64.exe'
+          echo "$NOMES" | grep -qx 'sysmon-linux-amd64'
           echo "$NOMES" | grep -qx 'SHA256SUMS'
           echo "$NOMES" | grep -qx "sysmon-agent-$VERSAO-linux-amd64.tar.gz"
           echo "$NOMES" | grep -qx "sysmon-agent-$VERSAO-linux-arm64.tar.gz"
