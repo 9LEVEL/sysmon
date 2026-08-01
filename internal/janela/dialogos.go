@@ -93,8 +93,7 @@ func (j *Janela) desenharHosts(gtx C) {
 	defer op.Offset(r.Min).Push(gtx.Ops).Pop()
 	larg, alt := r.Dx(), r.Dy()
 
-	j.Texto(gtx, 16, 44, "a url e o token sao os que o install.sh imprimiu em "+
-		"cada host", tela.Fraco, 12, false)
+	j.subtitulo(gtx, larg, "a url e o token sao os que o install.sh imprimiu em cada host")
 
 	// Lista rolavel: com muitos hosts o dialogo nao pode crescer alem da
 	// janela, e cortar o botao de salvar seria pior que rolar.
@@ -109,47 +108,10 @@ func (j *Janela) desenharHosts(gtx C) {
 			})
 	}()
 
-	// Rodape com as acoes.
-	//
-	// Os tres botoes tem largura de texto e o dialogo encolhe junto com a
-	// janela: numa janela estreita eles se sobrepunham, e o de adicionar
-	// ficava por baixo do de cancelar. Quando nao cabem lado a lado, o de
-	// adicionar sobe uma linha em vez de disputar o mesmo espaco.
 	y := alt - 42
-	wAdicionar := j.larguraBotao(gtx, d.adicionar)
-	wSalvar := j.larguraBotao(gtx, d.salvar)
-	wCancelar := j.larguraBotao(gtx, d.cancelar)
-
-	xCancelar := larg - 24 - wSalvar - wCancelar
-	yAdicionar := y
-	if 16+wAdicionar+12 > xCancelar {
-		yAdicionar = y - 30
-	}
-	func() {
-		defer op.Offset(image.Pt(16, yAdicionar)).Push(gtx.Ops).Pop()
-		d.adicionar.Layout(gtx, j)
-	}()
-	if d.erro != "" {
-		// O erro ocupa o que sobra entre adicionar e cancelar, e e cortado
-		// para nao invadir os botoes - texto de erro por baixo de botao nao
-		// e nem erro nem botao.
-		xErro := 16 + wAdicionar + 12
-		if yAdicionar != y {
-			xErro = 16
-		}
-		if sobra := xCancelar - 8 - xErro; sobra > 40 {
-			j.Texto(gtx, xErro, y+6, j.cortarPara(gtx, d.erro, sobra),
-				tela.Vermelho, 12, false)
-		}
-	}
-	func() {
-		defer op.Offset(image.Pt(larg-16-wSalvar, y)).Push(gtx.Ops).Pop()
-		d.salvar.Layout(gtx, j)
-	}()
-	func() {
-		defer op.Offset(image.Pt(xCancelar, y)).Push(gtx.Ops).Pop()
-		d.cancelar.Layout(gtx, j)
-	}()
+	linhas := j.rodapeDialogo(gtx, larg, y,
+		[]*Botao{d.adicionar}, []*Botao{d.cancelar, d.salvar})
+	j.erroDialogo(gtx, larg, y, linhas, d.erro)
 }
 
 // larguraBotao repete a conta que Botao.Layout faz para se medir. Sao os
@@ -385,17 +347,7 @@ func (j *Janela) desenharExibir(gtx C) {
 		}(b, pos)
 		pos += j.Medir(gtx, b.Rotulo, 12, true) + 30
 	}
-	lSalvar := j.Medir(gtx, d.aplicar.Rotulo, 12, true) + 22
-	lCancel := j.Medir(gtx, d.cancelar.Rotulo, 12, true) + 22
-	func() {
-		defer op.Offset(image.Pt(larg-16-lSalvar, y)).Push(gtx.Ops).Pop()
-		d.aplicar.Layout(gtx, j)
-	}()
-	func() {
-		defer op.Offset(image.Pt(larg-24-lSalvar-lCancel, y)).Push(gtx.Ops).Pop()
-		d.cancelar.Layout(gtx, j)
-	}()
-
+	j.rodapeDialogo(gtx, larg, y, nil, []*Botao{d.cancelar, d.aplicar})
 }
 
 func (j *Janela) tratarExibir(gtx C) {
@@ -491,7 +443,7 @@ func (j *Janela) desenharAlertas(gtx C) {
 	defer op.Offset(r.Min).Push(gtx.Ops).Pop()
 	larg, alt := r.Dx(), r.Dy()
 
-	j.Texto(gtx, 16, 44, "aviso e critico de cada medida", tela.Fraco, 12, false)
+	j.subtitulo(gtx, larg, "aviso e critico de cada medida")
 
 	corpo := image.Rect(16, 68, larg-16, alt-92)
 	func() {
@@ -501,7 +453,12 @@ func (j *Janela) desenharAlertas(gtx C) {
 		material.List(j.th, &d.lista).Layout(g, len(nucleo.Campos),
 			func(g C, i int) D {
 				c := nucleo.Campos[i]
-				j.Texto(g, 0, 6, c.Rotulo, tela.Texto, 12, false)
+				// O rotulo para antes dos dois campos. Sem o limite, numa
+				// janela estreita ele seguia por baixo deles - "temperatura
+				// da cpu (fracao do critico" terminando dentro da caixa de
+				// texto, que se le como valor digitado errado.
+				j.Texto(g, 0, 6, j.cortarPara(g, c.Rotulo, corpo.Dx()-190),
+					tela.Texto, 12, false)
 				func() {
 					defer op.Offset(image.Pt(corpo.Dx()-180, 0)).Push(g.Ops).Pop()
 					gg := g
@@ -528,23 +485,9 @@ func (j *Janela) desenharAlertas(gtx C) {
 	}()
 
 	y := alt - 38
-	func() {
-		defer op.Offset(image.Pt(16, y)).Push(gtx.Ops).Pop()
-		d.restaurar.Layout(gtx, j)
-	}()
-	if d.erro != "" {
-		j.Texto(gtx, 130, y+6, d.erro, tela.Vermelho, 12, false)
-	}
-	lSalvar := j.Medir(gtx, d.salvar.Rotulo, 12, true) + 22
-	lCancel := j.Medir(gtx, d.cancelar.Rotulo, 12, true) + 22
-	func() {
-		defer op.Offset(image.Pt(larg-16-lSalvar, y)).Push(gtx.Ops).Pop()
-		d.salvar.Layout(gtx, j)
-	}()
-	func() {
-		defer op.Offset(image.Pt(larg-24-lSalvar-lCancel, y)).Push(gtx.Ops).Pop()
-		d.cancelar.Layout(gtx, j)
-	}()
+	linhas := j.rodapeDialogo(gtx, larg, y,
+		[]*Botao{d.restaurar}, []*Botao{d.cancelar, d.salvar})
+	j.erroDialogo(gtx, larg, y, linhas, d.erro)
 
 }
 

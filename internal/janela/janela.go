@@ -15,6 +15,8 @@ import (
 	"gioui.org/f32"
 	"gioui.org/font/gofont"
 	"gioui.org/gesture"
+	"gioui.org/io/event"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/layout"
@@ -495,6 +497,23 @@ func (j *Janela) alternarTopo() {
 	j.salvarEstado()
 }
 
+// tratarEscape fecha o dialogo com a tecla ESC.
+//
+// Modal que so fecha por um botao especifico e uma armadilha em janela
+// estreita, que e onde os botoes ficam mais apertados - justamente quando
+// mais se quer sair. ESC e o gesto que todo mundo tenta primeiro.
+func (j *Janela) tratarEscape(gtx C) {
+	for {
+		ev, ok := gtx.Event(key.Filter{Name: key.NameEscape})
+		if !ok {
+			return
+		}
+		if e, ok := ev.(key.Event); ok && e.State == key.Press {
+			j.dialogo = semDialogo
+		}
+	}
+}
+
 // tratarCliques roda ANTES de desenhar, e a ordem nao e detalhe.
 //
 // Clickable.Layout drena os cliques pendentes logo no inicio. Verificando
@@ -506,6 +525,7 @@ func (j *Janela) tratarCliques(gtx C) {
 		// Com dialogo aberto, o cabecalho fica atras da cortina: aceitar
 		// clique nele deixaria abrir dois dialogos ao mesmo tempo.
 		j.tratarDialogo(gtx)
+		j.tratarEscape(gtx)
 		return
 	}
 	if j.btFechar.Clicked(gtx) {
@@ -689,6 +709,14 @@ func (j *Janela) desenhar(gtx C) {
 	j.rodape(gtx, image.Rect(0, alt-AltRodape, larg, alt))
 	j.cantoRedimensionar(gtx, larg, alt)
 	j.dicaDoBotao(gtx, larg)
+
+	// A janela pede o foco do teclado enquanto ha dialogo aberto, senao o
+	// ESC nunca chega ate aqui.
+	if j.dialogo != semDialogo {
+		area := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+		event.Op(gtx.Ops, j)
+		area.Pop()
+	}
 
 	// Dialogo por ultimo: em immediate-mode quem desenha depois fica por
 	// cima, e a cortina precisa cobrir a frota inteira.
@@ -957,9 +985,26 @@ func contem(lista []string, v string) bool {
 // Repartir importa quando a cor separa duas coisas em vez de indicar
 // gravidade - as duas janelas da carga sao o caso: o problema ali nao e saber
 // se esta ruim, e sim qual numero e qual.
-func (j *Janela) detalhe(gtx C, x int, l tela.Linha) {
+func (j *Janela) detalhe(gtx C, x, fim int, l tela.Linha) {
+	espaco := fim - x
+	if espaco <= 0 {
+		return // a coluna da direita comeu tudo: melhor nada que sobreposto
+	}
 	if len(l.Partes) == 0 {
-		j.Texto(gtx, x, 3, l.Detalhe, tela.Fraco, 12, false)
+		j.Texto(gtx, x, 3, j.cortarPara(gtx, l.Detalhe, espaco), tela.Fraco,
+			12, false)
+		return
+	}
+	// Repartido em cores, ou nada: cortar no meio de uma parte deixaria "5m
+	// 0.9" em ciano seguido de nada, que se le como um numero truncado. Se
+	// nao cabe inteiro, cai para a versao de uma cor so, que corta bem.
+	total := 0
+	for _, p := range l.Partes {
+		total += j.Medir(gtx, p.Texto, 12, false)
+	}
+	if total > espaco {
+		j.Texto(gtx, x, 3, j.cortarPara(gtx, l.Detalhe, espaco), tela.Fraco,
+			12, false)
 		return
 	}
 	for _, p := range l.Partes {
@@ -997,10 +1042,19 @@ func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
 	if l.Host {
 		// A linha do host pinta inteira: um host critico fica vermelho de
 		// ponta a ponta, e nao so no nome.
-		retangulo(gtx, image.Rect(0, 0, larg, AltLinha), tela.Selecao)
-		j.Texto(gtx, Margem, 3, l.Nome, l.Cor, 12, true)
-		j.Texto(gtx, xDet, 3, l.Detalhe, tela.Titulo, 12, true)
-		j.TextoDir(gtx, xValor, 3, l.Valor, l.Cor, 12, true)
+		retangulo(gtx, image.Rect(0, 0, larg, AltLinhaHost), tela.Selecao)
+		// Um fio da cor do estado na borda esquerda: com varios hosts, e o
+		// que separa os blocos sem gastar uma linha em branco entre eles.
+		retangulo(gtx, image.Rect(0, 0, 3, AltLinhaHost), l.Cor)
+		j.TextoGlow(gtx, Margem, 5, l.Nome, l.Cor, CorpoHost, true)
+		// A coluna do meio para ANTES do valor. Sem esse limite, numa janela
+		// estreita - que e como esta ferramenta e usada, encostada na lateral
+		// como um widget - o "9.1G de 14.9G · Debian" passava por cima do
+		// "57C · cpu 24% · ram 63%" e as duas ficavam ilegiveis.
+		fim := xValor - j.Medir(gtx, l.Valor, CorpoHost, true) - 12
+		j.Texto(gtx, xDet, 6, j.cortarPara(gtx, l.Detalhe, fim-xDet),
+			tela.Titulo, 12, true)
+		j.TextoDir(gtx, xValor, 5, l.Valor, l.Cor, CorpoHost, true)
 		return
 	}
 	if l.Secao {
@@ -1009,7 +1063,6 @@ func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
 	}
 
 	j.Texto(gtx, xNome+40, 3, l.Nome, l.Cor, 12, false)
-	j.detalhe(gtx, xDet, l)
 
 	// Coluna do valor: sparkline, barra e numero, colados na direita.
 	xFim := xValor - j.Medir(gtx, l.Valor, 12, false) - 8
@@ -1024,13 +1077,23 @@ func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
 		sx := xFim - 70
 		if sx > xDet+20 {
 			sparkline(gtx, l.Serie, image.Rect(sx, 4, sx+66, 17), l.Cor)
+			xFim = sx - 8
 		}
 	}
+	// O detalhe entra por ultimo porque so agora se sabe onde a coluna da
+	// direita comecou: com barra e sparkline desenhados, o espaco que sobra
+	// e xFim - xDet, e e nele que "8 nucleos · Intel Core i7-9700K" tem que
+	// caber ou ser cortado.
+	j.detalhe(gtx, xDet, xFim-8, l)
 	j.TextoDir(gtx, xValor, 3, l.Valor, l.Cor, 12, false)
 }
 
 func (j *Janela) painelAlertas(gtx C, alertas []nucleo.Alerta, r image.Rectangle) {
 	defer op.Offset(image.Pt(0, r.Min.Y)).Push(gtx.Ops).Pop()
+	// Cortado na largura: as frases dos achados de SMART sao longas de
+	// proposito - elas dizem o que fazer -, e numa janela estreita seguiam
+	// desenhando por cima da borda da janela.
+	espaco := r.Dx() - 2*Margem
 	y := 4
 	for i, a := range alertas {
 		if i >= 4 {
@@ -1042,7 +1105,8 @@ func (j *Janela) painelAlertas(gtx C, alertas []nucleo.Alerta, r image.Rectangle
 		if a.Nivel == nucleo.Aviso {
 			cor = tela.Ambar
 		}
-		j.Texto(gtx, Margem, y, "! "+a.Texto, cor, 12, false)
+		j.Texto(gtx, Margem, y, j.cortarPara(gtx, "! "+a.Texto, espaco), cor,
+			12, false)
 		y += AltLinha
 	}
 }

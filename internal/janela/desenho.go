@@ -229,19 +229,25 @@ func icFechar(gtx C, x, y float32, c color.NRGBA) {
 	tracos(gtx, c, f32.Pt(x-5, y+5), f32.Pt(x+5, y-5))
 }
 
-// icReconhecer: um sino com um visto ao lado - "eu vi, e concordo".
+// icReconhecer: um sino.
+//
+// A primeira versao tinha um visto sobreposto no canto - "eu vi e concordo".
+// Em 13x13 pixels os dois desenhos brigavam e o resultado nao parecia nem
+// sino nem visto. O botao ja acende quando ha algo aceito, entao o visto era
+// informacao repetida ocupando o espaco de que o sino precisava.
 //
 // Distinto do triangulo de icAlerta de proposito: aquele configura QUANDO
 // alertar, este resolve o que JA esta alertando. Dois botoes vizinhos com o
 // mesmo simbolo seriam duas portas iguais para salas diferentes.
 func icReconhecer(gtx C, x, y float32, c color.NRGBA) {
-	// Corpo do sino.
-	tracos(gtx, c, f32.Pt(x-5.6, y+2.6), f32.Pt(x-4, y+2.6), f32.Pt(x-4, y-1),
-		f32.Pt(x-2.6, y-4.4), f32.Pt(x+0.2, y-4.4))
-	tracos(gtx, c, f32.Pt(x-5.6, y+2.6), f32.Pt(x+0.6, y+2.6))
-	// Badalo e alca.
-	circulo(gtx, f32.Pt(x-2.5, y+4.6), 1.1, c)
-	tracos(gtx, c, f32.Pt(x-3.1, y-5.4), f32.Pt(x-1.9, y-5.4))
-	// O visto, sobreposto no canto.
-	tracos(gtx, c, f32.Pt(x+1.4, y+1.4), f32.Pt(x+3.2, y+3.6), f32.Pt(x+6.4, y-1.6))
+	// Corpo: sobe reto dos dois lados e fecha em cupula no topo.
+	tracos(gtx, c,
+		f32.Pt(x-4.6, y+2.6), f32.Pt(x-4.6, y-0.6), f32.Pt(x-3.4, y-3.6),
+		f32.Pt(x-1.2, y-5), f32.Pt(x+1.2, y-5), f32.Pt(x+3.4, y-3.6),
+		f32.Pt(x+4.6, y-0.6), f32.Pt(x+4.6, y+2.6))
+	// A boca, mais larga que o corpo - e o que faz o desenho ler como sino.
+	tracos(gtx, c, f32.Pt(x-6.2, y+2.6), f32.Pt(x+6.2, y+2.6))
+	// Alca em cima e badalo embaixo.
+	tracos(gtx, c, f32.Pt(x-1.1, y-6.2), f32.Pt(x+1.1, y-6.2))
+	circulo(gtx, f32.Pt(x, y+4.8), 1.35, c)
 }

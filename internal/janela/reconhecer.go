@@ -125,8 +125,8 @@ func (j *Janela) desenharReconhecer(gtx C) {
 	defer op.Offset(r.Min).Push(gtx.Ops).Pop()
 	larg, alt := r.Dx(), r.Dy()
 
-	j.Texto(gtx, 16, 44, "aceitar um alerta o esconde ate o valor mudar - "+
-		"89 aceito volta a avisar em 90", tela.Fraco, 12, false)
+	j.subtitulo(gtx, larg, "aceitar um alerta o esconde ate o valor mudar - "+
+		"89 aceito volta a avisar em 90")
 
 	corpo := image.Rect(16, 68, larg-16, alt-56)
 	func() {
@@ -142,28 +142,15 @@ func (j *Janela) desenharReconhecer(gtx C) {
 	}()
 
 	y := alt - 42
-	x := 16
+	var esq []*Botao
 	if temAceitavel(d) {
-		func() {
-			defer op.Offset(image.Pt(x, y)).Push(gtx.Ops).Pop()
-			d.aceitTod.Layout(gtx, j)
-		}()
-		x += j.larguraBotao(gtx, d.aceitTod) + 8
+		esq = append(esq, d.aceitTod)
 	}
 	if temAceito(d) {
-		func() {
-			defer op.Offset(image.Pt(x, y)).Push(gtx.Ops).Pop()
-			d.limpar.Layout(gtx, j)
-		}()
+		esq = append(esq, d.limpar)
 	}
-	if d.erro != "" {
-		j.Texto(gtx, 16, y-20, d.erro, tela.Vermelho, 12, false)
-	}
-	func() {
-		defer op.Offset(image.Pt(larg-16-j.larguraBotao(gtx, d.fechar), y)).
-			Push(gtx.Ops).Pop()
-		d.fechar.Layout(gtx, j)
-	}()
+	linhas := j.rodapeDialogo(gtx, larg, y, esq, []*Botao{d.fechar})
+	j.erroDialogo(gtx, larg, y, linhas, d.erro)
 }
 
 func (j *Janela) linhaReconhecerLayout(gtx C, l *linhaReconhecer, larg int) D {

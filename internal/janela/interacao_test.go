@@ -8,6 +8,7 @@ import (
 
 	"gioui.org/f32"
 	"gioui.org/io/input"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -93,6 +94,14 @@ func (b *bancada) clique(x, y int) {
 		pointer.Event{Kind: pointer.Release, Position: f32.Pt(float32(x), float32(y)),
 			Buttons: pointer.ButtonPrimary},
 	)
+	b.quadro()
+	b.quadro()
+}
+
+// escape injeta a tecla ESC.
+func (b *bancada) escape() {
+	b.quadro()
+	b.r.Queue(key.Event{Name: key.NameEscape, State: key.Press})
 	b.quadro()
 	b.quadro()
 }

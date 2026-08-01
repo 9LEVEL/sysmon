@@ -161,12 +161,34 @@ func (j *Janela) cortina(gtx C) {
 	retangulo(gtx, image.Rectangle{Max: gtx.Constraints.Max}, tela.Alfa(tela.Fundo, 225))
 }
 
+// moldura desenha o quadro de um dialogo.
+//
+// A borda era cinza (tela.Grade), a mesma cor das linhas de grade do fundo:
+// o dialogo parecia uma area desenhada por cima, e nao uma coisa em primeiro
+// plano. Agora e ciano com halo - o mesmo tom que a curva do topo usa para
+// dizer "isto esta vivo" -, e a diferenca e o dialogo passar a ter borda em
+// vez de contorno.
 func (j *Janela) moldura(gtx C, r image.Rectangle, titulo string) {
-	paint.FillShape(gtx.Ops, tela.Fundo, clip.UniformRRect(r, 4).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, tela.Grade,
-		clip.Stroke{Path: clip.UniformRRect(r, 4).Path(gtx.Ops), Width: 1}.Op())
-	j.TextoGlow(gtx, r.Min.X+16, r.Min.Y+12, titulo, tela.Titulo, 13, true)
-	retangulo(gtx, image.Rect(r.Min.X+16, r.Min.Y+34, r.Max.X-16, r.Min.Y+35), tela.Grade)
+	paint.FillShape(gtx.Ops, tela.Painel, clip.UniformRRect(r, 5).Op(gtx.Ops))
+
+	// Halo: tres tracos concentricos, do mais largo e apagado para o mais
+	// fino e vivo. E a mesma receita do glow das curvas.
+	for _, camada := range []struct {
+		fora float32
+		larg float32
+		alfa uint8
+	}{{5, 6, 16}, {2.5, 3, 34}, {0, 1.4, 210}} {
+		rr := image.Rect(r.Min.X-int(camada.fora), r.Min.Y-int(camada.fora),
+			r.Max.X+int(camada.fora), r.Max.Y+int(camada.fora))
+		paint.FillShape(gtx.Ops, tela.Alfa(tela.Ativo, camada.alfa),
+			clip.Stroke{Path: clip.UniformRRect(rr, 5).Path(gtx.Ops),
+				Width: camada.larg}.Op())
+	}
+
+	j.TextoGlow(gtx, r.Min.X+16, r.Min.Y+12, titulo, tela.Ativo, 13, true)
+	// A regra sob o titulo acompanha, apagada: separa sem virar segunda borda.
+	retangulo(gtx, image.Rect(r.Min.X+16, r.Min.Y+34, r.Max.X-16, r.Min.Y+35),
+		tela.Alfa(tela.Ativo, 90))
 }
 
 // centrado devolve um retangulo centrado na janela, respeitando o tamanho

@@ -319,6 +319,16 @@ nem outro. E não havia nada dizendo o que o número era.
 Passe o mouse: aparece o que cada um faz. São oito sem rótulo, e a dica existe
 justamente para não virar um enigma novo a cada versão.
 
+#### Ela funciona estreita, encostada na lateral
+
+O uso comum é deixar a janela aberta ocupando uns 2/5 da largura da tela, como
+um widget sempre à vista. Nessa largura as colunas se ajustam: o detalhe do
+meio é cortado antes de encostar no valor, a barra e o sparkline saem quando
+não cabem, e os botões dos diálogos passam para uma segunda linha em vez de se
+sobreporem.
+
+O mínimo é 470 × 260. **ESC** fecha qualquer diálogo.
+
 #### Cinco degraus de cor, não três
 
 Sair de 3% para 30% de CPU é a variação que interessa no dia a dia, e com
