@@ -9,9 +9,14 @@
 # diferente do que o release diz e um bug caro de diagnosticar - o host esta
 # rodando o que voce acha que esta rodando?
 #
-# A fonte e o arquivo VERSAO. O cliente recebe o numero por -ldflags no
-# build, entao nao tem literal para divergir; o agente tem dois, e sao esses
-# que precisam ser conferidos.
+# A fonte e o arquivo VERSAO. Os binarios recebem o numero por -ldflags no
+# build; o literal no codigo e so o fallback de quem compila com `go build` a
+# seco, e e esse que pode divergir sem ninguem perceber.
+#
+# A varredura e por PADRAO e nao por lista de caminhos. Quando os modulos
+# viraram um so, na v5.0, a lista fixa apontava para arquivos que nao existiam
+# mais e o script morria com "No such file or directory" - falhando pelo
+# motivo errado, que e quase pior que nao falhar.
 set -euo pipefail
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,14 +31,17 @@ anotar() { arquivos+=("$1"); versoes+=("$2"); }
 
 anotar "VERSAO" "$(tr -d ' \n' < "$AQUI/VERSAO")"
 
-v=$(sed -n 's/^var versao = "\(.*\)"$/\1/p' "$AQUI/linux-agent/main.go" | head -n1)
-if [[ -n "$v" ]]; then anotar "linux-agent/main.go" "$v"; fi
+# Todo `var versao = "1.2.3"` dos programas. O literal "dev" e proposital em
+# quem so roda com -ldflags e nao entra na conferencia.
+while IFS= read -r arquivo; do
+    v=$(sed -n 's/^var versao = "\(.*\)"$/\1/p' "$arquivo" | head -n1)
+    [[ -n "$v" && "$v" != "dev" ]] || continue
+    anotar "${arquivo#"$AQUI"/}" "$v"
+done < <(find "$AQUI/cmd" -name '*.go' -type f | sort)
 
-v=$(sed -n 's/^VERSAO[[:space:]]*?=[[:space:]]*\(.*\)$/\1/p' "$AQUI/linux-agent/Makefile" | head -n1)
-if [[ -n "$v" ]]; then anotar "linux-agent/Makefile" "$v"; fi
-
-if [[ ${#arquivos[@]} -eq 0 ]]; then
-    vermelho "ERRO: nenhuma declaracao de versao encontrada - a varredura quebrou?"
+if [[ ${#arquivos[@]} -lt 2 ]]; then
+    vermelho "ERRO: so o arquivo VERSAO foi encontrado - a varredura quebrou?"
+    echo "Esperava achar ao menos um 'var versao = \"...\"' em cmd/." >&2
     exit 1
 fi
 

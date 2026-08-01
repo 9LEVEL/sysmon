@@ -174,6 +174,76 @@ sysctl -p /etc/sysctl.d/99-swappiness.conf
 swapoff -a && swapon -a      # só se houver RAM livre suficiente
 ```
 
+### Um disco aparece com "coleta falhou — saúde desconhecida"
+
+O `smartctl` respondeu, mas não alcançou a mídia. Quase sempre é disco atrás de
+um controlador RAID, que precisa do `-d` certo:
+
+```bash
+smartctl -j -H -A -i -d megaraid,0 /dev/sda      # LSI/Dell PERC
+smartctl -j -H -A -i -d cciss,0    /dev/sda      # HP Smart Array
+smartctl --scan-open                             # descobre o -d de cada um
+```
+
+O `sysmon-smart.sh` chama o `smartctl` sem `-d`, que é o certo para o caso
+comum. Para uma controladora, edite a linha do `smartctl` em
+`/opt/sysmon/sysmon-smart.sh` e rode `systemctl start sysmon-smart.service`.
+
+Este estado é **de propósito** diferente de "sem alerta": um disco que ninguém
+consegue ler não pode aparecer como saudável.
+
+### Nenhum dado de SMART (`smart: null`)
+
+```bash
+systemctl status sysmon-smart.timer     # o timer está ligado?
+ls -l /run/sysmon/smart.json            # ele já rodou?
+command -v smartctl || apt install smartmontools
+systemctl enable --now sysmon-smart.timer
+systemctl start sysmon-smart.service    # não espere a próxima hora
+```
+
+Sem `smartmontools`, o campo fica nulo e todo o resto funciona — é ausência
+prevista, não erro.
+
+### "sem dados" nas regras de taxa
+
+O agente precisa de histórico para responder "quanto esse contador subiu em 7
+dias", e ele começa a juntar na primeira execução. Um agente instalado hoje só
+responde a janela de 24 h amanhã, e a de 30 dias daqui a um mês.
+
+Enquanto isso, as regras que dependem só do valor atual (reserva, setores
+pendentes, limiar do fabricante, temperatura) funcionam normalmente.
+
+```bash
+ls -l /var/lib/sysmon/smart-historico.json    # ou /var/lib/private/sysmon/
+```
+
+Se o arquivo não existe depois de uma hora de serviço no ar, confira se a unit
+tem `StateDirectory=sysmon` — sem isso o `ProtectSystem=strict` não deixa
+gravar em lugar nenhum, e o agente registra um aviso no journal:
+
+```bash
+journalctl -u sysmon-agent | grep -i historico
+```
+
+### Um contador SMART diminuiu
+
+O histórico reinicia a série daquele disco sozinho, e é o certo: contagem SMART
+só cresce. Ter caído significa disco reencaixado numa baia que já teve outro,
+firmware que zerou a tabela, ou leitura por outro caminho — em qualquer um dos
+casos, o passado guardado não descreve mais o disco de agora.
+
+O efeito visível é as regras de taxa voltarem para "sem dados" por uns dias.
+
+### O alerta diz "cabo/porta" ou "energia", e não o disco
+
+É intencional. Erro de CRC (`UDMA_CRC_Error_Count`) é do **barramento**, não da
+mídia: troque o cabo SATA ou mude de porta. Desligamento sujo demais é da
+**energia** do host: um nobreak resolve, trocar o disco não.
+
+Quem mistura as três categorias troca mídia boa e recomeça o ciclo com o mesmo
+problema.
+
 ## Deploy em vários hosts
 
 ### `deploy.sh` diz "sem acesso SSH"
@@ -188,8 +258,16 @@ ssh root@192.168.0.20 true      # tem que funcionar sem pedir nada
 
 ### "arquitetura nao suportada"
 
-Só há build para `x86_64` (amd64) e `aarch64` (arm64). Para outra, compile na
-mão: `GOOS=linux GOARCH=... go build .`
+Desde a v5.1.0 o release só traz `x86_64` (amd64) — o arm64 saiu por falta de
+pedidos. Para qualquer outra, compile na sua máquina, que é uma linha:
+
+```bash
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o linux-agent/bin/sysmon-agent \
+  ./cmd/sysmon-agent
+```
+
+E o `deploy.sh` copia o que estiver ali. Se precisar do arm64 publicado no
+release de novo, abra uma issue: é uma linha no `empacotar.sh`.
 
 ### O host instalou mas não aparece no `hosts.json`
 
@@ -204,7 +282,7 @@ O cliente procura o config nesta ordem: `--config`, `$SYSMON_CONFIG`,
 `./hosts.json`, `~/.config/sysmon/hosts.json`, `/etc/sysmon/hosts.json`.
 
 `./config.json` resolve o caso comum: deixe o `config.json` ao lado do
-`sysmon.pyz`. O autostart define o diretório de trabalho justamente para isso.
+`sysmon.exe`. O autostart define o diretório de trabalho justamente para isso.
 
 ### Um host aparece como "offline: token invalido"
 
@@ -227,8 +305,7 @@ gera tentativa a cada 5s indefinidamente.
 
 Acontece se o Agendador de Tarefas **e** a pasta Inicializar ficarem os dois
 registrados — resquício de instalação anterior. A segunda instância encontra a
-porta 9110 ocupada e, desde a 2.4.2, pede para a primeira aparecer e sai limpa;
-antes disso ela morria em silêncio sob `pythonw`.
+porta 9110 ocupada e, desde a 2.4.2, pede para a primeira aparecer e sai limpa.
 
 Conferir e limpar:
 
@@ -263,50 +340,36 @@ Para registrar o autostart na mão, sem script:
 $p = (Get-Location).Path
 $ws = New-Object -ComObject WScript.Shell
 $lnk = $ws.CreateShortcut("$([Environment]::GetFolderPath('Startup'))\sysmon.lnk")
-$lnk.TargetPath = "wscript.exe"; $lnk.Arguments = "`"$p\sysmon.vbs`""
+$lnk.TargetPath = "$p\sysmon.exe"; $lnk.Arguments = "--oculto"
 $lnk.WorkingDirectory = $p; $lnk.Save()
 ```
 
-### `sysmon.pyz nao encontrado nesta pasta`
+### `sysmon.exe` não está na pasta
 
 Você provavelmente baixou o **código-fonte** (`sysmon-main.zip`), que não traz
-o binário. Da [página de releases](https://github.com/9LEVEL/sysmon/releases),
+binário. Da [página de releases](https://github.com/9LEVEL/sysmon/releases),
 baixe:
 
-- **`sysmon-windows-<versão>.zip`** — é este no Windows; vem com o `sysmon.pyz`,
-  o `sysmon.bat`, o `sysmon.vbs` e os scripts, todos na mesma pasta
-- `sysmon-linux-<versão>.tar.gz` — cliente para Linux/macOS
-- `sysmon-agent-<versão>-linux-*.tar.gz` — vai nos hosts **monitorados**, não
-  na sua máquina
+- **`sysmon-windows-<versão>.zip`** — é este no Windows; vem com o `sysmon.exe`
+  e os scripts de autostart, todos na mesma pasta
+- `sysmon-linux-<versão>.tar.gz` — cliente para Linux
+- `sysmon-agent-<versão>-linux-amd64.tar.gz` — vai nos hosts **monitorados**,
+  não na sua máquina
 
-### `pythonw sysmon.pyz` não abre nada
+### Dei duplo clique e não aconteceu nada
 
-`pythonw.exe` roda sem console: `stdout` e `stderr` vão para o vazio. Qualquer
-erro de import ou de configuração mata o processo em silêncio.
+O executável é compilado com `-H windowsgui`, ou seja, **sem console** — se ele
+morre antes de abrir a janela, morre calado.
 
-**Sempre teste primeiro com `python sysmon.pyz`**, que mostra o traceback.
-
-A bandeja já instala um `sys.excepthook` que grava em `%TEMP%\traymon.log`
-e exibe uma MessageBox. Então:
+Para ver o motivo, rode pelo terminal, que aí ele anexa ao console existente:
 
 ```powershell
-type $env:TEMP\traymon.log
+.\sysmon.exe term --once
 ```
 
-### `ModuleNotFoundError`
-
-O `pip` pode ter instalado em um Python diferente do que o `pythonw` resolve:
-
-A bandeja é opcional: sem `pystray`/`Pillow` a janela sobe do mesmo jeito e o
-motivo aparece no terminal. Para ter o ícone:
-
-```powershell
-python -c "import pystray, PIL, tkinter; print('ok')"
-python -m pip install -r requirements.txt
-```
-
-Erro no `tkinter` significa Python da Microsoft Store, que vem sem Tk.
-Instale o oficial do python.org.
+Erro de `config.json` (JSON inválido, token faltando) aparece ali. A janela
+também troca para a tela de configuração sozinha quando não há config nenhum —
+se nem isso apareceu, o problema é anterior, e o `term` mostra qual.
 
 ### Ícone cinza / hosts "Offline"
 
@@ -320,7 +383,8 @@ curl.exe -H "Authorization: Bearer SEU_TOKEN" http://192.168.0.10:9109/metrics
 
 - falha na porta → firewall do host ou serviço parado
 - `/health` responde mas `/metrics` dá `401` → token diferente
-- funciona no curl mas não no tray → veja `%TEMP%\traymon.log`
+- funciona no curl mas não no cliente → rode `.\sysmon.exe term --once`, que
+  imprime o erro por host
 
 ### O overlay ficou grande demais com muitos hosts
 
@@ -335,10 +399,10 @@ escape do `cmd.exe`, não do PowerShell.
 
 ```powershell
 # caminho sem espaços: dispense as aspas internas
-schtasks /create /tn traymon /tr "wscript.exe C:\caminho\traymon.vbs" /sc onlogon
+schtasks /create /tn sysmon /tr "C:\caminho\sysmon.exe --oculto" /sc onlogon
 
 # caminho com espaços: use --% para parar o parsing do PowerShell
-schtasks --% /create /tn traymon /tr "wscript.exe \"C:\Program Files\t\traymon.vbs\"" /sc onlogon
+schtasks --% /create /tn sysmon /tr "\"C:\Program Files\sysmon\sysmon.exe\" --oculto" /sc onlogon
 ```
 
 Ou simplesmente use o `instalar-autostart.ps1`, que usa os cmdlets nativos e

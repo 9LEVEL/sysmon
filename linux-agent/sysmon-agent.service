@@ -24,6 +24,12 @@ Environment=GOMAXPROCS=2
 # dado congelado passava despercebido.
 WatchdogSec=60
 
+# O unico lugar gravavel do servico: a serie temporal dos contadores SMART,
+# que precisa sobreviver a reinicio para que "quanto mudou em 30 dias" tenha
+# resposta. Com DynamicUser, o systemd cria, chowna e mantem isso sozinho.
+StateDirectory=sysmon
+StateDirectoryMode=0700
+
 # --- Hardening: o agente so precisa LER sysfs e procfs ---
 DynamicUser=yes
 # Necessario apenas para a contagem de VMs/CTs em /etc/pve/.vmlist (Proxmox).

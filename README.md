@@ -31,7 +31,9 @@ processo.
 1. **Instale o agente** em cada host Linux — um `install.sh`, ou o `deploy.sh`
    fazendo N hosts por SSH de uma vez.
 2. Cada agente serve **`GET /metrics`** (autenticado por token) com CPU,
-   temperatura, RAM, discos, SMART, RAID, thin pool LVM e rede.
+   temperatura, RAM, discos, SMART, RAID, thin pool LVM e rede — e guarda o
+   histórico dos contadores SMART, que é o que permite dizer se um setor
+   realocado é de ontem ou de dois anos atrás.
 3. **Abra o cliente** na sua máquina: a **janela nativa + bandeja** (o padrão)
    ou a **tabela no terminal**. Os dois leem os mesmos hosts e **as mesmas
    regras de alerta**, definidas num lugar só.
@@ -40,19 +42,30 @@ processo.
 
 | Caminho | Onde roda | O que é |
 |---|---|---|
-| `linux-agent/*.go` | cada host | agente HTTP read-only, binário estático |
+| `cmd/sysmon-agent` | cada host | agente HTTP read-only, binário estático |
+| `cmd/sysmon` | sua máquina | o cliente: um binário, sem runtime |
+| `internal/metricas` | os dois | **o contrato do fio, definido uma vez só** |
+| `internal/coleta` | agente | lê `/proc`, `/sys` e o SMART do smartctl |
+| `internal/historico` | agente | série temporal dos contadores SMART |
+| `internal/smart` | cliente | as regras de saúde de disco (função pura) |
+| `internal/nucleo` | cliente | config, polling e regras de alerta |
+| `internal/tela` | cliente | o que aparece — compartilhado pela janela e pelo terminal |
+| `internal/janela` | cliente | **janela nativa (Gio), o padrão** |
+| `internal/terminal` | cliente | tabela no terminal |
+| `internal/bandeja` | Windows | ícone de bandeja em Win32 puro |
+| `internal/atualizar` | cliente | troca o próprio binário pela versão nova |
 | `linux-agent/install.sh` | cada host | instala, gera token e testa |
 | `linux-agent/deploy.sh` | sua máquina | instala em N hosts por SSH e gera o config |
 | `linux-agent/sysmon-agent.service` | cada host | unit systemd com hardening + watchdog |
+| `linux-agent/sysmon-smart.{sh,service,timer}` | cada host | roda o `smartctl` numa unit isolada |
 | `linux-agent/sysmon-thinpool.{service,timer}` | Proxmox | snapshot do thin pool LVM |
-| `cliente/cmd/sysmon` | sua máquina | o cliente: um binário, sem runtime |
-| `cliente/internal/nucleo` | cliente | config, polling e regras de alerta |
-| `cliente/internal/tela` | cliente | o que aparece — compartilhado pela janela e pelo terminal |
-| `cliente/internal/janela` | cliente | **janela nativa (Gio), o padrão** |
-| `cliente/internal/terminal` | cliente | tabela no terminal |
-| `cliente/internal/bandeja` | Windows | ícone de bandeja em Win32 puro |
-| `cliente/internal/atualizar` | cliente | troca o próprio binário pela versão nova |
 | `windows-tray/instalar-autostart.ps1` | Windows | registra no Agendador de Tarefas |
+
+**Um módulo Go só**, com dois binários. Até a v5.0 eram dois módulos e o
+contrato do fio existia em duas cópias, com um teste comparando as tags JSON
+para que não divergissem em silêncio. Agora os dois lados leem a mesma
+definição — que é a única garantia que não depende de alguém lembrar de rodar
+nada.
 
 ## Instalação nos hosts Linux
 
@@ -69,8 +82,13 @@ cd sysmon-agent-2.4.0-linux-amd64
 sudo ./install.sh 192.168.0.10          # IP da LAN ou do túnel
 ```
 
-Para ARM, troque `amd64` por `arm64`. Confira as somas com o `SHA256SUMS` do
-release.
+Confira as somas com o `SHA256SUMS` do release.
+
+> **ARM.** A v5.1.0 deixou de publicar o binário de arm64 — não houve nenhum
+> pedido, e cada alvo a mais é um binário para conferir e publicar em todo
+> release. Compilar você mesmo continua sendo uma linha
+> (`GOOS=linux GOARCH=arm64 go build ./cmd/sysmon-agent`), e voltar a publicar
+> é uma linha no `empacotar.sh`. **Abra uma issue** se precisar.
 
 ### Qual arquivo do release baixar
 
@@ -79,7 +97,6 @@ release.
 | `sysmon-windows-<v>.zip` | **Windows** — o executável e os scripts de autostart |
 | `sysmon-linux-<v>.tar.gz` | **Linux** — o executável |
 | `sysmon-agent-<v>-linux-amd64.tar.gz` | agente, em **cada host monitorado** (x86_64) |
-| `sysmon-agent-<v>-linux-arm64.tar.gz` | agente, em **cada host monitorado** (ARM) |
 | `sysmon-windows-amd64.exe` · `sysmon-linux-amd64` | só o binário — é o que o auto-update baixa |
 | `SHA256SUMS` | conferência |
 
@@ -113,9 +130,9 @@ pronto para os dois clientes. É o passo que antes você fazia à mão.
 ### Um host só
 
 ```bash
-cd linux-agent
-make dist                      # gera bin/sysmon-agent-linux-{amd64,arm64}
-scp -r ../linux-agent root@192.168.0.10:/tmp/
+make agente                    # gera dist/sysmon-agent
+cp dist/sysmon-agent linux-agent/bin/
+scp -r linux-agent root@192.168.0.10:/tmp/
 ssh root@192.168.0.10 '/tmp/linux-agent/install.sh 192.168.0.10'
 ```
 
@@ -202,10 +219,17 @@ precisa editar arquivo nenhum.
 | `sysmon term --once` | imprime uma vez e sai (script/cron) |
 | `sysmon term --json` | estado bruto em JSON |
 | `sysmon term --host pve` | só um host |
+| `sysmon local` | os sensores **desta** máquina, sem rede nem token (Linux) |
+| `sysmon local --once` | idem, uma vez e sai |
 | `sysmon --sem-bandeja` · `--sem-update` | desliga o que o nome diz |
 
 O `--once` sai com código útil para script: **0** tudo bem, **1** há alerta,
 **2** há host fora do ar. Dá para escrever `sysmon term --once || avisar`.
+
+O **`local`** serve para conferir a ferramenta antes de instalar agente
+nenhum, e para um `sysmon local --once` no cron da própria máquina. Ele usa
+exatamente o mesmo coletor que o agente usa — até a v4 era um leitor de
+`/proc` escrito de novo no cliente, que divergia a cada campo novo.
 
 > **De Python para Go.** Até a v4 o cliente era um `sysmon` de 54 KB que
 > exigia Python instalado — e, com ele, um lançador por sistema só para
@@ -513,30 +537,105 @@ caminho previsível, e o que a interface toda reflete.
 
 ## O que dispara alerta
 
-Definido num lugar só, em `tools/sysmon_nucleo.py:avaliar()` — a janela, o
-terminal e a bandeja não podem divergir sobre o que é problema.
+Definido num lugar só, em `internal/nucleo.Avaliar()` — a janela, o terminal e
+a bandeja não podem divergir sobre o que é problema.
 
 | Condição | Aviso | Crítico |
 |---|---|---|
 | Temperatura da CPU | 75% do `crit` do sensor | 90% do `crit` |
+| Temperatura de disco | 60 °C | 70 °C |
 | Disco (bytes ou inodes) | 80% / 90% | 90% / 97% |
 | Thin pool LVM (data e metadata) | 80% | 90% |
 | RAM | 90% | 97% |
 | Pressão PSI (`some_avg60`) | 40% | 70% |
-
-Todos configuráveis pelo `!` na janela, ou pela chave `alertas` do
-`config.json`. `/boot` e `/boot/efi` são ignorados por padrão.
-| Temperatura de disco | 60 °C | 70 °C |
-| Vida consumida do SSD (SMART) | 80% | 90% |
-| Setores realocados | ≥ 1 | — |
-| SMART reprovado | — | sempre |
 | RAID mdadm degradado | — | sempre |
 | Coleta parada no agente | > 4× o intervalo | — |
 | Host inalcançável | — | offline |
+| Saúde de disco (SMART) | ver a seção abaixo | |
+
+Todos configuráveis pelo `!` na janela, ou pela chave `alertas` do
+`config.json`. `/boot` e `/boot/efi` são ignorados por padrão.
 
 Os limiares de temperatura saem do `crit` que o **próprio sensor** reporta, e
 não de um número fixo: assim o mesmo config serve para hosts com hardware
 diferente.
+
+## Saúde de disco (SMART)
+
+Um SSD ou HD não avisa que vai morrer com um campo dizendo isso. Ele expõe umas
+trinta contagens, e a maioria das ferramentas ou repassa a tabela crua — que
+ninguém lê — ou reduz tudo a um `PASSED` que só fica `FAILED` quando não há
+mais o que fazer.
+
+O `internal/smart` implementa uma especificação de limiares construída sobre
+cinco princípios, e cada regra sai de um deles:
+
+1. **Nome, nunca ID.** Atributo de ID 165 a 179 é *vendor-specific*: o mesmo
+   170 é `Grown_Bad_Blocks` num WD e `Available Reserved Space` num Intel.
+   Casar por número é bug de correção garantido. A chave é o **nome** que o
+   `smartctl` resolve pela drivedb dele — e nome fora do catálogo **não vira
+   palpite**, é ignorado.
+2. **Métrica relativa vence absoluta.** "4 blocos ruins" não quer dizer nada
+   sozinho: 4 com 98% de reserva intacta é ruído, 4 com 10% é urgente.
+3. **Taxa vence valor absoluto.** 200 setores parados há um ano é um disco
+   velho que funciona; 0 → 12 numa semana é um disco morrendo. É por isso que
+   o agente guarda histórico (abaixo).
+4. **O limiar do fabricante é autoridade.** `VALUE <= THRESH` é falha
+   declarada pelo próprio drive, e não há interpretação nossa por cima disso.
+5. **Ausência de alerta não é atestado de saúde.** Entre 23% e 36% dos discos
+   que falharam não tinham indicador SMART nenhum (Google 2007, Backblaze).
+   Por isso a ferramenta **nunca diz "disco saudável"** — diz "sem indicadores
+   de falha".
+
+### Três categorias, porque pedem três ações diferentes
+
+| Categoria | O que significa | O que fazer |
+|---|---|---|
+| **dispositivo** | a mídia está se degradando | trocar o disco |
+| **interconexão** | erro de CRC no barramento | trocar o **cabo** ou a porta |
+| **host** | desligamentos sujos demais | olhar a **energia** (nobreak) |
+
+Quem mistura as três troca mídia boa e recomeça o ciclo com o mesmo problema —
+um cabo SATA ruim produz sintoma em atributo de disco. Por isso o alerta diz
+`disco sda (cabo/porta): ...`, e não "troque o disco".
+
+Há também dois **CRÍTICO** distintos: um setor pendente é *aja hoje*; 96% de
+vida consumida é *planeje a troca*.
+
+### O histórico, que é o que torna o princípio 3 possível
+
+O `smartctl` só responde sobre o presente. Distinguir "parado" de "crescendo"
+exige lembrar do passado, então o **agente** guarda uma série temporal por
+`serial` (nunca por `sda`, que vira `sdb` quando alguém troca a ordem dos
+cabos) em `/var/lib/sysmon/`, via `StateDirectory=` do systemd.
+
+Fica no agente, e não no cliente, porque o agente é quem tem continuidade: um
+histórico que só avança quando alguém está com a janela aberta não serve para
+detectar degradação.
+
+A série é densa onde importa e rala no resto — uma amostra por hora nas
+últimas 48 h, uma por dia depois disso, 180 dias de retenção. São ~230 pontos
+por disco. Contador que **diminui** reinicia a série: contagem SMART só cresce,
+e ter caído significa que aquele serial não conta mais a mesma história.
+
+Enquanto não houver histórico suficiente, a regra de taxa fica em **"sem
+dados"** — que é diferente de dizer que está tudo bem.
+
+### Ajustando
+
+Tudo isso é configurável pela chave `alertas.smart` do `config.json`, com a
+mesma forma da especificação. A herança é **campo a campo**: escrever
+
+```json
+{"alertas": {"smart": {"temperature": {"ssd": {"warn": 55}}}}}
+```
+
+muda um número e mantém todo o resto do padrão — inclusive os limiares de HDD.
+
+Sem o `smartmontools` instalado no host, o campo vem vazio e o resto funciona.
+E disco atrás de controlador RAID, onde o `smartctl` responde mas não alcança
+a mídia, vira um estado próprio (**"coleta falhou — saúde desconhecida"**), e
+não um disco eternamente sem alerta.
 
 ## Endpoints
 
@@ -582,14 +681,20 @@ O `sysmon-thinpool.timer` é o exemplo que já vem pronto.
 ## Desenvolvimento
 
 ```bash
-make teste     # testes do agente (Go) + dos clientes (Python)
-make build     # compila para esta arquitetura
-make dist      # amd64 e arm64
+make teste     # vet, gofmt e testes de tudo (o agente também com -race)
+make versao    # confere se todo lugar declara a mesma versão
+make agente    # compila o agente para esta arquitetura
+make cliente   # compila o cliente para Windows e Linux
+make pacote    # gera os pacotes de distribuição em dist/
 ```
 
-O agente tem testes com um `/sys` e `/proc` falsos em diretório temporário,
-o que permite exercitar hardware que a máquina de desenvolvimento não tem
-(AMD, RAID degradado, kernel sem PSI).
+A coleta tem testes com um `/sys` e `/proc` falsos em diretório temporário, o
+que permite exercitar hardware que a máquina de desenvolvimento não tem (AMD,
+RAID degradado, kernel sem PSI, disco com setor pendente).
+
+As regras de `internal/smart` são **função pura** sobre uma leitura já
+normalizada: não dependem de rede, arquivo nem relógio, e por isso a
+especificação inteira é testável sem disco nenhum.
 
 ## Segurança
 
@@ -602,7 +707,7 @@ do túnel.
 ## Vindo da v1
 
 - O agente Python virou binário Go. `install.sh` agora precisa do binário ao
-  lado (`make dist` na sua máquina), ou compila sozinho se houver Go no host.
+  lado (`make agente` na sua máquina), ou compila sozinho se houver Go no host.
 - O `config.json` antigo, com `url` e `token` na raiz, **continua funcionando**
   como host único.
 - O JSON de `/metrics` manteve todos os campos da v1 e ganhou novos.

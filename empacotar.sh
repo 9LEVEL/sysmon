@@ -31,15 +31,17 @@ mkdir -p "$DIST"
 azul "==> sysmon $VERSAO"
 
 # ------------------------------------------------------------------ agente
-for ARCO in amd64 arm64; do
+# So amd64. O arm64 saiu na v5.1.0 por falta de demanda - nenhum pedido, e
+# cada alvo a mais e um binario a conferir e publicar em todo release. Volta
+# na hora em que alguem pedir: e uma linha nesta lista.
+for ARCO in amd64; do
     NOME="sysmon-agent-$VERSAO-linux-$ARCO"
     PASTA="$DIST/$NOME"
     mkdir -p "$PASTA"
 
-    ( cd "$AQUI/linux-agent" && \
-      CGO_ENABLED=0 GOOS=linux GOARCH="$ARCO" \
+    ( cd "$AQUI" && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCO" \
       go build -trimpath -ldflags "-s -w -X main.versao=$VERSAO" \
-        -o "$PASTA/sysmon-agent" . )
+        -o "$PASTA/sysmon-agent" ./cmd/sysmon-agent )
 
     install -m 755 "$AQUI/linux-agent/install.sh"   "$PASTA/"
     install -m 755 "$AQUI/linux-agent/uninstall.sh" "$PASTA/"
@@ -109,10 +111,10 @@ done
 # Os nomes SOLTOS (sysmon-<so>-<arco>) sao o que o auto-update procura no
 # release: mudar um deles quebra a atualizacao de quem ja tem a ferramenta.
 azul "==> cliente"
-# So amd64 no cliente. A janela no Linux exige CGO, e cross-compilar isso
-# para arm64 pediria uma toolchain cruzada inteira - custo alto para um
-# desktop Linux em ARM, que e raro. O AGENTE continua saindo em arm64: e ele
-# que roda nos hosts, onde Raspberry Pi e comum.
+# So amd64. A janela no Linux exige CGO, e cross-compilar isso para arm64
+# pediria uma toolchain cruzada inteira - custo alto para um desktop Linux em
+# ARM, que e raro. O agente tambem saiu do arm64 na v5.1.0; ver a nota la em
+# cima.
 for ALVO in "windows/amd64" "linux/amd64"; do
     SO="${ALVO%%/*}"; ARCO="${ALVO##*/}"
     NOME="sysmon-$SO-$ARCO"
@@ -130,7 +132,7 @@ for ALVO in "windows/amd64" "linux/amd64"; do
         CGO=1
     fi
 
-    ( cd "$AQUI/cliente" && CGO_ENABLED=$CGO GOOS="$SO" GOARCH="$ARCO" \
+    ( cd "$AQUI" && CGO_ENABLED=$CGO GOOS="$SO" GOARCH="$ARCO" \
         go build -trimpath -ldflags "$LD" -o "$DIST/$NOME" ./cmd/sysmon )
     verde "    $NOME  ($(du -h "$DIST/$NOME" | cut -f1))"
 done
