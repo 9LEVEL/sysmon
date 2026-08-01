@@ -76,6 +76,10 @@ const (
 	// Reservado a direita dentro de uma lista rolavel: a material.List
 	// recorta na propria largura e desenha a barra de rolagem ali.
 	MargemLista = 12
+
+	// Quanto uma medida recua em relacao a secao dela. So o suficiente para
+	// a hierarquia se ler; mais que isso e espaco vazio numa janela estreita.
+	RecuoMedida = 22
 )
 
 // Janela e a interface do sysmon.
@@ -730,8 +734,13 @@ func (j *Janela) desenhar(gtx C) {
 	fimLista := alt - AltRodape - altAlertas
 	// Recolhido no DESENHO, e nao na coleta: assim o clique responde no
 	// quadro seguinte, e nao no proximo ciclo de rede.
+	//
+	// A margem NAO desloca a tabela inteira: a linha do host e a ancora
+	// visual da frota - o fio de estado dela marca onde cada bloco comeca - e
+	// afastar isso da borda so estreita a tela. A margem vale para o que esta
+	// DENTRO do bloco, que e onde as escritas encostavam.
 	j.tabela(gtx, tela.Recolher(linhas, j.recolhidos),
-		image.Rect(j.margemEsq, y, larg, fimLista))
+		image.Rect(0, y, larg, fimLista))
 
 	if altAlertas > 0 {
 		j.painelAlertas(gtx, alertas, image.Rect(0, fimLista, larg, alt-AltRodape))
@@ -1077,7 +1086,13 @@ func alturaLinha(l tela.Linha) int {
 }
 
 func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
-	xNome := Margem + l.Recuo*30
+	// O recuo sai da margem escolhida, e nao de multiplos de 30 a partir de
+	// uma margem fixa. Antes, DESEMPENHO comecava em 70px e "cpu" em 110px -
+	// um deslocamento herdado da arvore com raiz, que aqui nao existe: o host
+	// e a linha inteira acima, e nao um no a esquerda. Aqueles 110px eram
+	// espaco vazio numa janela de 470.
+	xSecao := j.margemEsq
+	xMedida := j.margemEsq + RecuoMedida
 	xDet := Margem + ColNome
 	xValor := larg - Margem
 
@@ -1125,11 +1140,11 @@ func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
 		return
 	}
 	if l.Secao {
-		j.Texto(gtx, xNome+30, 3, l.Nome, tela.Fraco, 12, true)
+		j.Texto(gtx, xSecao, 3, l.Nome, tela.Fraco, 12, true)
 		return
 	}
 
-	j.Texto(gtx, xNome+40, 3, l.Nome, l.Cor, 12, false)
+	j.Texto(gtx, xMedida, 3, l.Nome, l.Cor, 12, false)
 
 	// Coluna do valor: sparkline, barra e numero, colados na direita.
 	xFim := xValor - j.Medir(gtx, l.Valor, 12, false) - 8

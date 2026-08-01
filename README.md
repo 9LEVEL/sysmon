@@ -310,8 +310,12 @@ Duas etiquetas no canto do gráfico dizem o que está desenhado ali — **host**
 **medida** — e clicar em cada uma troca. As medidas são **cpu**, **memória** e
 **temperatura**, as três que vivem na mesma escala de 0 a 100.
 
-A **altura** é um preset no `☰`, junto com a **margem esquerda** (0, 5, 10 ou
-20 px): baixo, médio, alto ou cheio. Em 46 px a curva
+A **altura** é um preset no `☰`: baixo, médio, alto ou cheio.
+
+A **margem esquerda** (0, 5, 10 ou 20 px), no mesmo lugar, é de onde as seções
+partem — `DESEMPENHO` começa nela e as medidas recuam 22 px a partir dali. A
+linha do host fica sempre em 0: o fio de estado dela marca onde cada bloco
+começa, e afastar isso da borda só estreita a tela. Em 46 px a curva
 diz "está vivo"; em 130 px ela mostra a forma, que é o que importa quando você
 está acompanhando um pico. Se o preset escolhido não couber junto com a lista,
 o gráfico se recolhe sozinho — enfeite não espreme informação.
