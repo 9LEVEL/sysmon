@@ -26,7 +26,7 @@ func frota() []nucleo.LeituraHost {
 
 func desenhar(o Opcoes) string {
 	var b bytes.Buffer
-	Desenhar(&b, frota(), nucleo.LimiaresPadrao(), []string{"pve: disco / em 96%"}, o)
+	Desenhar(&b, frota(), nucleo.LimiaresPadrao(), []nucleo.Alerta{{Texto: "pve: disco / em 96%", Nivel: nucleo.Critico}}, o)
 	return b.String()
 }
 

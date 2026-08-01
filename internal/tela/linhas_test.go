@@ -109,9 +109,13 @@ func TestVentoinhasNaoDancam(t *testing.T) {
 	}
 }
 
-func TestSmartReprovadoFicaVermelhoENoDetalhe(t *testing.T) {
+func TestSmartReprovadoFicaVermelhoSemFraseNaLinha(t *testing.T) {
+	// A linha do disco diz QUAL olhar, pela cor. O que ha de errado e uma
+	// frase inteira ("39 de 206 desligamentos foram inesperados...") que
+	// esmagava a coluna de detalhe e empurrava tamanho e modelo para fora da
+	// tela; ela vive no painel de alertas, que e onde tambem se aceita.
 	s := &metricas.Snapshot{IntervaloS: 5, Blocos: []metricas.Bloco{{
-		Dev: "sda", Tamanho: 512 << 30,
+		Dev: "sda", Tamanho: 512 << 30, Modelo: "Samsung SSD 970 EVO",
 		Smart: &metricas.Smart{Saude: "falha"},
 	}}}
 	l := Montar(leitura(s), nucleo.LimiaresPadrao(), Visiveis{}, semSerie)
@@ -120,8 +124,14 @@ func TestSmartReprovadoFicaVermelhoENoDetalhe(t *testing.T) {
 			if x.Cor != Vermelho {
 				t.Errorf("cor = %v, queria vermelho", x.Cor)
 			}
-			if !strings.Contains(x.Detalhe, "SMART REPROVOU") {
-				t.Errorf("detalhe = %q", x.Detalhe)
+			// O que a linha ainda precisa dizer: o hardware.
+			if !strings.Contains(x.Detalhe, "512G") ||
+				!strings.Contains(x.Detalhe, "Samsung") {
+				t.Errorf("detalhe perdeu o hardware: %q", x.Detalhe)
+			}
+			if strings.Contains(x.Detalhe, "REPROVOU") ||
+				strings.Contains(x.Detalhe, "desligamentos") {
+				t.Errorf("a frase do alerta voltou para a linha: %q", x.Detalhe)
 			}
 			return
 		}

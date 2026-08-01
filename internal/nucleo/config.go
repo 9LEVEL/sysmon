@@ -235,6 +235,20 @@ func (c Config) ComoBruto() map[string]any {
 		ign = append(ign, m)
 	}
 	out["ignorar_mounts"] = ign
+
+	if len(c.Limiares.Reconhecidos) > 0 {
+		rec := map[string]any{}
+		for k, v := range c.Limiares.Reconhecidos {
+			m := map[string]any{"valor": v.Valor, "quando": v.Quando}
+			if v.Texto != "" {
+				m["texto"] = v.Texto
+			}
+			rec[k] = m
+		}
+		out["reconhecidos"] = rec
+	} else {
+		delete(out, "reconhecidos")
+	}
 	return out
 }
 

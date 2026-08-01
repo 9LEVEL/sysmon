@@ -261,6 +261,19 @@ casos, o passado guardado não descreve mais o disco de agora.
 
 O efeito visível é as regras de taxa voltarem para "sem dados" por uns dias.
 
+### Um alerta verdadeiro que eu já resolvi (ou já aceitei) não para de aparecer
+
+Abra o **sino** no cabeçalho e clique em **ACEITAR** naquele alerta. Ele some do
+rodapé, a cor volta ao normal, e volta a avisar sozinho se o valor mudar — 89
+desligamentos aceitos voltam a alertar em 90.
+
+CPU, RAM, temperatura e pressão não têm esse botão de propósito: o valor deles
+muda sozinho a cada coleta, e congelar um número não resolveria nada. Para
+esses, ajuste o **limiar** no ícone de aviso.
+
+Para ver o que já foi aceito: o ícone fica aceso, e o rodapé mostra a contagem.
+No arquivo, é a chave `reconhecidos` do `config.json`.
+
 ### O alerta diz "cabo/porta" ou "energia", e não o disco
 
 É intencional. Erro de CRC (`UDMA_CRC_Error_Count`) é do **barramento**, não da

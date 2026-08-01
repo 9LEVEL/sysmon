@@ -22,7 +22,7 @@ func TestOffline(t *testing.T) {
 	if n != Offline {
 		t.Fatalf("nivel = %d, queria Offline", n)
 	}
-	if len(alertas) != 1 || alertas[0] != "timeout" {
+	if len(alertas) != 1 || alertas[0].Texto != "timeout" {
 		t.Fatalf("alertas = %v", alertas)
 	}
 }
@@ -81,7 +81,7 @@ func TestDiscoCheioAlerta(t *testing.T) {
 	if n != Critico {
 		t.Fatalf("nivel = %d, queria Critico", n)
 	}
-	if len(alertas) != 1 || !strings.Contains(alertas[0], "disco / em 95%") {
+	if len(alertas) != 1 || !strings.Contains(alertas[0].Texto, "disco / em 95%") {
 		t.Fatalf("alertas = %v", alertas)
 	}
 }
@@ -94,7 +94,7 @@ func TestInodesContamMesmoComEspacoSobrando(t *testing.T) {
 	if n != Critico {
 		t.Fatalf("nivel = %d, queria Critico", n)
 	}
-	if !strings.Contains(strings.Join(alertas, " "), "inodes") {
+	if !strings.Contains(strings.Join(Textos(alertas), " "), "inodes") {
 		t.Fatalf("alertas = %v", alertas)
 	}
 }
@@ -124,7 +124,7 @@ func TestUmSetorRealocadoJaAvisa(t *testing.T) {
 	if n != Aviso {
 		t.Fatalf("nivel = %d, queria Aviso", n)
 	}
-	if !strings.Contains(strings.Join(alertas, " "), "realocados") {
+	if !strings.Contains(strings.Join(Textos(alertas), " "), "realocados") {
 		t.Fatalf("alertas = %v", alertas)
 	}
 }
@@ -144,7 +144,7 @@ func TestPressaoPSI(t *testing.T) {
 	if n != Critico {
 		t.Fatalf("nivel = %d, queria Critico", n)
 	}
-	if !strings.Contains(strings.Join(alertas, " "), "IO") {
+	if !strings.Contains(strings.Join(Textos(alertas), " "), "IO") {
 		t.Fatalf("alertas = %v", alertas)
 	}
 }
@@ -158,7 +158,7 @@ func TestColetaParadaAvisa(t *testing.T) {
 	if n != Aviso {
 		t.Fatalf("nivel = %d, queria Aviso", n)
 	}
-	if !strings.Contains(strings.Join(alertas, " "), "coleta parada") {
+	if !strings.Contains(strings.Join(Textos(alertas), " "), "coleta parada") {
 		t.Fatalf("alertas = %v", alertas)
 	}
 }

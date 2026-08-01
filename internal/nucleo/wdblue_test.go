@@ -50,7 +50,7 @@ func TestWDBlueNaoReclamaDosQuatroSetores(t *testing.T) {
 	// a reserva e o sinal, e ela esta intacta. Reclamar disso todo dia e o que
 	// treina o usuario a ignorar alerta.
 	_, alertas := Avaliar(comBlocos(wdBlue()), LimiaresPadrao())
-	junto := strings.Join(alertas, " ")
+	junto := strings.Join(Textos(alertas), " ")
 	if strings.Contains(junto, "realocados") {
 		t.Fatalf("ainda reclama dos setores parados: %v", alertas)
 	}
@@ -63,7 +63,7 @@ func TestWDBlueAcusaAEnergia(t *testing.T) {
 	if n != Critico {
 		t.Fatalf("nivel = %d, alertas = %v", n, alertas)
 	}
-	junto := strings.Join(alertas, " ")
+	junto := strings.Join(Textos(alertas), " ")
 	if !strings.Contains(junto, "energia") || !strings.Contains(junto, "nobreak") {
 		t.Fatalf("nao aponta a energia: %v", alertas)
 	}
@@ -79,7 +79,7 @@ func TestMesmoDiscoNoAgenteAntigoReclama(t *testing.T) {
 	if n != Aviso {
 		t.Fatalf("nivel = %d", n)
 	}
-	junto := strings.Join(alertas, " ")
+	junto := strings.Join(Textos(alertas), " ")
 	if !strings.Contains(junto, "realocados") {
 		t.Fatalf("alertas = %v", alertas)
 	}

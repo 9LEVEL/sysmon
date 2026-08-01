@@ -84,7 +84,7 @@ const (
 
 // Desenhar escreve a tabela inteira.
 func Desenhar(w io.Writer, leituras []nucleo.LeituraHost, lim nucleo.Limiares,
-	alertas []string, o Opcoes) {
+	alertas []nucleo.Alerta, o Opcoes) {
 	linhas := tela.Montar(leituras, lim, tela.Visiveis{},
 		func(string, string) []float64 { return nil })
 
@@ -147,7 +147,11 @@ func Desenhar(w io.Writer, leituras []nucleo.LeituraHost, lim nucleo.Limiares,
 	if len(alertas) > 0 {
 		fmt.Fprintln(w)
 		for _, a := range alertas {
-			fmt.Fprintln(w, truncarVisivel(pinta("! "+a, tela.Vermelho), larg))
+			cor := tela.Vermelho
+			if a.Nivel == nucleo.Aviso {
+				cor = tela.Ambar
+			}
+			fmt.Fprintln(w, truncarVisivel(pinta("! "+a.Texto, cor), larg))
 		}
 	}
 }

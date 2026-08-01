@@ -61,6 +61,16 @@ type Limiares struct {
 	// inteira para o config.json.
 	Smart smart.Config `json:"smart"`
 
+	// O que o usuario ja viu e aceitou. Mora aqui, junto dos limiares, porque
+	// e a mesma pergunta: o que esta frota considera problema. "89
+	// desligamentos sujos no pve, e eu sei disso" e uma resposta a ela, tanto
+	// quanto "avise a partir de 90% de RAM".
+	//
+	// A consequencia pratica de morar aqui e valer em toda parte sem que
+	// nenhuma assinatura mude - a janela, o terminal e a bandeja recebem
+	// Limiares e passam a respeitar o reconhecimento sozinhos.
+	Reconhecidos Reconhecimentos `json:"reconhecidos,omitempty"`
+
 	// Multiplo do intervalo de coleta a partir do qual o dado e velho demais.
 	IdadeFator float64 `json:"idade_fator"`
 }
@@ -143,6 +153,34 @@ func LimiaresDe(bruto map[string]any) Limiares {
 			var cfg smart.Config
 			if err := json.Unmarshal(b, &cfg); err == nil {
 				lim.Smart = cfg
+			}
+		}
+	}
+
+	// Os reconhecimentos ficam na RAIZ do config, e nao dentro de "alertas":
+	// alertas sao a regra, reconhecimento e a excecao a ela, e misturar os
+	// dois num mapa so tornaria o arquivo ilegivel a mao.
+	if sub, ok := bruto["reconhecidos"].(map[string]any); ok {
+		lim.Reconhecidos = Reconhecimentos{}
+		for chave, v := range sub {
+			m, ok := v.(map[string]any)
+			if !ok {
+				continue
+			}
+			r := Reconhecido{}
+			if s, ok := m["valor"].(string); ok {
+				r.Valor = s
+			}
+			if f, ok := numero(m["quando"]); ok {
+				r.Quando = f
+			}
+			if s, ok := m["texto"].(string); ok {
+				r.Texto = s
+			}
+			// Sem valor nao ha o que comparar; guardar seria silenciar para
+			// sempre, que e o oposto do que o recurso faz.
+			if r.Valor != "" {
+				lim.Reconhecidos[chave] = r
 			}
 		}
 	}

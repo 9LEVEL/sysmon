@@ -214,19 +214,19 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 				var det []string
 				nivel := nucleo.OK
 
-				// O veredito primeiro: numa linha so por disco, o que o
-				// usuario precisa ler antes de tamanho e modelo e o que ha
-				// de errado - e de que tipo, porque cabo, energia e midia
-				// pedem tres acoes diferentes.
+				// A COR, e nao a frase. O achado do SMART e uma frase inteira
+				// ("39 de 206 desligamentos foram inesperados...") que esmagava
+				// a coluna de detalhe e empurrava tamanho e modelo para fora.
+				// Aqui a linha so precisa dizer QUAL disco olhar; o que ha de
+				// errado, e o que fazer, esta no painel de alertas - que e onde
+				// tambem se aceita.
 				if v, ok := nucleo.VereditoSmart(b, lim); ok {
 					if a, tem := v.Pior(); tem {
 						nivel = nucleo.NivelSmart(a.Severidade)
-						det = append(det, RotuloAchado(a))
 					}
 				} else if b.Smart != nil && b.Smart.Saude == "falha" {
 					// Agente anterior a v5.1.
 					nivel = nucleo.Critico
-					det = append(det, "SMART REPROVOU")
 				}
 				if b.Smart != nil && b.Smart.DesgastePercent != nil {
 					det = append(det, fmt.Sprintf("%.0f%% usado",

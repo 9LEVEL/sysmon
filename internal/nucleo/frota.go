@@ -211,9 +211,29 @@ func (f *Frota) Iniciar() {
 func (f *Frota) Trocar(cfg Config) {
 	f.mu.Lock()
 	antigos := f.monitores
+	// Guarda a ultima leitura de cada host antes de trocar os monitores.
+	//
+	// Sem isto, salvar QUALQUER coisa pela tela - um limiar, um alerta
+	// aceito - reconstruia todos os monitores com estado vazio, e a frota
+	// inteira piscava "sem dados" ate a proxima coleta. O usuario mexe num
+	// numero e a tela responde apagando tudo, o que parece falha da
+	// ferramenta bem no momento em que ele mais esta olhando.
+	//
+	// A identidade e nome+url: mudou a url, e outro host, e herdar a leitura
+	// do anterior seria mostrar dado de uma maquina como se fosse de outra.
+	anteriores := make(map[string]Estado, len(antigos))
+	for _, m := range antigos {
+		anteriores[m.Host.Nome+"\x00"+m.Host.URL] = m.Estado()
+	}
+
 	f.cfg = cfg
 	f.monitores = nil
 	f.montar()
+	for _, m := range f.monitores {
+		if e, ok := anteriores[m.Host.Nome+"\x00"+m.Host.URL]; ok {
+			m.estado = e
+		}
+	}
 	novos := append([]*Monitor(nil), f.monitores...)
 	rodando := f.rodando
 	f.mu.Unlock()
@@ -263,6 +283,24 @@ func (f *Frota) Estados() []LeituraHost {
 	return out
 }
 
+// DefinirEstado injeta uma leitura sem passar pela rede.
+//
+// Existe para os testes, que precisam de um host num estado especifico -
+// RAID degradado, disco quente - sem subir um agente. Nao ha caminho de
+// producao que chame isto: o estado real so entra pelo Monitor.
+func (f *Frota) DefinirEstado(host string, e Estado) {
+	f.mu.RLock()
+	monitores := append([]*Monitor(nil), f.monitores...)
+	lim := f.cfg.Limiares
+	f.mu.RUnlock()
+	for _, m := range monitores {
+		if m.Host.Nome == host {
+			m.definir(e, lim)
+			return
+		}
+	}
+}
+
 // EsperarPrimeiraLeitura da um tempo para a primeira rodada antes de a tela
 // aparecer vazia - o que pareceria "nenhum host responde".
 func (f *Frota) EsperarPrimeiraLeitura(limite time.Duration) {
@@ -294,13 +332,31 @@ func (f *Frota) PiorNivel() int {
 }
 
 // Alertas devolve todos os alertas da frota, ja prefixados com o host.
-func (f *Frota) Alertas() []string {
+func (f *Frota) Alertas() []Alerta {
 	lim := f.limiares()
-	var out []string
+	var out []Alerta
 	for _, l := range f.Estados() {
 		_, alertas := Avaliar(l.Estado, lim)
 		for _, a := range alertas {
-			out = append(out, l.Host.Nome+": "+a)
+			a.Host = l.Host.Nome
+			a.Texto = l.Host.Nome + ": " + a.Texto
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// AlertasBrutos lista tudo, inclusive o que ja foi reconhecido. E o que a tela
+// de reconhecimento mostra: sem isso nao haveria como revogar uma aceitacao.
+func (f *Frota) AlertasBrutos() []Alerta {
+	lim := f.limiares()
+	var out []Alerta
+	for _, l := range f.Estados() {
+		_, alertas := AvaliarBruto(l.Estado, lim)
+		for _, a := range alertas {
+			a.Host = l.Host.Nome
+			a.Texto = l.Host.Nome + ": " + a.Texto
+			out = append(out, a)
 		}
 	}
 	return out

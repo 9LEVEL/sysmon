@@ -310,7 +310,8 @@ func TestDicaAparecePassandoOMouseNoIcone(t *testing.T) {
 		{"hosts", 2, "hosts"},
 		{"exibir", 3, "aparece"},
 		{"alertas", 4, "limiares"},
-		{"topo", 6, "topo"},
+		{"reconhecer", 5, "alertas e notificacoes"},
+		{"topo", 7, "topo"},
 	}
 	for _, c := range casos {
 		t.Run(c.nome, func(t *testing.T) {
@@ -347,11 +348,11 @@ func TestBotaoDeTopoAcendeEDesligaComOEstado(t *testing.T) {
 	if b.j.NoTopo() {
 		t.Fatal("nasceu ligado")
 	}
-	b.clique(iconeX(b.tam.X, 6), 19)
+	b.clique(iconeX(b.tam.X, 7), 19)
 	if !b.j.NoTopo() {
 		t.Fatal("o clique nao ligou")
 	}
-	b.mover(iconeX(b.tam.X, 6), 19)
+	b.mover(iconeX(b.tam.X, 7), 19)
 	if !strings.Contains(b.j.dicaBotao, "ligado") {
 		t.Fatalf("dica = %q", b.j.dicaBotao)
 	}
@@ -373,5 +374,26 @@ func TestCliqueNoSeletorTrocaAMedidaDoGrafico(t *testing.T) {
 	b.clique(Margem+4+larguraHost+16, AltCabec+6)
 	if got := b.j.medidaScope(); got != "ram" {
 		t.Fatalf("medida = %q, queria ram", got)
+	}
+}
+
+func TestCortarNaoMexeNoQueJaCabe(t *testing.T) {
+	// A primeira versao entrava no laco sem conferir se o texto ja cabia:
+	// toda frase perdia o ultimo caractere e ganhava reticencias, mesmo
+	// sobrando meia tela. "disco /backup em 96%" saia "...em 96…", o que faz
+	// a interface parecer estar escondendo alguma coisa quando nao esta.
+	b := novaBancada(t)
+	b.quadro()
+	const s = "disco /backup em 96%"
+	if got := b.j.cortarPara(b.gtx(), s, 4000); got != s {
+		t.Fatalf("cortou o que cabia: %q", got)
+	}
+	// E continua cortando o que nao cabe.
+	got := b.j.cortarPara(b.gtx(), s, 60)
+	if got == s || !strings.HasSuffix(got, "…") {
+		t.Fatalf("nao cortou o que nao cabia: %q", got)
+	}
+	if larg := b.j.Medir(b.gtx(), got, 12, false); larg > 60 {
+		t.Fatalf("cortou mas ficou com %dpx", larg)
 	}
 }

@@ -316,7 +316,7 @@ nem outro. E não havia nada dizendo o que o número era.
 
 #### Os ícones do cabeçalho têm dica
 
-Passe o mouse: aparece o que cada um faz. São sete sem rótulo, e a dica existe
+Passe o mouse: aparece o que cada um faz. São oito sem rótulo, e a dica existe
 justamente para não virar um enigma novo a cada versão.
 
 #### Cinco degraus de cor, não três
@@ -355,6 +355,39 @@ toolkit do sistema envolvido, e por isso ela sai idêntica no Windows e no
 Linux.
 
 O `⌂` abre a configuração de hosts, com botão **Testar**.
+
+### Aceitar um alerta
+
+Nem todo alerta tem conserto. "89 de 206 desligamentos foram inesperados" é um
+fato do hardware: verdadeiro, útil da primeira vez, e depois disso apenas
+repetido a cada 3 segundos para sempre. Alerta que não pode ser resolvido nem
+aceito acaba ignorado — e, a partir daí, **todos** são.
+
+O ícone de **sino** abre *alertas e notificações*: a lista do que está
+alertando agora, com um **ACEITAR** em cada linha.
+
+Aceitar esconde o alerta do rodapé e **devolve a cor ao normal**. Não é
+silenciar para sempre — o que fica guardado é o **valor** que disparou:
+
+```
+aceito:  89 de 206 desligamentos inesperados
+90 de 207  →  volta a alertar
+```
+
+Vale para qualquer coisa com valor estável: contadores SMART, RAID degradado,
+disco cheio, thin pool. Um RAID em `[U_]` aceito volta a gritar em `[__]`.
+
+**Exceto** CPU, RAM, temperatura e pressão PSI. Esses sobem e descem sozinhos:
+congelar "CPU em 82%" seria congelar um número que já mudou no ciclo seguinte.
+Para eles a resposta certa é o **limiar**, logo abaixo. A tela mostra a linha,
+sem botão, dizendo isso.
+
+O que foi aceito não fica invisível: o ícone acende, a dica dele conta quantos
+são e o rodapé mostra "3 alertas aceitos". Silêncio precisa ser visível, senão
+vira esquecimento.
+
+Fica no `config.json`, na chave `reconhecidos` — na raiz, e não dentro de
+`alertas`: alertas são a regra, aceitação é a exceção a ela.
 
 ### Limiares de alerta
 

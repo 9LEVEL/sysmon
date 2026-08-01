@@ -60,7 +60,7 @@ func TestAgenteNovoComColetaFalhaEAvaliado(t *testing.T) {
 	if n != Aviso {
 		t.Fatalf("nivel = %d, queria Aviso", n)
 	}
-	if !strings.Contains(strings.Join(alertas, " "), "megaraid") {
+	if !strings.Contains(strings.Join(Textos(alertas), " "), "megaraid") {
 		t.Fatalf("perdeu o motivo: %v", alertas)
 	}
 }
@@ -79,7 +79,7 @@ func TestRegraDeTaxaChegaAoAlerta(t *testing.T) {
 	if n != Critico {
 		t.Fatalf("nivel = %d, alertas = %v", n, alertas)
 	}
-	if !strings.Contains(strings.Join(alertas, " "), "sda") {
+	if !strings.Contains(strings.Join(Textos(alertas), " "), "sda") {
 		t.Fatalf("alerta sem o disco: %v", alertas)
 	}
 }
@@ -109,7 +109,7 @@ func TestCaboRuimNaoMandaTrocarODisco(t *testing.T) {
 	if n != Aviso {
 		t.Fatalf("nivel = %d", n)
 	}
-	junto := strings.Join(alertas, " ")
+	junto := strings.Join(Textos(alertas), " ")
 	if !strings.Contains(junto, "cabo") {
 		t.Fatalf("alerta nao aponta o cabo: %v", alertas)
 	}
@@ -126,7 +126,7 @@ func TestTemperaturaNaoSaiDuplicada(t *testing.T) {
 	_, alertas := Avaliar(comBlocos(b), lim)
 	quentes := 0
 	for _, a := range alertas {
-		if strings.Contains(a, "75") {
+		if strings.Contains(a.Texto, "75") {
 			quentes++
 		}
 	}
@@ -146,7 +146,7 @@ func TestThrottleEMaximaHistoricaAparecem(t *testing.T) {
 	if n != Aviso {
 		t.Fatalf("nivel = %d, alertas = %v", n, alertas)
 	}
-	junto := strings.Join(alertas, " ")
+	junto := strings.Join(Textos(alertas), " ")
 	if !strings.Contains(junto, "throttling") {
 		t.Errorf("perdeu o throttling: %v", alertas)
 	}

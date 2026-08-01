@@ -32,6 +32,7 @@ const (
 	dlgHosts
 	dlgExibir
 	dlgAlertas
+	dlgReconhecer
 )
 
 // ---------------------------------------------------------------- hosts

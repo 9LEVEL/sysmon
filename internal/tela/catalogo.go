@@ -1,7 +1,5 @@
 package tela
 
-import "sysmon/internal/smart"
-
 // Item e um campo que pode ser escondido.
 type Item struct {
 	Chave  string
@@ -72,19 +70,4 @@ func ChavesDoCatalogo() []string {
 		}
 	}
 	return out
-}
-
-// RotuloAchado encurta um achado SMART para caber na coluna de detalhe.
-//
-// A mensagem completa vai para os alertas do rodape, onde ha largura; aqui
-// cabem poucos caracteres, e o que nao pode faltar e a categoria - "cabo" e
-// "energia" evitam que alguem troque um disco bom.
-func RotuloAchado(a smart.Achado) string {
-	switch a.Categoria {
-	case smart.Interconexao:
-		return "cabo/porta: " + a.Curto()
-	case smart.Host:
-		return "energia: " + a.Curto()
-	}
-	return a.Curto()
 }

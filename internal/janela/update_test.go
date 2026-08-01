@@ -62,7 +62,7 @@ func TestBotaoDeUpdateEncontraEAnuncia(t *testing.T) {
 	b.j.Atual = at
 
 	// Clicar no ⭳ dispara a busca; ela roda em goroutine.
-	b.clique(iconeX(b.tam.X, 5), 19)
+	b.clique(iconeX(b.tam.X, 6), 19)
 	prazo := time.Now().Add(5 * time.Second)
 	for time.Now().Before(prazo) && !at.Estado().Pronta && at.Estado().Erro == "" {
 		time.Sleep(20 * time.Millisecond)

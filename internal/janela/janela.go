@@ -34,7 +34,15 @@ import (
 // monitoramento: cabe mais host na mesma altura, e comparar de relance
 // depende de tudo estar visivel junto.
 const (
-	AltLinha  = 21
+	AltLinha = 21
+	// A linha do host e a que se le primeiro: e nela que se decide se vale
+	// olhar o resto. Com a mesma altura e o mesmo corpo das medidas, a tela
+	// inteira ficava plana e a hierarquia sumia. Dois pontos a mais no texto
+	// e cinco pixels na linha bastam - mais que isso comeca a custar host
+	// visivel na mesma altura de janela, que e o requisito principal aqui.
+	AltLinhaHost = 26
+	CorpoHost    = 14
+
 	AltScope  = 46
 	AltCabec  = 38
 	AltRodape = 28
@@ -51,9 +59,9 @@ const (
 	// topo passa a ser o que sobra numa janela ilegivel.
 	MinArvore = 92
 
-	// Largura reservada aos icones do cabecalho, a direita. Sete botoes de
+	// Largura reservada aos icones do cabecalho, a direita. Oito botoes de
 	// 24, mais o separador e a margem.
-	LarguraBotoes = 7*24 + 10 + 20
+	LarguraBotoes = 8*24 + 10 + 20
 
 	msAnim = 66 * time.Millisecond // ~15 quadros/s
 
@@ -76,21 +84,23 @@ type Janela struct {
 	noTopo bool
 
 	btTopo, btBaixar, btAlerta, btExibir, btHosts widget.Clickable
+	btReconhecer                                  widget.Clickable
 	btMin, btFechar, btMarca                      widget.Clickable
 	btScopeHost, btScopeMedida                    widget.Clickable
 	arrastoCanto                                  gesture.Drag
 
 	// Dialogos: sobreposicoes na propria janela, nao janelas do sistema.
-	dialogo    qualDialogo
-	dlgHosts   *dialogoHosts
-	dlgExibir  *dialogoExibir
-	dlgAlertas *dialogoAlertas
+	dialogo       qualDialogo
+	dlgHosts      *dialogoHosts
+	dlgExibir     *dialogoExibir
+	dlgAlertas    *dialogoAlertas
+	dlgReconhecer *dialogoReconhecer
 
 	mu        sync.Mutex
 	linhas    []tela.Linha
 	resumo    string
 	corResumo int
-	alertas   []string
+	alertas   []nucleo.Alerta
 	dica      string
 
 	// Dica do botao sob o cursor, colhida ao desenhar o cabecalho e desenhada
@@ -297,9 +307,10 @@ func (j *Janela) coletar() {
 		}
 		texto := "sem detalhes"
 		if len(alertas) > 0 {
-			texto = alertas[0]
+			texto = alertas[0].Texto
 			if len(alertas) > 1 {
-				texto = fmt.Sprintf("%s (e mais %d)", alertas[0], len(alertas)-1)
+				texto = fmt.Sprintf("%s (e mais %d)", alertas[0].Texto,
+					len(alertas)-1)
 			}
 		}
 		j.AoAlertar(titulo, texto)
@@ -507,6 +518,9 @@ func (j *Janela) tratarCliques(gtx C) {
 	if j.btMin.Clicked(gtx) {
 		j.w.Perform(system.ActionMinimize)
 	}
+	if j.btReconhecer.Clicked(gtx) {
+		j.abrirReconhecer()
+	}
 	if j.btMarca.Clicked(gtx) {
 		AbrirURL(marcaURL)
 	}
@@ -615,6 +629,8 @@ func (j *Janela) tratarDialogo(gtx C) {
 		j.tratarExibir(gtx)
 	case dlgAlertas:
 		j.tratarAlertas(gtx)
+	case dlgReconhecer:
+		j.tratarReconhecer(gtx)
 	}
 }
 
@@ -683,6 +699,8 @@ func (j *Janela) desenhar(gtx C) {
 		j.desenharExibir(gtx)
 	case dlgAlertas:
 		j.desenharAlertas(gtx)
+	case dlgReconhecer:
+		j.desenharReconhecer(gtx)
 	}
 }
 
@@ -707,6 +725,9 @@ func (j *Janela) cabecalho(gtx C, larg int, resumo string, nivel int) {
 	x -= 24
 	j.botao(gtx, x, 8, &j.btAlerta, icAlerta, tela.Texto, "limiares de alerta")
 	x -= 24
+	j.botaoLigado(gtx, x, 8, &j.btReconhecer, icReconhecer,
+		len(j.frota.Cfg().Limiares.Reconhecidos) > 0, textoReconhecer(j))
+	x -= 24
 	// tela.Verde quando ha versao pronta: azul ja quer dizer "ligado" no botao de
 	// sempre-no-topo, e isto aqui e outra coisa.
 	if j.Atual != nil && j.Atual.Estado().Pronta {
@@ -717,6 +738,15 @@ func (j *Janela) cabecalho(gtx C, larg int, resumo string, nivel int) {
 	}
 	x -= 24
 	j.botaoLigado(gtx, x, 8, &j.btTopo, icTopo, j.noTopo, textoTopo(j.noTopo))
+}
+
+// textoReconhecer diz na dica quantos alertas estao aceitos. O botao fica
+// aceso quando ha algum: silencio precisa ser visivel, senao vira esquecimento.
+func textoReconhecer(j *Janela) string {
+	if s := j.resumoReconhecidos(); s != "" {
+		return "alertas e notificacoes · " + s
+	}
+	return "alertas e notificacoes"
 }
 
 func textoFechar(naBandeja bool) string {
@@ -946,8 +976,17 @@ func (j *Janela) tabela(gtx C, linhas []tela.Linha, r image.Rectangle) {
 
 	material.List(j.th, &j.lista).Layout(g, len(linhas), func(g C, i int) D {
 		j.linha(g, linhas[i], larg)
-		return D{Size: image.Pt(larg, AltLinha)}
+		return D{Size: image.Pt(larg, alturaLinha(linhas[i]))}
 	})
+}
+
+// alturaLinha existe porque a linha do host e mais alta que as demais - a
+// lista do Gio aceita altura por item, entao a hierarquia nao custa nada.
+func alturaLinha(l tela.Linha) int {
+	if l.Host {
+		return AltLinhaHost
+	}
+	return AltLinha
 }
 
 func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
@@ -990,7 +1029,7 @@ func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
 	j.TextoDir(gtx, xValor, 3, l.Valor, l.Cor, 12, false)
 }
 
-func (j *Janela) painelAlertas(gtx C, alertas []string, r image.Rectangle) {
+func (j *Janela) painelAlertas(gtx C, alertas []nucleo.Alerta, r image.Rectangle) {
 	defer op.Offset(image.Pt(0, r.Min.Y)).Push(gtx.Ops).Pop()
 	y := 4
 	for i, a := range alertas {
@@ -999,7 +1038,11 @@ func (j *Janela) painelAlertas(gtx C, alertas []string, r image.Rectangle) {
 				tela.Vermelho, 12, false)
 			break
 		}
-		j.Texto(gtx, Margem, y, "! "+a, tela.Vermelho, 12, false)
+		cor := tela.Vermelho
+		if a.Nivel == nucleo.Aviso {
+			cor = tela.Ambar
+		}
+		j.Texto(gtx, Margem, y, "! "+a.Texto, cor, 12, false)
 		y += AltLinha
 	}
 }
@@ -1022,6 +1065,12 @@ func (j *Janela) rodape(gtx C, r image.Rectangle) {
 		if u := j.textoUpdate(); u != "" {
 			texto += " · " + u
 		}
+		// Silencio precisa ser visivel. Um alerta aceito nao aparece em lugar
+		// nenhum - e sem esta linha, seis meses depois ninguem lembra que
+		// aceitou, e a ferramenta parece estar dizendo que esta tudo bem.
+		if s := j.resumoReconhecidos(); s != "" {
+			texto += " · " + s
+		}
 	}
 	// A assinatura fica na direita e o texto para antes dela: sem esse limite,
 	// uma dica comprida passaria por baixo do link e os dois ficariam
@@ -1034,9 +1083,17 @@ func (j *Janela) rodape(gtx C, r image.Rectangle) {
 }
 
 // cortarPara encurta ate caber, com reticencias.
+//
+// A primeira versao entrava no laco sem conferir se o texto ja cabia: toda
+// frase perdia o ultimo caractere e ganhava reticencias, mesmo sobrando meia
+// tela. "disco /backup em 96%" virava "disco /backup em 96…", o que faz a
+// interface parecer estar escondendo alguma coisa quando nao esta.
 func (j *Janela) cortarPara(gtx C, s string, larg int) string {
 	if larg <= 0 {
 		return ""
+	}
+	if j.Medir(gtx, s, 12, false) <= larg {
+		return s
 	}
 	r := []rune(s)
 	for len(r) > 1 {

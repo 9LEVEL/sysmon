@@ -92,7 +92,8 @@ func NivelSmart(sev int) int {
 // "interconexao" manda olhar o cabo, "host" manda olhar a energia, e so
 // "dispositivo" manda trocar o disco. Sem isso, todo achado vira "troque o
 // disco" - inclusive os que nao seriam resolvidos por trocar o disco.
-func alertasSmart(dev string, v smart.Veredito, marcar func(int, string)) {
+func alertasSmart(dev string, v smart.Veredito,
+	marcar func(nivel int, chave, valor, texto string)) {
 	for _, a := range v.Achados {
 		n := NivelSmart(a.Severidade)
 		if n == OK {
@@ -106,8 +107,12 @@ func alertasSmart(dev string, v smart.Veredito, marcar func(int, string)) {
 		if a.Regra == "temp" {
 			continue
 		}
-		marcar(n, fmt.Sprintf("disco %s%s: %s", dev, sufixoCategoria(a.Categoria),
-			a.Mensagem))
+		// A chave e a REGRA, nao a mensagem: "smart:sda:host:desligamento_sujo"
+		// continua a mesma se um dia a frase for reescrita. O valor sao os
+		// numeros da frase curta, que mudam quando e so quando a situacao muda.
+		marcar(n, "smart:"+dev+":"+a.Regra, soNumeros(a.Curto()),
+			fmt.Sprintf("disco %s%s: %s", dev, sufixoCategoria(a.Categoria),
+				a.Mensagem))
 	}
 }
 
