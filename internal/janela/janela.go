@@ -523,19 +523,35 @@ func (j *Janela) alternarTopo() {
 	j.salvarEstado()
 }
 
-// tratarEscape fecha o dialogo com a tecla ESC.
+// tratarTeclas trata as duas teclas da janela.
 //
-// Modal que so fecha por um botao especifico e uma armadilha em janela
-// estreita, que e onde os botoes ficam mais apertados - justamente quando
-// mais se quer sair. ESC e o gesto que todo mundo tenta primeiro.
-func (j *Janela) tratarEscape(gtx C) {
+// ESC fecha o dialogo: modal que so fecha por um botao especifico e uma
+// armadilha em janela estreita, que e onde os botoes ficam mais apertados -
+// justamente quando mais se quer sair.
+//
+// F5 forca uma coleta agora. A janela ja atualiza sozinha no intervalo, mas
+// depois de mexer num host - reiniciar um servico, liberar espaco - esperar o
+// ciclo para confirmar e tempo parado olhando para um numero que voce sabe
+// que esta velho.
+func (j *Janela) tratarTeclas(gtx C) {
 	for {
-		ev, ok := gtx.Event(key.Filter{Name: key.NameEscape})
+		ev, ok := gtx.Event(
+			key.Filter{Name: key.NameEscape},
+			key.Filter{Name: key.NameF5},
+		)
 		if !ok {
 			return
 		}
-		if e, ok := ev.(key.Event); ok && e.State == key.Press {
+		e, ok := ev.(key.Event)
+		if !ok || e.State != key.Press {
+			continue
+		}
+		switch e.Name {
+		case key.NameEscape:
 			j.dialogo = semDialogo
+		case key.NameF5:
+			j.frota.AtualizarAgora()
+			j.coletar()
 		}
 	}
 }
@@ -547,11 +563,11 @@ func (j *Janela) tratarEscape(gtx C) {
 // hover funciona, clique nao. E o idioma do Gio: perguntar antes, desenhar
 // depois.
 func (j *Janela) tratarCliques(gtx C) {
+	j.tratarTeclas(gtx)
 	if j.dialogo != semDialogo {
 		// Com dialogo aberto, o cabecalho fica atras da cortina: aceitar
 		// clique nele deixaria abrir dois dialogos ao mesmo tempo.
 		j.tratarDialogo(gtx)
-		j.tratarEscape(gtx)
 		return
 	}
 	if j.btFechar.Clicked(gtx) {
@@ -694,6 +710,18 @@ func (j *Janela) tratarDialogo(gtx C) {
 func (j *Janela) desenhar(gtx C) {
 	j.tratarCliques(gtx)
 
+	// A janela inteira e area de teclado, declarada ANTES de tudo.
+	//
+	// A ordem importa: no Gio, quem declara area depois fica por cima, e o
+	// ponteiro vai para o de cima. Declarada no fim, esta area cobria a tela
+	// toda e engolia TODOS os cliques - os botoes do cabecalho, os dialogos,
+	// o clique que recolhe o host. No inicio, ela fica no fundo da pilha e so
+	// recebe o que ninguem mais quis, que e exatamente o teclado.
+	func() {
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		event.Op(gtx.Ops, j)
+	}()
+
 	retangulo(gtx, image.Rectangle{Max: gtx.Constraints.Max}, tela.Fundo)
 	larg, alt := gtx.Constraints.Max.X, gtx.Constraints.Max.Y
 	j.dicaBotao = "" // recolhida de novo pelo cabecalho, se houver hover
@@ -754,14 +782,6 @@ func (j *Janela) desenhar(gtx C) {
 	j.rodape(gtx, image.Rect(0, alt-AltRodape, larg, alt))
 	j.cantoRedimensionar(gtx, larg, alt)
 	j.dicaDoBotao(gtx, larg)
-
-	// A janela pede o foco do teclado enquanto ha dialogo aberto, senao o
-	// ESC nunca chega ate aqui.
-	if j.dialogo != semDialogo {
-		area := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
-		event.Op(gtx.Ops, j)
-		area.Pop()
-	}
 
 	// Dialogo por ultimo: em immediate-mode quem desenha depois fica por
 	// cima, e a cortina precisa cobrir a frota inteira.

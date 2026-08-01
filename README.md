@@ -26,6 +26,28 @@ Nada roda "na nuvem": a janela é o servidor. Ela puxa as métricas direto dos
 hosts, na sua LAN ou por um túnel (WireGuard/Tailscale). Um autostart, um
 processo.
 
+## Para quem é, e para quem não é
+
+A ferramenta é feita para **4 a 10 hosts**. Acima disso ela perde o propósito:
+o valor está em ver a frota inteira junta, de relance, sem rolar — e trinta
+hosts não cabem numa tela nem numa cabeça.
+
+**Serve bem para:**
+
+| Caso | Como fica |
+|---|---|
+| **Homelab** — um Proxmox, um NAS, um Pi | janela estreita encostada na lateral, sempre à vista; os hosts ociosos recolhidos |
+| **Sysadmin solo** — meia dúzia de VPS | bandeja no logon, notificação só quando a severidade sobe |
+| **Antes/depois de uma manutenção** | `F5` força a coleta em vez de esperar o ciclo |
+| **Vigiar um disco suspeito** | gráfico do topo em "alto", fixo naquele host, medida em temperatura |
+| **Cron / script** | `sysmon term --once` sai com 0, 1 ou 2 conforme o pior estado |
+| **Conferir a máquina local** | `sysmon local` lê `/proc` direto, sem agente nem token |
+
+**Não serve para:** histórico longo com gráficos (não há banco), alerta por
+e-mail/webhook, múltiplos usuários, ou centenas de hosts. Para isso existem
+Zabbix, Prometheus e Grafana — e eles fazem melhor. O sysmon ocupa o espaço em
+que montar aquilo custa mais do que o problema que resolve.
+
 ## Como funciona
 
 1. **Instale o agente** em cada host Linux — um `install.sh`, ou o `deploy.sh`
@@ -238,6 +260,17 @@ exatamente o mesmo coletor que o agente usa — até a v4 era um leitor de
 > nunca mais precisar instalar interpretador, e a atualização passou a ser o
 > programa se substituindo sozinho.
 
+### O que a série 5 trouxe
+
+| Versão | O quê |
+|---|---|
+| 5.0 | o cliente vira um executável; fim do Python e dos lançadores |
+| 5.1 | [regras de saúde de disco](#saúde-de-disco-smart) com histórico no agente; resposta 64% menor |
+| 5.2 | aviso de agente antigo, sempre-no-topo funcionando, gráfico por host e medida, dicas nos ícones |
+| 5.3 | [aceitar alertas](#aceitar-um-alerta); janela estreita como tamanho de primeira classe; `ESC` |
+| 5.4 | tela de hosts em duas linhas; altura do gráfico como preset |
+| 5.5 | recolher host; margem esquerda; processador no cabeçalho; colunas mais justas |
+
 ### Atualização automática
 
 **Pelo botão.** O **⭳** no cabeçalho procura versão nova; havendo, baixa e o
@@ -270,24 +303,33 @@ Sem moldura, escura, monoespaçada. No corpo, **nenhum ícone**: a hierarquia e 
 severidade saem de tipografia, alinhamento e cor.
 
 ```
- sysmon  1 host · 1 alerta
+ sysmon  1 host · 1 alerta                    ▲ ⭳ 🔔 ⚠ ☰ ⌂ │ ─ ✕
 
- ▾ MAQUINA     3G de 15G · Ubuntu 26.04 LTS    39C · cpu 5% · ram 21%
-     DESEMPENHO
-       cpu      8 nucleos · Core i3-12100   ▅▆▁▅▆▁▅▆ ███······    5%
-       memoria  3G / 15G                    ▁▁▁▁▁▁▁▁ ██········   21%
-       carga    0.83 5m · 0.54 15m                             1.33
-     TEMPERATURA
-       cpu      critico 100C                ▃▅▂▆▄▃▅▂             39C
+ ⌄ MAQUINA  3G de 15G · Core i3-12100 · Ubuntu   39C · cpu 5% · ram 21%
+ DESEMPENHO
+   cpu       8 nucleos          ▅▆▁▅▆▁▅▆ ███······              5%
+   memoria   3G / 15G           ▁▁▁▁▁▁▁▁ ██········             21%
+   carga     5m 0.83 · 15m 0.54                              1.33
+ TEMPERATURA
+   cpu       critico 100C       ▃▅▂▆▄▃▅▂                       39C
 ```
 
-No **cabeçalho**, à direita, uma fileira de ícones desenhados a vetor — não
-dependem de fonte, então aparecem iguais em qualquer sistema: **sempre no topo**
-(acende em azul quando ligado), **limiares de alerta**, **escolher o que exibir**
-e **hosts**; depois de um separador, **minimizar** e **fechar** (que fica vermelho
-ao passar o mouse). Cada ícone diz o que faz no hover. Não há botão para recarregar
-os dados: a janela já atualiza sozinha no intervalo, e **F5** força quando você
-quiser. O **⭳** é outra coisa — atualiza o *programa*.
+No **cabeçalho**, à direita, oito ícones desenhados a vetor — não dependem de
+fonte, então aparecem iguais em qualquer sistema:
+
+| Ícone | O que faz |
+|---|---|
+| **▲** | sempre no topo (acende em azul quando ligado) |
+| **⭳** | atualiza o *programa* — verde quando há versão pronta |
+| **🔔** | alertas e notificações: aceitar o que você já viu |
+| **⚠** | limiares de alerta |
+| **☰** | escolher o que aparece, altura do gráfico, margem |
+| **⌂** | hosts monitorados, com botão Testar |
+| **─ ✕** | minimizar e fechar (vermelho ao passar o mouse) |
+
+Cada um diz o que faz no hover. Não há botão para recarregar os dados: a janela
+atualiza sozinha no intervalo, e **F5** força quando você quiser. **ESC** fecha
+qualquer diálogo.
 
 **Três colunas com papéis fixos.** O nome nunca é truncado; o detalhe no meio é
 quem cede quando você estreita a janela; os números ficam **colados na borda
@@ -297,12 +339,12 @@ em *exibir* — sem ela, o valor encosta na direita e sobra só nome e número.
 **A barra de rolagem aparece só quando há o que rolar**, e some quando tudo
 cabe na janela.
 
-**No topo, um gráfico animado da CPU da frota.** A cor sai da severidade: fica
-âmbar ou vermelho antes de você ler qualquer número. Anda só com a janela na
-tela — recolhida na bandeja, o desenho para, para não gastar CPU da máquina que
-o programa existe para vigiar. Se a janela ficar curta demais para os dois, ele
-se recolhe sozinho e volta quando há espaço: enfeite não espreme a lista. Pode
-ser desligado de vez em *exibir*.
+**No topo, um gráfico animado.** A cor sai da severidade do host que ele mostra:
+fica âmbar ou vermelho antes de você ler qualquer número. Anda só com a janela na
+tela — recolhida na bandeja, o desenho para, para não gastar CPU da máquina que o
+programa existe para vigiar. Se a janela ficar curta demais para os dois, ele se
+recolhe sozinho e volta quando há espaço: enfeite não espreme a lista. Pode ser
+desligado de vez em *exibir*.
 
 #### O gráfico do topo mostra um host, e você escolhe qual
 
@@ -351,22 +393,6 @@ as ações embaixo. Numa linha só eram cinco caixas lado a lado, e em janela
 estreita os campos viravam frestas. A ferramenta é feita para **4 a 10 hosts**;
 acima disso ela perde o propósito, e com esse teto altura por host é barata.
 
-#### Cinco degraus de cor, não três
-
-Sair de 3% para 30% de CPU é a variação que interessa no dia a dia, e com
-apenas ok/aviso/crítico os dois eram a mesma cor:
-
-| Faixa | Cor | Leitura |
-|---|---|---|
-| < 20% | cinza apagado | ocioso, a linha recua |
-| 20–50% | branco | trabalhando |
-| 50% até o aviso | ciano | notável |
-| ≥ aviso | âmbar | atenção |
-| ≥ crítico | vermelho | agora |
-
-Âmbar e vermelho continuam significando **alerta** — por isso a faixa
-intermediária usa ciano, e não um amarelo mais claro que competiria com eles.
-
 #### Sparkline
 
 `▅▆▁▅▆▁▅▆` ao lado da barra mostra os últimos ciclos. A barra responde "quanto
@@ -379,14 +405,12 @@ desenho. Escala fixa 0–100 achataria a variação útil; autoescala pura
 transformaria ruído em drama.
 
 **Arrasta pelo cabeçalho**, redimensiona pelo canto inferior direito. O `▲`
-prende sobre as outras janelas. Botão direito no topo abre o menu — inclusive
-para trazer a moldura do sistema de volta.
+prende sobre as outras janelas (Windows e macOS; no X11 e no Wayland o botão
+fica só como indicador, porque o toolkit não expõe isso ali).
 
 **Não depende de nada.** A janela é desenhada pelo próprio programa: não há
 toolkit do sistema envolvido, e por isso ela sai idêntica no Windows e no
 Linux.
-
-O `⌂` abre a configuração de hosts, com botão **Testar**.
 
 ### Aceitar um alerta
 
@@ -619,6 +643,66 @@ Remove-ItemProperty -Path HKCU:\Environment -Name SYSMON_TOKEN_PVE -ErrorAction 
 
 Para trocar de host ou de token no dia a dia, edite o `config.json` — é o
 caminho previsível, e o que a interface toda reflete.
+
+## As cores
+
+A tela toda é monocromática de propósito, e a cor carrega significado. Há
+**dois sistemas diferentes** — confundi-los é a causa mais comum de "por que
+isso está cinza?".
+
+### 1. Magnitude: quanto está sendo usado
+
+Vale para os **valores** — cpu, memória, swap, filesystem, thin pool — e para a
+**barra** ao lado deles. São cinco degraus, e não três:
+
+| Faixa | Cor | Leitura |
+|---|---|---|
+| < 20% | **cinza apagado** | ocioso — a linha recua da vista |
+| 20 – 50% | **branco** | trabalhando, normal |
+| 50% até o aviso | **ciano** | notável, mas dentro do esperado |
+| ≥ aviso | **âmbar** | atenção |
+| ≥ crítico | **vermelho** | agora |
+
+> **É por isso que a cpu às vezes é cinza e às vezes branca.** Não é estado nem
+> falha: é o próprio número. Abaixo de 20% ela fica cinza para *sair da frente* —
+> num painel com dez hosts, o que está ocioso não deve competir por atenção com
+> o que não está. Ao passar de 20% ela vira branca, e a linha "acende" sozinha.
+> O mesmo vale para memória, swap e disco.
+
+Os dois últimos degraus são os **limiares configuráveis** (⚠). Âmbar e vermelho
+significam sempre *alerta* — por isso a faixa intermediária usa ciano, e não um
+amarelo mais claro que competiria com eles.
+
+### 2. Severidade: o estado do host
+
+Vale para a **linha do host**, o fio na borda esquerda dela, o gráfico do topo,
+o ícone da bandeja e as linhas do rodapé:
+
+| Cor | Estado |
+|---|---|
+| **branco** | tudo dentro dos limiares |
+| **âmbar** | há aviso |
+| **vermelho** | há crítico |
+| **cinza** | offline — o host não respondeu |
+
+A linha do host pinta **de ponta a ponta**: um host crítico fica vermelho
+inteiro, e não só no nome. É o que permite achar o problema numa frota rolando
+a lista de relance.
+
+### As exceções, e por que existem
+
+| Onde | Cor | Por quê |
+|---|---|---|
+| `5m` / `15m` da carga | **ciano** / **magenta** | separam *duas coisas*, não indicam gravidade — o problema ali é saber qual número é qual |
+| nomes das seções | cinza | são rótulos, não dados |
+| detalhe do meio | cinza fraco | é contexto; o dado é o número à direita |
+| linha do host, meio | azul | identidade da máquina (memória, processador, sistema) |
+| alerta aceito, na tela do 🔔 | cinza | continua listado, mas já não pede ação |
+| borda dos diálogos | ciano | o mesmo tom do gráfico: "isto está em primeiro plano" |
+
+**Cor nunca carrega sozinha.** O número está sempre do lado, a barra repete a
+proporção e o alerta diz em palavras. Quem não distingue âmbar de vermelho
+continua lendo a ferramenta inteira.
 
 ## O que dispara alerta
 

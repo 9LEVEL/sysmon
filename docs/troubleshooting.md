@@ -274,6 +274,17 @@ esses, ajuste o **limiar** no ícone de aviso.
 Para ver o que já foi aceito: o ícone fica aceso, e o rodapé mostra a contagem.
 No arquivo, é a chave `reconhecidos` do `config.json`.
 
+### A cpu (ou a memória) aparece cinza — está com problema?
+
+Não. Cinza é **magnitude**, não estado: abaixo de 20% a linha recua da vista
+para não competir por atenção num painel com vários hosts. Ao passar de 20% ela
+vira branca, acima de 50% fica ciano, e só depois disso entram âmbar e vermelho
+— que aí sim são alerta, e saem dos limiares que você configura.
+
+Estado do host é outra escala, e vale para a **linha do host** inteira: branco
+tudo bem, âmbar aviso, vermelho crítico, cinza offline. Ver "As cores" no
+README.
+
 ### O alerta diz "cabo/porta" ou "energia", e não o disco
 
 É intencional. Erro de CRC (`UDMA_CRC_Error_Count`) é do **barramento**, não da
