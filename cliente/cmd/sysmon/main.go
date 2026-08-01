@@ -24,6 +24,12 @@ import (
 var versao = "dev"
 
 func main() {
+	// Subcomando antes das flags: `sysmon term --once` tem que funcionar, e
+	// o flag padrao pararia no primeiro argumento que nao comeca com traco.
+	if len(os.Args) > 1 && os.Args[1] == "term" {
+		os.Exit(rodarTerminal(os.Args[2:]))
+	}
+
 	var (
 		caminho = flag.String("config", "", "caminho do config.json")
 		oculto  = flag.Bool("oculto", false, "abrir minimizado na bandeja")

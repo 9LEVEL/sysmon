@@ -14,6 +14,7 @@ import (
 	"gioui.org/widget/material"
 
 	"sysmon-cliente/internal/nucleo"
+	"sysmon-cliente/internal/tela"
 )
 
 // Os dialogos sao sobreposicoes na propria janela, e nao janelas do sistema.
@@ -54,9 +55,9 @@ type dialogoHosts struct {
 func (j *Janela) abrirHosts() {
 	d := &dialogoHosts{
 		lista:     widget.List{List: layout.List{Axis: layout.Vertical}},
-		adicionar: NovoBotao("+ HOST", Texto),
-		salvar:    NovoBotao("SALVAR", Verde),
-		cancelar:  NovoBotao("CANCELAR", Fraco),
+		adicionar: NovoBotao("+ HOST", tela.Texto),
+		salvar:    NovoBotao("SALVAR", tela.Verde),
+		cancelar:  NovoBotao("CANCELAR", tela.Fraco),
 	}
 	for _, h := range j.frota.Cfg().Hosts {
 		d.linhas = append(d.linhas, novaLinhaHost(h.Nome, h.URL, h.Token))
@@ -73,8 +74,8 @@ func novaLinhaHost(nome, url, token string) *linhaHost {
 		nome:    NovoCampo("apelido", 110),
 		url:     NovoCampo("http://ip:9109/metrics", 300),
 		token:   NovoCampo("token", 170),
-		testar:  NovoBotao("TESTAR", Titulo),
-		remover: NovoBotao("×", Vermelho),
+		testar:  NovoBotao("TESTAR", tela.Titulo),
+		remover: NovoBotao("×", tela.Vermelho),
 	}
 	l.nome.Definir(nome)
 	l.url.Definir(url)
@@ -92,7 +93,7 @@ func (j *Janela) desenharHosts(gtx C) {
 	larg, alt := r.Dx(), r.Dy()
 
 	j.Texto(gtx, 16, 44, "a url e o token sao os que o install.sh imprimiu em "+
-		"cada host", Fraco, 12, false)
+		"cada host", tela.Fraco, 12, false)
 
 	// Lista rolavel: com muitos hosts o dialogo nao pode crescer alem da
 	// janela, e cortar o botao de salvar seria pior que rolar.
@@ -114,7 +115,7 @@ func (j *Janela) desenharHosts(gtx C) {
 		d.adicionar.Layout(gtx, j)
 	}()
 	if d.erro != "" {
-		j.Texto(gtx, 120, y+6, d.erro, Vermelho, 12, false)
+		j.Texto(gtx, 120, y+6, d.erro, tela.Vermelho, 12, false)
 	}
 	larguraSalvar := j.Medir(gtx, d.salvar.Rotulo, 12, true) + 22
 	larguraCancelar := j.Medir(gtx, d.cancelar.Rotulo, 12, true) + 22
@@ -176,9 +177,9 @@ func (j *Janela) linhaHostLayout(gtx C, d *dialogoHosts, i, larg int) D {
 		j.Medir(gtx, "×", 12, true)+22)
 
 	if l.resultado != "" {
-		cor := Vermelho
+		cor := tela.Vermelho
 		if l.ok {
-			cor = Verde
+			cor = tela.Verde
 		}
 		j.Texto(gtx, 2, 30, l.resultado, cor, 12, false)
 	}
@@ -256,12 +257,12 @@ type dialogoExibir struct {
 func (j *Janela) abrirExibir() {
 	d := &dialogoExibir{
 		lista:    widget.List{List: layout.List{Axis: layout.Vertical}},
-		tudo:     NovoBotao("TUDO", Texto),
-		nada:     NovoBotao("NADA", Texto),
-		aplicar:  NovoBotao("APLICAR", Verde),
-		cancelar: NovoBotao("CANCELAR", Fraco),
+		tudo:     NovoBotao("TUDO", tela.Texto),
+		nada:     NovoBotao("NADA", tela.Texto),
+		aplicar:  NovoBotao("APLICAR", tela.Verde),
+		cancelar: NovoBotao("CANCELAR", tela.Fraco),
 	}
-	for _, s := range Catalogo {
+	for _, s := range tela.Catalogo {
 		d.secoes = append(d.secoes, NovaCaixa(s.Nome, !j.oculto["sec:"+s.Nome]))
 		var itens []*Caixa
 		for _, i := range s.Itens {
@@ -281,15 +282,15 @@ func (j *Janela) desenharExibir(gtx C) {
 	defer op.Offset(r.Min).Push(gtx.Ops).Pop()
 	larg, alt := r.Dx(), r.Dy()
 
-	j.Texto(gtx, 16, 44, "desmarque o que nao quer ver", Fraco, 12, false)
+	j.Texto(gtx, 16, 44, "desmarque o que nao quer ver", tela.Fraco, 12, false)
 
 	// Uma lista plana com secoes e itens: cada entrada sabe a qual secao
 	// pertence, o que evita aninhar listas rolaveis dentro de listas.
 	type entrada struct{ secao, item int }
 	var plana []entrada
-	for si := range Catalogo {
+	for si := range tela.Catalogo {
 		plana = append(plana, entrada{si, -1})
-		for ii := range Catalogo[si].Itens {
+		for ii := range tela.Catalogo[si].Itens {
 			plana = append(plana, entrada{si, ii})
 		}
 	}
@@ -303,16 +304,16 @@ func (j *Janela) desenharExibir(gtx C) {
 			e := plana[i]
 			if e.item < 0 {
 				g.Constraints.Max.X = corpo.Dx()
-				dm := d.secoes[e.secao].Layout(g, j, Titulo, true)
-				if nota := Catalogo[e.secao].Nota; nota != "" {
-					j.Texto(g, 22+j.Medir(g, Catalogo[e.secao].Nome, 12, true)+10,
-						2, nota, Fraco, 12, false)
+				dm := d.secoes[e.secao].Layout(g, j, tela.Titulo, true)
+				if nota := tela.Catalogo[e.secao].Nota; nota != "" {
+					j.Texto(g, 22+j.Medir(g, tela.Catalogo[e.secao].Nome, 12, true)+10,
+						2, nota, tela.Fraco, 12, false)
 				}
 				return dm
 			}
 			defer op.Offset(image.Pt(26, 0)).Push(g.Ops).Pop()
 			g.Constraints.Max.X = corpo.Dx() - 26
-			return d.itens[e.secao][e.item].Layout(g, j, Texto, false)
+			return d.itens[e.secao][e.item].Layout(g, j, tela.Texto, false)
 		})
 	}()
 
@@ -367,8 +368,8 @@ func (j *Janela) marcarTudo(d *dialogoExibir, v bool) {
 }
 
 func (j *Janela) aplicarExibir(d *dialogoExibir) {
-	oculto := Visiveis{}
-	for si, s := range Catalogo {
+	oculto := tela.Visiveis{}
+	for si, s := range tela.Catalogo {
 		if !d.secoes[si].Marcada() {
 			oculto["sec:"+s.Nome] = true
 		}
@@ -398,9 +399,9 @@ type dialogoAlertas struct {
 func (j *Janela) abrirAlertas() {
 	d := &dialogoAlertas{
 		lista:     widget.List{List: layout.List{Axis: layout.Vertical}},
-		restaurar: NovoBotao("PADROES", Texto),
-		salvar:    NovoBotao("SALVAR", Verde),
-		cancelar:  NovoBotao("CANCELAR", Fraco),
+		restaurar: NovoBotao("PADROES", tela.Texto),
+		salvar:    NovoBotao("SALVAR", tela.Verde),
+		cancelar:  NovoBotao("CANCELAR", tela.Fraco),
 		mounts:    NovoCampo("/boot, /boot/efi", 300),
 	}
 	lim := j.frota.Cfg().Limiares
@@ -431,7 +432,7 @@ func (j *Janela) desenharAlertas(gtx C) {
 	defer op.Offset(r.Min).Push(gtx.Ops).Pop()
 	larg, alt := r.Dx(), r.Dy()
 
-	j.Texto(gtx, 16, 44, "aviso e critico de cada medida", Fraco, 12, false)
+	j.Texto(gtx, 16, 44, "aviso e critico de cada medida", tela.Fraco, 12, false)
 
 	corpo := image.Rect(16, 68, larg-16, alt-92)
 	func() {
@@ -441,7 +442,7 @@ func (j *Janela) desenharAlertas(gtx C) {
 		material.List(j.th, &d.lista).Layout(g, len(nucleo.Campos),
 			func(g C, i int) D {
 				c := nucleo.Campos[i]
-				j.Texto(g, 0, 6, c.Rotulo, Texto, 12, false)
+				j.Texto(g, 0, 6, c.Rotulo, tela.Texto, 12, false)
 				func() {
 					defer op.Offset(image.Pt(corpo.Dx()-180, 0)).Push(g.Ops).Pop()
 					gg := g
@@ -459,7 +460,7 @@ func (j *Janela) desenharAlertas(gtx C) {
 	}()
 
 	j.Texto(gtx, 16, alt-84, "ignorar filesystems (separados por virgula)",
-		Fraco, 12, false)
+		tela.Fraco, 12, false)
 	func() {
 		defer op.Offset(image.Pt(16, alt-70)).Push(gtx.Ops).Pop()
 		g := gtx
@@ -473,7 +474,7 @@ func (j *Janela) desenharAlertas(gtx C) {
 		d.restaurar.Layout(gtx, j)
 	}()
 	if d.erro != "" {
-		j.Texto(gtx, 130, y+6, d.erro, Vermelho, 12, false)
+		j.Texto(gtx, 130, y+6, d.erro, tela.Vermelho, 12, false)
 	}
 	lSalvar := j.Medir(gtx, d.salvar.Rotulo, 12, true) + 22
 	lCancel := j.Medir(gtx, d.cancelar.Rotulo, 12, true) + 22

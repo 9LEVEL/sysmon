@@ -13,6 +13,7 @@ import (
 	"gioui.org/unit"
 
 	"sysmon-cliente/internal/nucleo"
+	"sysmon-cliente/internal/tela"
 )
 
 // Testes de interacao sem abrir janela nenhuma.
@@ -157,7 +158,7 @@ func TestExibirDesmarcadoSomeDaTela(t *testing.T) {
 	b.j.abrirExibir()
 	b.quadro()
 
-	for si, s := range Catalogo {
+	for si, s := range tela.Catalogo {
 		if s.Nome == "REDE" {
 			b.j.dlgExibir.secoes[si].Marcar(false)
 		}
@@ -174,7 +175,7 @@ func TestExibirDesmarcadoSomeDaTela(t *testing.T) {
 
 func TestEstadoDaTelaSobreviveAoFechar(t *testing.T) {
 	b := novaBancada(t)
-	b.j.oculto = Visiveis{"sec:REDE": true, "c:scope": true}
+	b.j.oculto = tela.Visiveis{"sec:REDE": true, "c:scope": true}
 	b.j.salvarEstado()
 
 	outra := novaBancada(t)

@@ -12,6 +12,8 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
+
+	"sysmon-cliente/internal/tela"
 )
 
 // Widgets dos dialogos.
@@ -54,12 +56,12 @@ func (c *Campo) Layout(gtx C, j *Janela) D {
 
 	// A borda muda com o foco: sem isso, num tema escuro, nao ha como saber
 	// em qual campo o teclado esta batendo.
-	borda := Grade
+	borda := tela.Grade
 	if gtx.Focused(&c.ed) {
-		borda = Titulo
+		borda = tela.Titulo
 	}
 	r := image.Rect(0, 0, larg, alt)
-	paint.FillShape(gtx.Ops, Painel, clip.UniformRRect(r, 3).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, tela.Painel, clip.UniformRRect(r, 3).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, borda,
 		clip.Stroke{Path: clip.UniformRRect(r, 3).Path(gtx.Ops), Width: 1}.Op())
 
@@ -67,8 +69,8 @@ func (c *Campo) Layout(gtx C, j *Janela) D {
 	g := gtx
 	g.Constraints = layout.Exact(image.Pt(larg-14, alt-10))
 	e := material.Editor(j.th, &c.ed, c.Rotulo)
-	e.Color = Texto
-	e.HintColor = Fraco
+	e.Color = tela.Texto
+	e.HintColor = tela.Fraco
 	e.Font.Typeface = "Go Mono"
 	e.TextSize = unit.Sp(12)
 	e.Layout(g)
@@ -99,17 +101,17 @@ func (c *Caixa) Layout(gtx C, j *Janela, cor color.NRGBA, negrito bool) D {
 	c.b.Update(g)
 	return c.b.Layout(g, func(g C) D {
 		r := image.Rect(2, 4, 14, 16)
-		paint.FillShape(g.Ops, Painel, clip.UniformRRect(r, 2).Op(g.Ops))
-		cb := Grade
+		paint.FillShape(g.Ops, tela.Painel, clip.UniformRRect(r, 2).Op(g.Ops))
+		cb := tela.Grade
 		if c.b.Hovered() {
-			cb = Fraco
+			cb = tela.Fraco
 		}
 		paint.FillShape(g.Ops, cb,
 			clip.Stroke{Path: clip.UniformRRect(r, 2).Path(g.Ops), Width: 1}.Op())
 		if c.b.Value {
 			// Marca desenhada, e nao um caractere: alinha igual em qualquer
 			// fonte e nao depende de o sistema ter o glifo.
-			tracos(g, Titulo, ptf(4.5, 10), ptf(7, 13), ptf(11.5, 6.5))
+			tracos(g, tela.Titulo, ptf(4.5, 10), ptf(7, 13), ptf(11.5, 6.5))
 		}
 		j.Texto(g, 22, 2, c.Rotulo, cor, 12, negrito)
 		return D{Size: image.Pt(larg, alt)}
@@ -136,12 +138,12 @@ func (b *Botao) Layout(gtx C, j *Janela) D {
 	g.Constraints = layout.Exact(image.Pt(larg, alt))
 	return b.c.Layout(g, func(g C) D {
 		r := image.Rect(0, 0, larg, alt)
-		fundo := Painel
+		fundo := tela.Painel
 		if b.c.Hovered() {
-			fundo = Grade
+			fundo = tela.Grade
 		}
 		paint.FillShape(g.Ops, fundo, clip.UniformRRect(r, 3).Op(g.Ops))
-		paint.FillShape(g.Ops, Alfa(b.Cor, 160),
+		paint.FillShape(g.Ops, tela.Alfa(b.Cor, 160),
 			clip.Stroke{Path: clip.UniformRRect(r, 3).Path(g.Ops), Width: 1}.Op())
 		j.Texto(g, 11, 5, b.Rotulo, b.Cor, 12, true)
 		return D{Size: image.Pt(larg, alt)}
@@ -150,21 +152,21 @@ func (b *Botao) Layout(gtx C, j *Janela) D {
 
 func ptf(x, y float32) f32.Point { return f32.Point{X: x, Y: y} }
 
-// Painel desenha o fundo de um dialogo modal.
+// tela.Painel desenha o fundo de um dialogo modal.
 //
 // A cortina escurece o que esta atras em vez de esconder: continua dando
 // para ver que a frota esta la, o que evita a sensacao de ter trocado de
 // programa ao abrir uma configuracao.
 func (j *Janela) cortina(gtx C) {
-	retangulo(gtx, image.Rectangle{Max: gtx.Constraints.Max}, Alfa(Fundo, 225))
+	retangulo(gtx, image.Rectangle{Max: gtx.Constraints.Max}, tela.Alfa(tela.Fundo, 225))
 }
 
 func (j *Janela) moldura(gtx C, r image.Rectangle, titulo string) {
-	paint.FillShape(gtx.Ops, Fundo, clip.UniformRRect(r, 4).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, Grade,
+	paint.FillShape(gtx.Ops, tela.Fundo, clip.UniformRRect(r, 4).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, tela.Grade,
 		clip.Stroke{Path: clip.UniformRRect(r, 4).Path(gtx.Ops), Width: 1}.Op())
-	j.TextoGlow(gtx, r.Min.X+16, r.Min.Y+12, titulo, Titulo, 13, true)
-	retangulo(gtx, image.Rect(r.Min.X+16, r.Min.Y+34, r.Max.X-16, r.Min.Y+35), Grade)
+	j.TextoGlow(gtx, r.Min.X+16, r.Min.Y+12, titulo, tela.Titulo, 13, true)
+	retangulo(gtx, image.Rect(r.Min.X+16, r.Min.Y+34, r.Max.X-16, r.Min.Y+35), tela.Grade)
 }
 
 // centrado devolve um retangulo centrado na janela, respeitando o tamanho

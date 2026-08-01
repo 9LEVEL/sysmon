@@ -1,4 +1,4 @@
-package janela
+package tela
 
 import (
 	"fmt"
@@ -30,7 +30,10 @@ type Linha struct {
 // Campos que podem ser escondidos pela tela de exibicao.
 type Visiveis map[string]bool
 
-func (v Visiveis) ver(chaves ...string) bool {
+// Ver diz se um campo deve aparecer. Um campo aparece a menos que tenha
+// sido desmarcado - assim uma versao futura que acrescente campo o mostra,
+// em vez de ele nascer escondido em quem ja tinha config salva.
+func (v Visiveis) Ver(chaves ...string) bool {
 	for _, c := range chaves {
 		if v[c] {
 			return false
@@ -60,22 +63,22 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 		}
 
 		// As tres medidas que se olha primeiro, na propria linha do host.
-		if oculto.ver("sec:RESUMO") {
+		if oculto.Ver("sec:RESUMO") {
 			var resumo, detalhe []string
-			if oculto.ver("r:temp") && d.CPUTemp != nil {
+			if oculto.Ver("r:temp") && d.CPUTemp != nil {
 				resumo = append(resumo, nucleo.Temp(d.CPUTemp))
 			}
-			if oculto.ver("r:cpu") && d.CPUPercent != nil {
+			if oculto.Ver("r:cpu") && d.CPUPercent != nil {
 				resumo = append(resumo, "cpu "+nucleo.Pct(d.CPUPercent))
 			}
-			if oculto.ver("r:ram") && d.Mem.Percent != nil {
+			if oculto.Ver("r:ram") && d.Mem.Percent != nil {
 				resumo = append(resumo, "ram "+nucleo.Pct(d.Mem.Percent))
 			}
-			if oculto.ver("r:gb") && d.Mem.Total > 0 {
+			if oculto.Ver("r:gb") && d.Mem.Total > 0 {
 				detalhe = append(detalhe, fmt.Sprintf("%s de %s",
 					nucleo.BytesV(d.Mem.Usado), nucleo.BytesV(d.Mem.Total)))
 			}
-			if oculto.ver("r:so") && d.SO.Nome != "" {
+			if oculto.Ver("r:so") && d.SO.Nome != "" {
 				detalhe = append(detalhe, d.SO.Nome)
 			}
 			cabecalho.Valor = strings.Join(resumo, " · ")
@@ -100,38 +103,38 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 		}
 
 		// ---- desempenho
-		if oculto.ver("sec:DESEMPENHO") {
+		if oculto.Ver("sec:DESEMPENHO") {
 			secao("DESEMPENHO")
-			if oculto.ver("p:cpu") {
+			if oculto.Ver("p:cpu") {
 				det := fmt.Sprintf("%d nucleos", d.CPUs)
 				if m := limparModelo(d.CPUModelo); m != "" {
 					det += " · " + m
 				}
 				medida("cpu", det, d.CPUPercent, 80, 95, serie(l.Host.Nome, "cpu"))
 			}
-			if oculto.ver("p:mem") {
+			if oculto.Ver("p:mem") {
 				medida("memoria", fmt.Sprintf("%s / %s",
 					nucleo.BytesV(d.Mem.Usado), nucleo.BytesV(d.Mem.Total)),
 					d.Mem.Percent, lim.RAM.Aviso, lim.RAM.Critico,
 					serie(l.Host.Nome, "ram"))
 			}
-			if oculto.ver("p:swap") && d.Mem.SwapPercent != nil && *d.Mem.SwapPercent > 0 {
+			if oculto.Ver("p:swap") && d.Mem.SwapPercent != nil && *d.Mem.SwapPercent > 0 {
 				medida("swap", nucleo.BytesV(d.Mem.SwapUsado), d.Mem.SwapPercent,
 					50, 80, nil)
 			}
-			if oculto.ver("p:load") {
+			if oculto.Ver("p:load") {
 				linha("carga", fmt.Sprintf("%.2f", d.Load[0]),
 					fmt.Sprintf("%.2f 5m · %.2f 15m", d.Load[1], d.Load[2]), Texto)
 			}
-			if oculto.ver("p:up") {
+			if oculto.Ver("p:up") {
 				linha("no ar", nucleo.Uptime(&d.UptimeS), "", Texto)
 			}
 		}
 
 		// ---- temperatura
-		if oculto.ver("sec:TEMPERATURA") && (len(d.Temps) > 0 || d.CPUTemp != nil) {
+		if oculto.Ver("sec:TEMPERATURA") && (len(d.Temps) > 0 || d.CPUTemp != nil) {
 			secao("TEMPERATURA")
-			if oculto.ver("t:cpu") && d.CPUTemp != nil {
+			if oculto.Ver("t:cpu") && d.CPUTemp != nil {
 				det := ""
 				if d.CPUCrit != nil {
 					det = "critico " + nucleo.Temp(d.CPUCrit)
@@ -139,7 +142,7 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 				linha("cpu", nucleo.Temp(d.CPUTemp), det,
 					CorNivel(nucleo.NivelTemp(d.CPUTemp, d.CPUCrit, lim)))
 			}
-			if oculto.ver("t:todos") {
+			if oculto.Ver("t:todos") {
 				for i, s := range d.Temps {
 					if i >= 10 {
 						break
@@ -153,7 +156,7 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 		}
 
 		// ---- ventoinhas
-		if oculto.ver("sec:VENTOINHAS", "v:todas") && len(d.Fans) > 0 {
+		if oculto.Ver("sec:VENTOINHAS", "v:todas") && len(d.Fans) > 0 {
 			secao("VENTOINHAS")
 			nomes := make([]string, 0, len(d.Fans))
 			for n := range d.Fans {
@@ -176,7 +179,7 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 		}
 
 		// ---- discos fisicos
-		if oculto.ver("sec:DISCOS", "b:todos") && len(d.Blocos) > 0 {
+		if oculto.Ver("sec:DISCOS", "b:todos") && len(d.Blocos) > 0 {
 			secao("DISCOS")
 			for _, b := range d.Blocos {
 				var det []string
@@ -197,20 +200,20 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 					cor = CorMagnitude(*b.TempC, lim.TempDisco.Aviso,
 						lim.TempDisco.Critico)
 				}
-				linha(b.Dev, nucleo.Temp(b.TempC), juntar(det), cor)
+				linha(b.Dev, nucleo.Temp(b.TempC), Juntar(det), cor)
 			}
 		}
 
 		// ---- armazenamento
 		discos := nucleo.DiscosRelevantes(d.Discos, lim)
-		if !oculto.ver("a:fs") {
+		if !oculto.Ver("a:fs") {
 			discos = nil
 		}
 		tps := d.Thinpools
-		if !oculto.ver("a:thin") {
+		if !oculto.Ver("a:thin") {
 			tps = nil
 		}
-		if oculto.ver("sec:ARMAZENAMENTO") && (len(discos) > 0 || len(tps) > 0) {
+		if oculto.Ver("sec:ARMAZENAMENTO") && (len(discos) > 0 || len(tps) > 0) {
 			secao("ARMAZENAMENTO")
 			for _, x := range discos {
 				p := x.Percent
@@ -227,7 +230,7 @@ func Montar(leituras []nucleo.LeituraHost, lim nucleo.Limiares, oculto Visiveis,
 		}
 
 		// ---- rede
-		if oculto.ver("sec:REDE", "n:todas") {
+		if oculto.Ver("sec:REDE", "n:todas") {
 			var ativas []metricas.Net
 			for _, n := range d.Net {
 				if n.Up {
@@ -263,7 +266,8 @@ func corta(s string, n int) string {
 	return string(r[:n])
 }
 
-func juntar(partes []string) string {
+// Juntar cola partes ignorando as vazias e os travessoes.
+func Juntar(partes []string) string {
 	var vivos []string
 	for _, p := range partes {
 		if p != "" && p != "—" {

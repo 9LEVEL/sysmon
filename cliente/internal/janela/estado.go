@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"sysmon-cliente/internal/tela"
 )
 
 // Estado da janela: o que e preferencia de TELA, e nao configuracao.
@@ -34,7 +36,7 @@ func (j *Janela) carregarEstado() {
 	if err := json.Unmarshal(dados, &e); err != nil {
 		return // estado corrompido nao pode impedir a janela de abrir
 	}
-	j.oculto = Visiveis{}
+	j.oculto = tela.Visiveis{}
 	for _, c := range e.Oculto {
 		j.oculto[c] = true
 	}

@@ -1,11 +1,13 @@
-// Package janela desenha a interface do sysmon.
+// Package tela e o modelo do que aparece na tela, sem saber desenhar.
 //
-// Gio e immediate-mode: nao existe widget de arvore nem tabela, tudo e
-// desenhado a cada quadro. O custo disso e escrever o layout na mao; o ganho
-// e controle total sobre densidade e cor, que e exatamente o que uma tela de
-// monitoramento precisa - e o que nenhum toolkit de proposito geral entrega
-// sem briga.
-package janela
+// Existe separado porque a JANELA e o TERMINAL mostram a mesma coisa. Com a
+// montagem das linhas aqui, os dois nao tem como divergir sobre o que exibir
+// ou sobre a cor de cada valor - que era exatamente o problema que existia
+// enquanto cada tela montava a sua.
+//
+// Nao depende de nenhum toolkit grafico: e o que permite o modo texto existir
+// sem arrastar o Gio junto, e o que torna tudo isto testavel sem abrir tela.
+package tela
 
 import (
 	"image/color"

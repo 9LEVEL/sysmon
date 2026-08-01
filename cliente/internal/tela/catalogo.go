@@ -1,4 +1,4 @@
-package janela
+package tela
 
 // Item e um campo que pode ser escondido.
 type Item struct {

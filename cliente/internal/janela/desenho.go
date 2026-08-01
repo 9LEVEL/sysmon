@@ -12,6 +12,8 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget/material"
+
+	"sysmon-cliente/internal/tela"
 )
 
 type C = layout.Context
@@ -75,7 +77,7 @@ func (j *Janela) TextoDir(gtx C, xDir, y int, s string, c color.NRGBA,
 
 func (j *Janela) TextoGlow(gtx C, x, y int, s string, c color.NRGBA,
 	tam unit.Sp, negrito bool) {
-	halo := Alfa(c, 70)
+	halo := tela.Alfa(c, 70)
 	for _, d := range []image.Point{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
 		j.Texto(gtx, x+d.X, y+d.Y, s, halo, tam, negrito)
 	}
@@ -97,7 +99,7 @@ func polilinha(gtx C, pts []f32.Point, c color.NRGBA, larg float32) {
 
 func glow(gtx C, pts []f32.Point, c color.NRGBA) {
 	for _, l := range camadasGlow {
-		polilinha(gtx, pts, Alfa(c, l.alfa), l.larg)
+		polilinha(gtx, pts, tela.Alfa(c, l.alfa), l.larg)
 	}
 }
 
@@ -115,7 +117,7 @@ func retangulo(gtx C, r image.Rectangle, c color.NRGBA) {
 // Retangulo de verdade, e nao os blocos █···· que a versao Tkinter montava
 // com caracteres: alinha em qualquer fonte e ganha canto arredondado.
 func barra(gtx C, r image.Rectangle, pct float64, c color.NRGBA) {
-	paint.FillShape(gtx.Ops, Alfa(Grade, 220), clip.UniformRRect(r, 2).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, tela.Alfa(tela.Grade, 220), clip.UniformRRect(r, 2).Op(gtx.Ops))
 	w := int(float64(r.Dx()) * clamp(pct, 0, 100) / 100)
 	if w > 0 {
 		cheio := image.Rect(r.Min.X, r.Min.Y, r.Min.X+w, r.Max.Y)
@@ -150,7 +152,7 @@ func sparkline(gtx C, s []float64, r image.Rectangle, c color.NRGBA) {
 		y := float32(r.Max.Y) - float32(clamp((v-mn)/(mx-mn), 0, 1))*float32(r.Dy())
 		pts[i] = f32.Pt(x, y)
 	}
-	polilinha(gtx, pts, Alfa(c, 90), 3)
+	polilinha(gtx, pts, tela.Alfa(c, 90), 3)
 	polilinha(gtx, pts, c, 1.3)
 }
 

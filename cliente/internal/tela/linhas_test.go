@@ -1,4 +1,4 @@
-package janela
+package tela
 
 import (
 	"fmt"

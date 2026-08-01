@@ -27,6 +27,7 @@ import (
 
 	"sysmon-cliente/internal/atualizar"
 	"sysmon-cliente/internal/nucleo"
+	"sysmon-cliente/internal/tela"
 )
 
 // Medidas da tela. Densidade e o requisito principal de um painel de
@@ -67,7 +68,7 @@ type Janela struct {
 	NaBandeja bool
 
 	lista  widget.List
-	oculto Visiveis
+	oculto tela.Visiveis
 	noTopo bool
 
 	btTopo, btBaixar, btAlerta, btExibir, btHosts widget.Clickable
@@ -81,7 +82,7 @@ type Janela struct {
 	dlgAlertas *dialogoAlertas
 
 	mu        sync.Mutex
-	linhas    []Linha
+	linhas    []tela.Linha
 	resumo    string
 	corResumo int
 	alertas   []string
@@ -121,7 +122,7 @@ func Nova(f *nucleo.Frota, caminho string, versao string) *Janela {
 	return &Janela{
 		frota: f, caminho: caminho, th: th, Versao: versao,
 		lista:    widget.List{List: layout.List{Axis: layout.Vertical}},
-		oculto:   Visiveis{},
+		oculto:   tela.Visiveis{},
 		hist:     map[string][]float64{},
 		ultimoTS: map[string]float64{},
 		ultimaAm: time.Now(),
@@ -222,7 +223,7 @@ func (j *Janela) coletar() {
 		})
 	}
 
-	linhas := Montar(leituras, cfg.Limiares, j.oculto, j.serie)
+	linhas := tela.Montar(leituras, cfg.Limiares, j.oculto, j.serie)
 	alertas := j.frota.Alertas()
 
 	n := len(cfg.Hosts)
@@ -250,7 +251,7 @@ func (j *Janela) coletar() {
 	j.mu.Lock()
 	j.linhas = linhas
 	j.alertas = alertas
-	j.resumo = juntar(partes)
+	j.resumo = tela.Juntar(partes)
 	j.corResumo = pior
 	j.empilharAmostra(cpus, pior, assinatura)
 	j.mu.Unlock()
@@ -495,7 +496,7 @@ func (j *Janela) tratarDialogo(gtx C) {
 func (j *Janela) desenhar(gtx C) {
 	j.tratarCliques(gtx)
 
-	retangulo(gtx, image.Rectangle{Max: gtx.Constraints.Max}, Fundo)
+	retangulo(gtx, image.Rectangle{Max: gtx.Constraints.Max}, tela.Fundo)
 	larg, alt := gtx.Constraints.Max.X, gtx.Constraints.Max.Y
 
 	j.mu.Lock()
@@ -530,7 +531,7 @@ func (j *Janela) desenhar(gtx C) {
 		}
 	}
 	sobra := alt - AltCabec - AltRodape - altAlertas
-	mostrarScope := j.ver("sec:TELA", "c:scope") && sobra-AltScope >= MinArvore
+	mostrarScope := j.Ver("sec:TELA", "c:scope") && sobra-AltScope >= MinArvore
 	if mostrarScope {
 		j.osciloscopio(gtx, image.Rect(Margem, y+4, larg-Margem, y+4+AltScope))
 		y += AltScope + 6
@@ -557,33 +558,33 @@ func (j *Janela) desenhar(gtx C) {
 	}
 }
 
-func (j *Janela) ver(chaves ...string) bool { return j.oculto.ver(chaves...) }
+func (j *Janela) Ver(chaves ...string) bool { return j.oculto.Ver(chaves...) }
 
 func (j *Janela) cabecalho(gtx C, larg int, resumo string, nivel int) {
-	j.TextoGlow(gtx, Margem, 9, "sysmon", Titulo, 15, true)
+	j.TextoGlow(gtx, Margem, 9, "sysmon", tela.Titulo, 15, true)
 	marca := j.Medir(gtx, "sysmon", 15, true)
-	j.Texto(gtx, Margem+marca+10, 11, resumo, CorNivel(nivel), 12, false)
+	j.Texto(gtx, Margem+marca+10, 11, resumo, tela.CorNivel(nivel), 12, false)
 
 	// Da direita para a esquerda, na mesma ordem da versao Tkinter.
 	x := larg - Margem - 24
-	j.botao(gtx, x, 8, &j.btFechar, icFechar, Vermelho)
+	j.botao(gtx, x, 8, &j.btFechar, icFechar, tela.Vermelho)
 	x -= 24
-	j.botao(gtx, x, 8, &j.btMin, icMinimizar, Texto)
+	j.botao(gtx, x, 8, &j.btMin, icMinimizar, tela.Texto)
 	x -= 10
-	retangulo(gtx, image.Rect(x+4, 12, x+5, 26), Grade)
+	retangulo(gtx, image.Rect(x+4, 12, x+5, 26), tela.Grade)
 	x -= 20
-	j.botao(gtx, x, 8, &j.btHosts, icHosts, Texto)
+	j.botao(gtx, x, 8, &j.btHosts, icHosts, tela.Texto)
 	x -= 24
-	j.botao(gtx, x, 8, &j.btExibir, icExibir, Texto)
+	j.botao(gtx, x, 8, &j.btExibir, icExibir, tela.Texto)
 	x -= 24
-	j.botao(gtx, x, 8, &j.btAlerta, icAlerta, Texto)
+	j.botao(gtx, x, 8, &j.btAlerta, icAlerta, tela.Texto)
 	x -= 24
-	// Verde quando ha versao pronta: azul ja quer dizer "ligado" no botao de
+	// tela.Verde quando ha versao pronta: azul ja quer dizer "ligado" no botao de
 	// sempre-no-topo, e isto aqui e outra coisa.
 	if j.Atual != nil && j.Atual.Estado().Pronta {
-		j.desenhaBotao(gtx, x, 8, &j.btBaixar, icBaixar, Verde, true)
+		j.desenhaBotao(gtx, x, 8, &j.btBaixar, icBaixar, tela.Verde, true)
 	} else {
-		j.botao(gtx, x, 8, &j.btBaixar, icBaixar, Texto)
+		j.botao(gtx, x, 8, &j.btBaixar, icBaixar, tela.Texto)
 	}
 	x -= 24
 	j.botaoLigado(gtx, x, 8, &j.btTopo, icTopo, j.noTopo)
@@ -597,7 +598,7 @@ func (j *Janela) botao(gtx C, x, y int, c *widget.Clickable,
 
 func (j *Janela) botaoLigado(gtx C, x, y int, c *widget.Clickable,
 	ic func(C, float32, float32, color.NRGBA), ligado bool) {
-	j.desenhaBotao(gtx, x, y, c, ic, Titulo, ligado)
+	j.desenhaBotao(gtx, x, y, c, ic, tela.Titulo, ligado)
 }
 
 func (j *Janela) desenhaBotao(gtx C, x, y int, c *widget.Clickable,
@@ -606,12 +607,12 @@ func (j *Janela) desenhaBotao(gtx C, x, y int, c *widget.Clickable,
 	g := gtx
 	g.Constraints = layout.Exact(image.Pt(24, 22))
 	c.Layout(g, func(g C) D {
-		cor := Fraco
+		cor := tela.Fraco
 		if ligado {
 			cor = corHover // ligado usa a cor passada: azul no topo, verde no update
 		}
 		if c.Hovered() {
-			retangulo(g, image.Rect(1, 1, 23, 21), Grade)
+			retangulo(g, image.Rect(1, 1, 23, 21), tela.Grade)
 			if !ligado {
 				cor = corHover
 			}
@@ -637,19 +638,19 @@ func (j *Janela) osciloscopio(gtx C, r image.Rectangle) {
 	// anda porque o tempo anda, e nao porque alguem inventou pontos.
 	desloca := float32(passo * clamp(desde/intervalo, 0, 1))
 
-	corGrade := Alfa(Grade, 150)
+	corGrade := tela.Alfa(tela.Grade, 150)
 	for x := float32(r.Min.X) - desloca; x < float32(r.Max.X); x += passo * 2 {
 		polilinha(gtx, []f32.Point{{X: x, Y: teto - 3}, {X: x, Y: base + 3}},
 			corGrade, 1)
 	}
 
-	cor := CorNivel(nivel)
+	cor := tela.CorNivel(nivel)
 	if nivel == nucleo.OK {
-		cor = Ativo // cyan: "esta vivo", nao "esta em alerta"
+		cor = tela.Ativo // cyan: "esta vivo", nao "esta em alerta"
 	}
 
 	if len(amostras) < 2 {
-		j.Texto(gtx, r.Min.X+4, r.Min.Y+8, "aguardando leitura", Fraco, 12, false)
+		j.Texto(gtx, r.Min.X+4, r.Min.Y+8, "aguardando leitura", tela.Fraco, 12, false)
 		return
 	}
 	cabem := r.Dx()/passo + 3
@@ -669,18 +670,18 @@ func (j *Janela) osciloscopio(gtx C, r image.Rectangle) {
 		r float32
 		a uint8
 	}{{7, 45}, {4, 110}, {2, 255}} {
-		circulo(gtx, p, c.r, Alfa(cor, c.a))
+		circulo(gtx, p, c.r, tela.Alfa(cor, c.a))
 	}
 
 	// Tarja atras do numero: a curva passa por cima do canto direito e o
 	// halo do texto sozinho nao vence uma linha acesa cruzando a leitura.
 	txt := "cpu " + fmtPct(amostras[len(amostras)-1])
 	w := j.Medir(gtx, txt, 12, true)
-	retangulo(gtx, image.Rect(r.Max.X-w-14, r.Min.Y-1, r.Max.X, r.Min.Y+18), Fundo)
+	retangulo(gtx, image.Rect(r.Max.X-w-14, r.Min.Y-1, r.Max.X, r.Min.Y+18), tela.Fundo)
 	j.TextoGlow(gtx, r.Max.X-w-6, r.Min.Y, txt, cor, 12, true)
 }
 
-func (j *Janela) tabela(gtx C, linhas []Linha, r image.Rectangle) {
+func (j *Janela) tabela(gtx C, linhas []tela.Linha, r image.Rectangle) {
 	defer op.Offset(image.Pt(r.Min.X, r.Min.Y)).Push(gtx.Ops).Pop()
 	g := gtx
 	g.Constraints = layout.Exact(image.Pt(r.Dx(), r.Dy()))
@@ -692,7 +693,7 @@ func (j *Janela) tabela(gtx C, linhas []Linha, r image.Rectangle) {
 	})
 }
 
-func (j *Janela) linha(gtx C, l Linha, larg int) {
+func (j *Janela) linha(gtx C, l tela.Linha, larg int) {
 	xNome := Margem + l.Recuo*30
 	xDet := Margem + ColNome
 	xValor := larg - Margem
@@ -700,19 +701,19 @@ func (j *Janela) linha(gtx C, l Linha, larg int) {
 	if l.Host {
 		// A linha do host pinta inteira: um host critico fica vermelho de
 		// ponta a ponta, e nao so no nome.
-		retangulo(gtx, image.Rect(0, 0, larg, AltLinha), Selecao)
+		retangulo(gtx, image.Rect(0, 0, larg, AltLinha), tela.Selecao)
 		j.Texto(gtx, Margem, 3, l.Nome, l.Cor, 12, true)
-		j.Texto(gtx, xDet, 3, l.Detalhe, Titulo, 12, true)
+		j.Texto(gtx, xDet, 3, l.Detalhe, tela.Titulo, 12, true)
 		j.TextoDir(gtx, xValor, 3, l.Valor, l.Cor, 12, true)
 		return
 	}
 	if l.Secao {
-		j.Texto(gtx, xNome+30, 3, l.Nome, Fraco, 12, true)
+		j.Texto(gtx, xNome+30, 3, l.Nome, tela.Fraco, 12, true)
 		return
 	}
 
 	j.Texto(gtx, xNome+40, 3, l.Nome, l.Cor, 12, false)
-	j.Texto(gtx, xDet, 3, l.Detalhe, Fraco, 12, false)
+	j.Texto(gtx, xDet, 3, l.Detalhe, tela.Fraco, 12, false)
 
 	// Coluna do valor: sparkline, barra e numero, colados na direita.
 	xFim := xValor - j.Medir(gtx, l.Valor, 12, false) - 8
@@ -738,16 +739,16 @@ func (j *Janela) painelAlertas(gtx C, alertas []string, r image.Rectangle) {
 	for i, a := range alertas {
 		if i >= 4 {
 			j.Texto(gtx, Margem, y, fmt.Sprintf("  + %d outros", len(alertas)-4),
-				Vermelho, 12, false)
+				tela.Vermelho, 12, false)
 			break
 		}
-		j.Texto(gtx, Margem, y, "! "+a, Vermelho, 12, false)
+		j.Texto(gtx, Margem, y, "! "+a, tela.Vermelho, 12, false)
 		y += AltLinha
 	}
 }
 
 func (j *Janela) rodape(gtx C, r image.Rectangle) {
-	retangulo(gtx, r, Fundo)
+	retangulo(gtx, r, tela.Fundo)
 	j.mu.Lock()
 	dica := j.dica
 	j.mu.Unlock()
@@ -765,7 +766,7 @@ func (j *Janela) rodape(gtx C, r image.Rectangle) {
 			texto += " · " + u
 		}
 	}
-	j.Texto(gtx, Margem, r.Min.Y+5, texto, Fraco, 12, false)
+	j.Texto(gtx, Margem, r.Min.Y+5, texto, tela.Fraco, 12, false)
 }
 
 // cantoRedimensionar desenha a alca e trata o arrasto.
@@ -803,9 +804,9 @@ func (j *Janela) cantoRedimensionar(gtx C, larg, alt int) {
 		j.w.Option(app.Size(unit.Dp(w/ppd), unit.Dp(h/ppd)))
 	}
 
-	cor := Fraco
+	cor := tela.Fraco
 	if j.arrastoCanto.Pressed() {
-		cor = Texto
+		cor = tela.Texto
 	}
 	tracos(gtx, cor, f32.Pt(float32(larg-4), float32(alt-12)),
 		f32.Pt(float32(larg-12), float32(alt-4)))
