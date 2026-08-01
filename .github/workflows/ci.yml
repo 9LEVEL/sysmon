@@ -53,6 +53,23 @@ jobs:
           GOOS=windows go vet ./...
           test -z "$(gofmt -l .)" || { echo "gofmt pendente"; gofmt -l .; exit 1; }
 
+  # Cliente em Go: a migracao do Python acontece aqui, pacote a pacote.
+  cliente-go:
+    name: cliente (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cliente/go.mod
+          cache: false
+      - name: Checagem
+        run: |
+          cd cliente
+          go vet ./...
+          test -z "$(gofmt -l .)" || { echo "gofmt pendente:"; gofmt -l .; exit 1; }
+          go test ./...
+
   clientes:
     name: clientes (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
