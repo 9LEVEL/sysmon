@@ -14,6 +14,7 @@ import (
 
 	"gioui.org/app"
 
+	"sysmon-cliente/internal/atualizar"
 	"sysmon-cliente/internal/bandeja"
 	"sysmon-cliente/internal/janela"
 	"sysmon-cliente/internal/nucleo"
@@ -27,6 +28,7 @@ func main() {
 		caminho = flag.String("config", "", "caminho do config.json")
 		oculto  = flag.Bool("oculto", false, "abrir minimizado na bandeja")
 		semTray = flag.Bool("sem-bandeja", false, "nao criar o icone da bandeja")
+		semUp   = flag.Bool("sem-update", false, "nao verificar atualizacao")
 		mostrar = flag.Bool("version", false, "imprime a versao e sai")
 	)
 	flag.Parse()
@@ -55,6 +57,22 @@ func main() {
 	defer frota.Parar()
 
 	j := janela.Nova(frota, c, versao)
+
+	// Atualizacao do proprio binario. O primeiro passo e apagar a sobra da
+	// troca anterior: e o unico momento em que ela com certeza nao esta mais
+	// em uso.
+	parar := make(chan struct{})
+	defer close(parar)
+	if !*semUp {
+		horas := 6.0
+		if v, ok := cfg.Bruto["horas_entre_updates"].(float64); ok {
+			horas = v
+		}
+		at := atualizar.Novo(versao, time.Duration(horas*float64(time.Hour)))
+		at.LimparAntigo()
+		at.Iniciar(parar)
+		j.Atual = at
+	}
 
 	var bnd bandeja.Bandeja
 	if !*semTray && bandeja.Disponivel() {

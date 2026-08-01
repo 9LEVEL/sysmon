@@ -6,6 +6,8 @@ import (
 	"image/color"
 	"math"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
+	"sysmon-cliente/internal/atualizar"
 	"sysmon-cliente/internal/nucleo"
 )
 
@@ -103,6 +106,10 @@ type Janela struct {
 	AoMudarNivel func(nivel int, dica string)
 	AoAlertar    func(titulo, texto string)
 	nivelAvisado int
+
+	// Atualizacao do proprio programa. Nil quando desligada.
+	Atual        *atualizar.Atualizador
+	updatePedido bool
 }
 
 const janelaHist = 12
@@ -402,6 +409,75 @@ func (j *Janela) tratarCliques(gtx C) {
 	if j.btAlerta.Clicked(gtx) {
 		j.abrirAlertas()
 	}
+	if j.btBaixar.Clicked(gtx) {
+		j.acaoUpdate()
+	}
+}
+
+// acaoUpdate: um botao com dois papeis - procurar quando nao ha nada,
+// aplicar quando ha. Dois botoes seriam um a mais, com o de aplicar passando
+// a vida inteira sem ter o que fazer.
+func (j *Janela) acaoUpdate() {
+	if j.Atual == nil {
+		return
+	}
+	if j.Atual.Estado().Pronta {
+		j.aplicarUpdate()
+		return
+	}
+	j.updatePedido = true // erro so aparece se voce perguntou
+	j.Atual.VerificarEmThread(func() {
+		if j.w != nil {
+			j.w.Invalidate()
+		}
+	})
+}
+
+// aplicarUpdate troca o binario e sobe a versao nova no lugar desta.
+func (j *Janela) aplicarUpdate() {
+	exe, err := j.Atual.Aplicar()
+	if err != nil {
+		j.mu.Lock()
+		j.dica = "nao consegui aplicar: " + err.Error()
+		j.mu.Unlock()
+		return
+	}
+	j.salvarEstado()
+	// O processo novo sobe antes de este sair: assim a bandeja nao pisca
+	// vazia, e se o exec falhar ainda estamos aqui para contar.
+	cmd := exec.Command(exe, os.Args[1:]...)
+	cmd.Dir = filepath.Dir(exe)
+	if err := cmd.Start(); err != nil {
+		j.mu.Lock()
+		j.dica = "troquei o binario, mas nao consegui reiniciar: " + err.Error()
+		j.mu.Unlock()
+		return
+	}
+	j.NaBandeja = false
+	os.Exit(0)
+}
+
+// textoUpdate e a linha de status sobre atualizacao.
+func (j *Janela) textoUpdate() string {
+	if j.Atual == nil {
+		return ""
+	}
+	e := j.Atual.Estado()
+	if !e.Suportado {
+		return ""
+	}
+	switch {
+	case e.Pronta:
+		return "atualizacao " + e.Disponivel + " pronta · clique em ⭳"
+	case e.Checando:
+		return "procurando atualizacao..."
+	case e.Erro != "" && j.updatePedido:
+		return "atualizacao: " + e.Erro
+	case j.updatePedido:
+		j.updatePedido = false
+		return "ja esta na versao mais nova"
+	}
+	return ""
 }
 
 func (j *Janela) tratarDialogo(gtx C) {
@@ -502,7 +578,13 @@ func (j *Janela) cabecalho(gtx C, larg int, resumo string, nivel int) {
 	x -= 24
 	j.botao(gtx, x, 8, &j.btAlerta, icAlerta, Texto)
 	x -= 24
-	j.botao(gtx, x, 8, &j.btBaixar, icBaixar, Texto)
+	// Verde quando ha versao pronta: azul ja quer dizer "ligado" no botao de
+	// sempre-no-topo, e isto aqui e outra coisa.
+	if j.Atual != nil && j.Atual.Estado().Pronta {
+		j.desenhaBotao(gtx, x, 8, &j.btBaixar, icBaixar, Verde, true)
+	} else {
+		j.botao(gtx, x, 8, &j.btBaixar, icBaixar, Texto)
+	}
 	x -= 24
 	j.botaoLigado(gtx, x, 8, &j.btTopo, icTopo, j.noTopo)
 
@@ -515,7 +597,7 @@ func (j *Janela) botao(gtx C, x, y int, c *widget.Clickable,
 
 func (j *Janela) botaoLigado(gtx C, x, y int, c *widget.Clickable,
 	ic func(C, float32, float32, color.NRGBA), ligado bool) {
-	j.desenhaBotao(gtx, x, y, c, ic, Texto, ligado)
+	j.desenhaBotao(gtx, x, y, c, ic, Titulo, ligado)
 }
 
 func (j *Janela) desenhaBotao(gtx C, x, y int, c *widget.Clickable,
@@ -526,7 +608,7 @@ func (j *Janela) desenhaBotao(gtx C, x, y int, c *widget.Clickable,
 	c.Layout(g, func(g C) D {
 		cor := Fraco
 		if ligado {
-			cor = Titulo
+			cor = corHover // ligado usa a cor passada: azul no topo, verde no update
 		}
 		if c.Hovered() {
 			retangulo(g, image.Rect(1, 1, 23, 21), Grade)
@@ -674,8 +756,13 @@ func (j *Janela) rodape(gtx C, r image.Rectangle) {
 		if len(j.frota.Cfg().Hosts) == 0 {
 			texto = "sem hosts · use o icone de servidores para configurar"
 		} else {
-			texto = fmt.Sprintf("atualiza %.0fs · F5 forca · arraste pelo topo",
+			texto = fmt.Sprintf("atualiza %.0fs · arraste pelo topo",
 				j.frota.Cfg().Intervalo)
+		}
+		// A informacao de atualizacao entra AO LADO, nao no lugar: a dica de
+		// uso continua valendo enquanto houver versao nova esperando.
+		if u := j.textoUpdate(); u != "" {
+			texto += " · " + u
 		}
 	}
 	j.Texto(gtx, Margem, r.Min.Y+5, texto, Fraco, 12, false)
