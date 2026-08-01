@@ -222,3 +222,26 @@ func TestNadaMaisCitaOsModulosSeparados(t *testing.T) {
 		}
 	}
 }
+
+func TestInstaladorCompilaOPacoteCerto(t *testing.T) {
+	// O install.sh compilava com `go build .` executado dentro de
+	// linux-agent/, porque ate a v5.0 aquela pasta ERA a raiz do modulo do
+	// agente. Com o modulo unico ela ficou so com scripts, e o comando passou
+	// a falhar com "no Go files" - silenciosamente, porque a saida ia para o
+	// subshell e o script seguia em frente.
+	//
+	// O host que instalar por esse caminho fica sem agente nenhum, ou com o
+	// binario errado, e o servico entra num laco de restart ate o systemd
+	// desistir.
+	texto := ler(t, "linux-agent/install.sh")
+	if !strings.Contains(texto, "./cmd/sysmon-agent") {
+		t.Error("o install.sh nao compila ./cmd/sysmon-agent explicitamente")
+	}
+	if regexp.MustCompile(`go build[^\n]*-o [^\n]*"\s*\.\s*\)`).MatchString(texto) {
+		t.Error("ainda ha um `go build .` sem pacote explicito")
+	}
+	// E o alvo tem que existir de verdade.
+	if _, err := os.Stat(filepath.Join(raiz(t), "cmd", "sysmon-agent")); err != nil {
+		t.Errorf("cmd/sysmon-agent nao existe: %v", err)
+	}
+}

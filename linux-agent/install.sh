@@ -71,22 +71,53 @@ for c in "$AQUI/bin/sysmon-agent" "$AQUI/sysmon-agent" \
     [[ -f "$c" ]] && { BINARIO="$c"; break; }
 done
 
-if [[ -z "$BINARIO" ]] && command -v go >/dev/null; then
-    echo "==> Binario nao encontrado, mas ha Go instalado. Compilando..."
-    (cd "$AQUI" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" \
-        -o "$AQUI/bin/sysmon-agent" .)
-    BINARIO="$AQUI/bin/sysmon-agent"
+# Fallback: compilar na hora, quando este script esta rodando de dentro do
+# repositorio e ha Go no host.
+#
+# O alvo e explicito - ./cmd/sysmon-agent. Ate a v5.0 isto era `go build .`
+# executado aqui dentro, porque linux-agent/ ERA a raiz do modulo do agente.
+# Com o modulo unico esta pasta ficou so com scripts, e aquele comando passou
+# a falhar com "no Go files" sem que ninguem percebesse - o script seguia em
+# frente e instalava o que estivesse em bin/, ou nada.
+RAIZ="$(cd "$AQUI/.." && pwd)"
+if [[ -z "$BINARIO" ]] && command -v go >/dev/null && [[ -f "$RAIZ/go.mod" ]]; then
+    echo "==> Binario nao encontrado, mas ha Go e o codigo-fonte. Compilando..."
+    mkdir -p "$AQUI/bin"
+    if ( cd "$RAIZ" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" \
+            -o "$AQUI/bin/sysmon-agent" ./cmd/sysmon-agent ); then
+        BINARIO="$AQUI/bin/sysmon-agent"
+    else
+        vermelho "A compilacao falhou. Nao vou instalar nada."
+        exit 1
+    fi
 fi
 
 if [[ -z "$BINARIO" ]]; then
     vermelho "Nao achei o binario do agente para $ARCO."
-    echo "Na sua maquina de desenvolvimento: cd linux-agent && make dist"
-    echo "Depois copie bin/sysmon-agent-linux-$ARCO para este host."
+    echo "Baixe sysmon-agent-<versao>-linux-$ARCO.tar.gz do release e rode o"
+    echo "install.sh de dentro dele - o binario vem junto."
+    echo
+    echo "Ou, a partir do codigo-fonte:"
+    echo "  make agente && cp dist/sysmon-agent linux-agent/bin/"
+    echo
+    echo "Rodando via sudo, o PATH costuma nao ter o go - por isso a compilacao"
+    echo "automatica nao entrou aqui. Compile antes, como seu usuario."
     exit 1
 fi
 
 if ! "$BINARIO" --version >/dev/null 2>&1; then
     vermelho "O binario $BINARIO nao executa nesta maquina (arquitetura errada?)."
+    exit 1
+fi
+
+# Confere que e o AGENTE, e nao o cliente. Os dois se chamam sysmon e moram no
+# mesmo release; instalar um no lugar do outro deixa o servico num laco de
+# "flag provided but not defined: -host" ate o systemd desistir, e o host fica
+# sem monitoramento sem nada dizer o porque.
+if ! "$BINARIO" --help 2>&1 | grep -q '\-host'; then
+    vermelho "$BINARIO nao e o agente - parece o cliente."
+    echo "  O agente aceita --host e --port. Baixe sysmon-agent-<versao>-linux-<arco>.tar.gz,"
+    echo "  e nao o pacote do cliente."
     exit 1
 fi
 VERSAO="$("$BINARIO" --version)"
