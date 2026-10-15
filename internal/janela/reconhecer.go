@@ -29,6 +29,7 @@ import (
 
 type linhaReconhecer struct {
 	a       nucleo.Alerta
+	chave   string // onde o reconhecimento esta guardado, se aceito
 	rec     nucleo.Reconhecido
 	aceito  bool
 	botao   *Botao
@@ -70,13 +71,17 @@ func (j *Janela) montarReconhecer(d *dialogoReconhecer) {
 
 	for _, a := range j.frota.AlertasBrutos() {
 		l := &linhaReconhecer{a: a, fixo: !a.Reconhecivel()}
-		if r, ok := rec[a.Chave]; ok && r.Valor == a.Valor {
-			l.aceito, l.rec = true, r
+		if r, chave, ok := rec.De(a); ok {
+			// Guardado, mesmo com valor diferente, nao e orfao: e a
+			// aceitacao antiga deste alerta, que o valor novo ja venceu.
+			vistos[chave] = true
+			if r.Valor == a.Valor {
+				l.aceito, l.rec, l.chave = true, r, chave
+			}
 		}
 		if !l.fixo {
 			l.botao = NovoBotao(rotuloAceite(l.aceito), corAceite(l.aceito))
 		}
-		vistos[a.Chave] = true
 		d.linhas = append(d.linhas, l)
 	}
 
@@ -95,6 +100,7 @@ func (j *Janela) montarReconhecer(d *dialogoReconhecer) {
 	for _, chave := range orfaos {
 		d.linhas = append(d.linhas, &linhaReconhecer{
 			a:       nucleo.Alerta{Chave: chave, Texto: rec[chave].Texto},
+			chave:   chave,
 			rec:     rec[chave],
 			aceito:  true,
 			orfao:   true,
@@ -153,8 +159,12 @@ func (j *Janela) desenharReconhecer(gtx C) {
 	j.erroDialogo(gtx, larg, y, linhas, d.erro)
 }
 
-func (j *Janela) linhaReconhecerLayout(gtx C, l *linhaReconhecer, larg int) D {
+func (j *Janela) linhaReconhecerLayout(gtx C, l *linhaReconhecer, largTotal int) D {
 	const alt = 40
+	// A mesma margem da tela de hosts: a material.List recorta os itens na
+	// propria largura, e o botao encostado na borda perdia o traco direito -
+	// ACEITAR e VOLTAR A ALERTAR apareciam como caixas abertas de um lado.
+	larg := largTotal - MargemLista
 	cor := tela.CorNivel(l.a.Nivel)
 	rotulo := l.a.Texto
 
@@ -205,7 +215,7 @@ func (j *Janela) linhaReconhecerLayout(gtx C, l *linhaReconhecer, larg int) D {
 	}
 	j.Texto(gtx, 0, 20, j.cortarPara(gtx, nota, espaco), tela.Ocioso, 11, false)
 
-	return D{Size: image.Pt(larg, alt)}
+	return D{Size: image.Pt(largTotal, alt)}
 }
 
 func quando(ts float64) string {
@@ -241,14 +251,7 @@ func (j *Janela) tratarReconhecer(gtx C) {
 		return
 	}
 	if d.aceitTod.Clicado(gtx) {
-		rec := j.copiaReconhecidos()
-		for _, l := range d.linhas {
-			if !l.fixo && !l.aceito && !l.orfao {
-				rec[l.a.Chave] = nucleo.Reconhecido{Valor: l.a.Valor,
-					Quando: float64(time.Now().Unix()), Texto: l.a.Texto}
-			}
-		}
-		j.gravarReconhecidos(d, rec)
+		j.aceitarTodos(d)
 		return
 	}
 	if d.limpar.Clicado(gtx) {
@@ -258,7 +261,7 @@ func (j *Janela) tratarReconhecer(gtx C) {
 	for _, l := range d.linhas {
 		if l.orfao && l.revogar != nil && l.revogar.Clicado(gtx) {
 			rec := j.copiaReconhecidos()
-			delete(rec, l.a.Chave)
+			delete(rec, l.chave)
 			j.gravarReconhecidos(d, rec)
 			return
 		}
@@ -267,14 +270,46 @@ func (j *Janela) tratarReconhecer(gtx C) {
 		}
 		rec := j.copiaReconhecidos()
 		if l.aceito {
-			delete(rec, l.a.Chave)
+			delete(rec, l.chave)
 		} else {
-			rec[l.a.Chave] = nucleo.Reconhecido{Valor: l.a.Valor,
-				Quando: float64(time.Now().Unix()), Texto: l.a.Texto}
+			aceitar(rec, l.a)
 		}
 		j.gravarReconhecidos(d, rec)
 		return
 	}
+}
+
+func (j *Janela) aceitarTodos(d *dialogoReconhecer) {
+	rec := j.copiaReconhecidos()
+	for _, l := range d.linhas {
+		if !l.fixo && !l.aceito && !l.orfao {
+			aceitar(rec, l.a)
+		}
+	}
+	// Aceitos pela chave antiga, sem host, passam para a chave nova - com
+	// a data e o valor de quando foram aceitos. So depois de todos
+	// convertidos a antiga sai: ela pode cobrir mais de um host.
+	var antigas []string
+	for _, l := range d.linhas {
+		if l.aceito && !l.orfao && l.chave != l.a.ChaveAceite() {
+			rec[l.a.ChaveAceite()] = l.rec
+			antigas = append(antigas, l.chave)
+		}
+	}
+	for _, k := range antigas {
+		delete(rec, k)
+	}
+	j.gravarReconhecidos(d, rec)
+}
+
+// aceitar grava o reconhecimento na chave com o host.
+//
+// Uma chave antiga, sem host, NAO sai aqui: ela pode ser a aceitacao de outro
+// host com a mesma condicao, e apaga-la faria aquele alerta voltar sem que
+// nada tivesse mudado. Quem a converte e o ACEITAR TODOS.
+func aceitar(rec nucleo.Reconhecimentos, a nucleo.Alerta) {
+	rec[a.ChaveAceite()] = nucleo.Reconhecido{Valor: a.Valor,
+		Quando: float64(time.Now().Unix()), Texto: a.Texto}
 }
 
 func (j *Janela) copiaReconhecidos() nucleo.Reconhecimentos {

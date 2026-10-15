@@ -55,6 +55,7 @@ func (m *Monitor) Estado() Estado {
 }
 
 func (m *Monitor) definir(novo Estado, lim Limiares) {
+	novo.Host = m.Host.Nome
 	m.mu.Lock()
 	anterior := m.estado
 	m.estado = novo

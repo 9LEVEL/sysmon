@@ -173,3 +173,80 @@ func TestBotaoAcendeQuandoHaAceitos(t *testing.T) {
 		t.Fatalf("dica = %q", textoReconhecer(b.j))
 	}
 }
+
+// bancadaDoisHostsMesmoAlerta monta dois hosts com a MESMA condicao - o md0
+// degradado nos dois -, mas com valores diferentes. E o caso do sda com
+// desligamentos sujos no pve e no dev-254: a chave da condicao e igual.
+func bancadaDoisHostsMesmoAlerta(t *testing.T) *bancada {
+	t.Helper()
+	b := novaBancada(t,
+		nucleo.Host{Nome: "pve", URL: "http://x/metrics", Token: "t"},
+		nucleo.Host{Nome: "dev", URL: "http://y/metrics", Token: "t"})
+	deg := true
+	for host, discos := range map[string]string{"pve": "U_", "dev": "_U"} {
+		s := &metricas.Snapshot{IntervaloS: 5, Host: host, V: "5.2.0",
+			Raid: []metricas.RaidArray{{Nome: "md0", Estado: "ativo",
+				Discos: discos, Degradado: &deg}}}
+		b.j.frota.DefinirEstado(host, nucleo.Estado{Dados: s})
+	}
+	b.j.coletar()
+	return b
+}
+
+func TestAceitarTodosComAMesmaCondicaoEmDoisHosts(t *testing.T) {
+	// O bug: as duas aceitacoes iam para a mesma chave, a segunda apagava a
+	// primeira, e a cada ACEITAR TODOS um dos dois voltava - revezando.
+	b := bancadaDoisHostsMesmoAlerta(t)
+	if a := alertasDaJanela(b); len(a) != 2 {
+		t.Fatalf("esperava 2 alertas, veio %+v", a)
+	}
+
+	b.j.abrirReconhecer()
+	b.j.aceitarTodos(b.j.dlgReconhecer)
+
+	if a := alertasDaJanela(b); len(a) != 0 {
+		t.Fatalf("sobrou alerta depois de aceitar todos: %+v", a)
+	}
+	for _, l := range b.j.dlgReconhecer.linhas {
+		if !l.aceito || l.orfao {
+			t.Fatalf("linha nao ficou aceita: %+v", l)
+		}
+	}
+	if n := len(b.j.frota.Cfg().Limiares.Reconhecidos); n != 2 {
+		t.Fatalf("esperava 2 reconhecimentos, um por host; veio %d", n)
+	}
+}
+
+func TestChaveAntigaSemHostContinuaValendoEMigra(t *testing.T) {
+	// Um config.json gravado antes da correcao tem a chave sem host, com o
+	// valor de quem gravou por ultimo. Ela segue silenciando aquele host, e
+	// o ACEITAR TODOS a converte para a chave nova sem perder nada.
+	b := bancadaDoisHostsMesmoAlerta(t)
+	b.j.abrirReconhecer()
+	d := b.j.dlgReconhecer
+	var dev nucleo.Alerta
+	for _, l := range d.linhas {
+		if l.a.Host == "dev" {
+			dev = l.a
+		}
+	}
+	b.j.gravarReconhecidos(d, nucleo.Reconhecimentos{
+		dev.Chave: {Valor: dev.Valor, Quando: 1}})
+
+	a := alertasDaJanela(b)
+	if len(a) != 1 || a[0].Host != "pve" {
+		t.Fatalf("a chave antiga deveria silenciar so o dev: %+v", a)
+	}
+
+	b.j.aceitarTodos(d)
+	rec := b.j.frota.Cfg().Limiares.Reconhecidos
+	if _, tem := rec[dev.Chave]; tem {
+		t.Fatalf("a chave antiga nao foi convertida: %+v", rec)
+	}
+	if r := rec[dev.ChaveAceite()]; r.Valor != dev.Valor || r.Quando != 1 {
+		t.Fatalf("a conversao perdeu o aceite original: %+v", r)
+	}
+	if a := alertasDaJanela(b); len(a) != 0 {
+		t.Fatalf("sobrou alerta: %+v", a)
+	}
+}

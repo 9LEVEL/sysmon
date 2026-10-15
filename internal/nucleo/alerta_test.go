@@ -161,3 +161,63 @@ func TestTextosPreservaAOrdem(t *testing.T) {
 		t.Fatalf("got = %q", got)
 	}
 }
+
+func TestReconhecimentoEPorHost(t *testing.T) {
+	// Dois hosts com um sda cada geram a mesma Chave. Aceitar o de um nao
+	// pode valer pelo outro, nem apagar o aceite do outro.
+	pve := Alerta{Host: "pve", Chave: "smart:sda:host:desligamento_sujo",
+		Valor: "89/267/33"}
+	dev := Alerta{Host: "dev-254", Chave: pve.Chave, Valor: "90/213/42"}
+	if pve.ChaveAceite() == dev.ChaveAceite() {
+		t.Fatalf("mesma chave de aceite para hosts diferentes: %q", pve.ChaveAceite())
+	}
+
+	rec := Reconhecimentos{
+		pve.ChaveAceite(): {Valor: pve.Valor},
+		dev.ChaveAceite(): {Valor: dev.Valor},
+	}
+	if got := rec.Filtrar([]Alerta{pve, dev}); len(got) != 0 {
+		t.Fatalf("sobrou %+v", got)
+	}
+
+	// Mesmo valor no outro host nao conta: so o pve foi aceito.
+	so := Reconhecimentos{pve.ChaveAceite(): {Valor: pve.Valor}}
+	outro := dev
+	outro.Valor = pve.Valor
+	if so.Cobre(outro) {
+		t.Fatal("o aceite do pve silenciou o dev-254")
+	}
+}
+
+func TestChaveSemHostAindaValeComoAntes(t *testing.T) {
+	// Configs gravados antes de a chave levar o host continuam valendo.
+	a := Alerta{Host: "pve", Chave: "raid:md0", Valor: "U_"}
+	rec := Reconhecimentos{"raid:md0": {Valor: "U_"}}
+	if !rec.Cobre(a) {
+		t.Fatal("o aceite antigo, sem host, deixou de valer")
+	}
+	// A chave nova, quando existe, manda - mesmo que a antiga concorde.
+	rec[a.ChaveAceite()] = Reconhecido{Valor: "__"}
+	if rec.Cobre(a) {
+		t.Fatal("a chave antiga passou por cima da nova")
+	}
+}
+
+func TestAvaliarCarregaOHost(t *testing.T) {
+	s := snap()
+	deg := true
+	s.Raid = []metricas.RaidArray{{Nome: "md0", Estado: "ativo",
+		Discos: "U_", Degradado: &deg}}
+	e := est(s)
+	e.Host = "pve"
+
+	lim := LimiaresPadrao()
+	lim.Reconhecidos = Reconhecimentos{"outro/raid:md0": {Valor: "U_"}}
+	if _, a := Avaliar(e, lim); len(a) != 1 || a[0].Host != "pve" {
+		t.Fatalf("o aceite de outro host valeu aqui: %+v", a)
+	}
+	lim.Reconhecidos = Reconhecimentos{"pve/raid:md0": {Valor: "U_"}}
+	if n, a := Avaliar(e, lim); n != OK || len(a) != 0 {
+		t.Fatalf("o aceite do proprio host nao valeu: %+v", a)
+	}
+}

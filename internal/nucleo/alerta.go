@@ -58,8 +58,40 @@ func (r Reconhecimentos) Cobre(a Alerta) bool {
 	if !a.Reconhecivel() {
 		return false
 	}
-	rec, ok := r[a.Chave]
+	rec, _, ok := r.De(a)
 	return ok && rec.Valor == a.Valor
+}
+
+// ChaveAceite e onde o reconhecimento deste alerta fica guardado.
+//
+// Leva o host junto. A Chave sozinha descreve a condicao ("smart:sda:..."),
+// e dois hosts com um sda cada produzem a MESMA chave: aceitar os dois
+// gravava os dois no mesmo lugar, o segundo sobrescrevia o primeiro, e o
+// alerta que perdia voltava a aparecer - aceitar um fazia o outro voltar, e
+// os dois ficavam se revezando no rodape.
+func (a Alerta) ChaveAceite() string {
+	if a.Host == "" {
+		return a.Chave
+	}
+	return a.Host + "/" + a.Chave
+}
+
+// De acha o reconhecimento de um alerta, e devolve tambem a chave em que ele
+// estava guardado - quem revoga precisa apagar exatamente aquela.
+//
+// Ate a v5.7 a chave nao tinha o host. Um config.json dessa epoca continua
+// valendo: sem a chave com host, a sem host e aceita no lugar. Na proxima
+// aceitacao a chave nova e gravada, e ela passa a ter precedencia.
+func (r Reconhecimentos) De(a Alerta) (Reconhecido, string, bool) {
+	if rec, ok := r[a.ChaveAceite()]; ok {
+		return rec, a.ChaveAceite(), true
+	}
+	if a.Host != "" {
+		if rec, ok := r[a.Chave]; ok {
+			return rec, a.Chave, true
+		}
+	}
+	return Reconhecido{}, "", false
 }
 
 // Filtrar remove os alertas ja aceitos.
