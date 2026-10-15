@@ -61,6 +61,13 @@ vira esquecimento.
 Fica no `config.json`, na chave `reconhecidos` — na raiz, e não dentro de
 `alertas`: alertas são a regra, aceitação é a exceção a ela.
 
+Cada aceite é **por host**: a entrada se chama `pve/smart:sda:...`, e não só
+`smart:sda:...`. Até a 5.7 o host ficava de fora, e dois hosts com a mesma
+condição — um `sda` com desligamentos sujos em cada — disputavam a mesma
+entrada: aceitar os dois fazia um deles voltar, e os dois se revezavam no
+rodapé. Entradas antigas, sem host, continuam valendo; o **ACEITAR TODOS** as
+converte para o formato novo.
+
 ## Limiares de alerta
 
 O `!` abre onde cada medida vira **aviso** (âmbar) e **crítico** (vermelho):

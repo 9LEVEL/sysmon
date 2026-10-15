@@ -11,8 +11,9 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
-	"gioui.org/widget/material"
+	"golang.org/x/image/math/fixed"
 
 	"sysmon/internal/tela"
 )
@@ -38,35 +39,73 @@ func (j *Janela) Texto(gtx C, x, y int, s string, c color.NRGBA, tam unit.Sp,
 		return 0
 	}
 	defer op.Offset(image.Pt(x, y)).Push(gtx.Ops).Pop()
-	g := gtx
-	g.Constraints.Min = image.Point{}
-	l := material.Label(j.th, tam, s)
-	l.Color = c
-	l.Font.Typeface = "Go Mono"
-	l.MaxLines = 1
-	if negrito {
-		l.Font.Weight = font.Bold
+	larg, gs := j.moldar(gtx, s, tam, negrito)
+	if len(gs) == 0 {
+		return larg
 	}
-	return l.Layout(g).Size.X
+	// A linha inteira vira UM caminho, e nao lotes de 32 glifos como faz o
+	// widget.Label. Com lotes, o Gio desenhava o segundo lote de uma linha
+	// longa visivelmente mais apagado que o primeiro: o texto mudava de cor
+	// no meio da palavra - "temperatura da cpu (fracao do cr|itico" -, e
+	// parecia cor errada, quando era o mesmo branco a ~70% da intensidade.
+	// Como o primeiro lote sempre saiu certo, um lote so resolve.
+	t := op.Affine(f32.AffineId().Offset(f32.Pt(
+		float32(gs[0].X)/64, float32(gs[0].Y)))).Push(gtx.Ops)
+	contorno := clip.Outline{Path: j.th.Shaper.Shape(gs)}.Op().Push(gtx.Ops)
+	paint.ColorOp{Color: c}.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+	contorno.Pop()
+	if call := j.th.Shaper.Bitmaps(gs); call != (op.CallOp{}) {
+		call.Add(gtx.Ops)
+	}
+	t.Pop()
+	return larg
 }
 
 // Medir devolve a largura de um texto sem desenhar nada.
-//
-// op.Record captura as operacoes num buffer que e descartado: e o jeito do
-// Gio de perguntar "quanto isto ocuparia" sem sujar o quadro.
 func (j *Janela) Medir(gtx C, s string, tam unit.Sp, negrito bool) int {
-	m := op.Record(gtx.Ops)
-	g := gtx
-	g.Constraints.Min = image.Point{}
-	l := material.Label(j.th, tam, s)
-	l.Font.Typeface = "Go Mono"
-	l.MaxLines = 1
+	larg, _ := j.moldar(gtx, s, tam, negrito)
+	return larg
+}
+
+// moldar faz o que o widget.Label faz antes de pintar: uma linha, cortada
+// com reticencias na largura disponivel. Devolve a largura logica - a mesma
+// conta do Label, para nada mudar de lugar - e os glifos visiveis.
+func (j *Janela) moldar(gtx C, s string, tam unit.Sp,
+	negrito bool) (int, []text.Glyph) {
+	f := font.Font{Typeface: "Go Mono"}
 	if negrito {
-		l.Font.Weight = font.Bold
+		f.Weight = font.Bold
 	}
-	d := l.Layout(g)
-	m.Stop()
-	return d.Size.X
+	sh := j.th.Shaper
+	sh.LayoutString(text.Parameters{
+		Font:     f,
+		PxPerEm:  fixed.I(gtx.Sp(tam)),
+		MaxLines: 1,
+		MaxWidth: gtx.Constraints.Max.X,
+		Locale:   gtx.Locale,
+	}, s)
+	var (
+		gs           []text.Glyph
+		minX, maxX   int
+		primeiro     = true
+		linhasVistas int
+	)
+	for g, ok := sh.NextGlyph(); ok; g, ok = sh.NextGlyph() {
+		if g.Flags&text.FlagLineBreak != 0 {
+			linhasVistas++
+		}
+		ini, fim := g.X.Floor(), (g.X + g.Advance).Ceil()
+		if primeiro {
+			minX, maxX, primeiro = ini, fim, false
+		}
+		minX, maxX = min(minX, ini), max(maxX, fim)
+		gs = append(gs, g)
+		if linhasVistas == 1 && g.Flags&text.FlagParagraphBreak != 0 {
+			break
+		}
+	}
+	return max(0, min(maxX-minX, gtx.Constraints.Max.X)), gs
 }
 
 // TextoDir alinha pela direita: os numeros ficam colados na borda, que e o

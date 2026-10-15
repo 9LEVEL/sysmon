@@ -9,6 +9,9 @@ import (
 // Estado e a ultima leitura de um host. Sempre consistente: dados OU erro,
 // nunca os dois.
 type Estado struct {
+	// Host e o apelido do config. Os alertas o carregam desde a avaliacao,
+	// porque o reconhecimento e por host - ver Alerta.ChaveAceite.
+	Host       string
 	Dados      *metricas.Snapshot
 	Erro       string
 	Atualizado float64
@@ -89,8 +92,8 @@ func Avaliar(e Estado, lim Limiares) (int, []Alerta) {
 	// devolve OK, Aviso ou Critico, e OK nunca sobe nada.
 	marcar := func(n int, chave, valor, texto string) {
 		if n >= Aviso && texto != "" {
-			alertas = append(alertas, Alerta{Chave: chave, Valor: valor,
-				Texto: texto, Nivel: n})
+			alertas = append(alertas, Alerta{Host: e.Host, Chave: chave,
+				Valor: valor, Texto: texto, Nivel: n})
 		}
 	}
 	// pct e o valor de uma medida continua, arredondado ao ponto percentual.
