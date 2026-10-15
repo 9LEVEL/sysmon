@@ -3,9 +3,12 @@ package janela
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"sysmon/internal/banco"
 	"sysmon/internal/metricas"
 	"sysmon/internal/nucleo"
 )
@@ -248,5 +251,94 @@ func TestChaveAntigaSemHostContinuaValendoEMigra(t *testing.T) {
 	}
 	if a := alertasDaJanela(b); len(a) != 0 {
 		t.Fatalf("sobrou alerta: %+v", a)
+	}
+}
+
+func TestAceiteVaiParaOBancoENaoParaOConfig(t *testing.T) {
+	b := bancadaComAlerta(t)
+	bd, err := banco.Abrir(filepath.Join(t.TempDir(), banco.NomeArquivo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bd.Fechar()
+	b.j.Banco = bd
+
+	b.j.abrirReconhecer()
+	b.j.aceitarTodos(b.j.dlgReconhecer)
+
+	if a := alertasDaJanela(b); len(a) != 0 {
+		t.Fatalf("o alerta continua: %+v", a)
+	}
+	rec, err := bd.Reconhecidos()
+	if err != nil || len(rec) != 1 {
+		t.Fatalf("banco: %+v %v", rec, err)
+	}
+	if _, err := os.Stat(b.j.caminho); err == nil {
+		dados, _ := os.ReadFile(b.j.caminho)
+		if strings.Contains(string(dados), "reconhecidos") {
+			t.Fatal("o aceite foi parar no config.json")
+		}
+	}
+}
+
+func TestDialogoMostraDesdeQuando(t *testing.T) {
+	b := bancadaComAlerta(t)
+	bd, err := banco.Abrir(filepath.Join(t.TempDir(), banco.NomeArquivo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bd.Fechar()
+	b.j.Banco = bd
+	b.j.coletar() // registra no diario
+
+	b.j.abrirReconhecer()
+	l := b.j.dlgReconhecer.linhas[0]
+	// A bancada injeta a leitura sem ts, entao o host nao tem "primeira
+	// leitura" registrada e o episodio nao e herdado: e novo.
+	if !l.novo || !strings.HasPrefix(l.historia, "novo · desde ") {
+		t.Fatalf("historia = %q novo=%v", l.historia, l.novo)
+	}
+	b.quadro() // desenha com a terceira linha sem quebrar nada
+}
+
+func TestHistoriaDoAlerta(t *testing.T) {
+	agora := time.Unix(10*86400, 0)
+	ts := func(d time.Duration) float64 { return float64(agora.Add(-d).Unix()) }
+
+	casos := []struct {
+		nome string
+		ep   banco.Episodio
+		re   *banco.Reinicio
+		quer string
+		novo bool
+	}{
+		{"herdado", banco.Episodio{AbertoEm: ts(72 * time.Hour), Herdado: true},
+			nil, "ja estava assim na 1a leitura, em ", false},
+		{"antigo", banco.Episodio{AbertoEm: ts(72 * time.Hour)}, nil, "desde ", false},
+		{"novo", banco.Episodio{AbertoEm: ts(time.Hour)}, nil, "novo · desde ", true},
+		{"antigo que mudou agora", banco.Episodio{AbertoEm: ts(72 * time.Hour),
+			Herdado: true, UltimaMudanca: &banco.Mudanca{Em: ts(time.Hour),
+				De: "89/267/33", Para: "90/268/34"}},
+			&banco.Reinicio{BootEm: ts(time.Hour), VistoAntes: ts(2 * time.Hour)},
+			"ja estava assim na 1a leitura, em ", true},
+	}
+	for _, c := range casos {
+		re := banco.Reinicio{}
+		if c.re != nil {
+			re = *c.re
+		}
+		got, novo := historia(c.ep, true, re, c.re != nil, agora)
+		if !strings.HasPrefix(got, c.quer) || novo != c.novo {
+			t.Errorf("%s: %q novo=%v", c.nome, got, novo)
+		}
+		if c.ep.UltimaMudanca != nil && !strings.Contains(got, "novo: 89/267/33 -> 90/268/34 em ") {
+			t.Errorf("%s: sem a mudanca: %q", c.nome, got)
+		}
+		if c.re != nil && !strings.Contains(got, "host religou ") {
+			t.Errorf("%s: sem o reinicio: %q", c.nome, got)
+		}
+	}
+	if got, _ := historia(banco.Episodio{}, false, banco.Reinicio{}, false, agora); got != "" {
+		t.Errorf("sem episodio: %q", got)
 	}
 }

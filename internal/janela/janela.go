@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gioui.org/app"
@@ -28,6 +29,7 @@ import (
 	"gioui.org/widget/material"
 
 	"sysmon/internal/atualizar"
+	"sysmon/internal/banco"
 	"sysmon/internal/nucleo"
 	"sysmon/internal/tela"
 )
@@ -164,6 +166,11 @@ type Janela struct {
 	// Atualizacao do proprio programa. Nil quando desligada.
 	Atual        *atualizar.Atualizador
 	updatePedido bool
+
+	// O banco do cliente: aceites e o diario de alertas. Nil quando nao
+	// abriu - a janela funciona igual, so sem as datas.
+	Banco       *banco.Banco
+	avisouBanco atomic.Bool // coletar roda na thread da tela e no laco
 }
 
 const (
@@ -287,6 +294,14 @@ func (j *Janela) coletar() {
 
 	linhas := tela.Montar(leituras, cfg.Limiares, j.oculto, j.serie)
 	alertas := j.frota.Alertas()
+
+	// O diario anda junto com a tela, inclusive recolhida na bandeja: e
+	// quando ninguem esta olhando que as coisas acontecem.
+	if err := j.Banco.Registrar(float64(time.Now().Unix()), leituras,
+		j.frota.AlertasBrutos()); err != nil && j.avisouBanco.CompareAndSwap(false, true) {
+		fmt.Fprintf(os.Stderr, "aviso: nao consegui gravar o diario de "+
+			"alertas (%v)\n", err)
+	}
 
 	n := len(cfg.Hosts)
 	partes := []string{fmt.Sprintf("%d host", n)}

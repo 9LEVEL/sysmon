@@ -272,7 +272,8 @@ muda sozinho a cada coleta, e congelar um número não resolveria nada. Para
 esses, ajuste o **limiar** no ícone de aviso.
 
 Para ver o que já foi aceito: o ícone fica aceso, e o rodapé mostra a contagem.
-No arquivo, é a chave `reconhecidos` do `config.json`.
+No disco, é a tabela `aceite` do `sysmon.db`, ao lado do `config.json` — e a
+`aceite_historico` diz quando cada um foi aceito ou revogado.
 
 ### A cpu (ou a memória) aparece cinza — está com problema?
 

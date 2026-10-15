@@ -16,6 +16,7 @@ import (
 	"image"
 	"image/color"
 	"sort"
+	"strings"
 	"time"
 
 	"gioui.org/layout"
@@ -23,6 +24,7 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
+	"sysmon/internal/banco"
 	"sysmon/internal/nucleo"
 	"sysmon/internal/tela"
 )
@@ -36,6 +38,11 @@ type linhaReconhecer struct {
 	fixo    bool // nao reconhecivel: ajuste o limiar
 	orfao   bool // reconhecido, mas nao esta mais alertando
 	revogar *Botao
+
+	// historia e a terceira linha: desde quando, o que mudou, quando o host
+	// religou. Vem do diario no banco; vazia sem banco.
+	historia string
+	novo     bool
 }
 
 type dialogoReconhecer struct {
@@ -69,8 +76,26 @@ func (j *Janela) montarReconhecer(d *dialogoReconhecer) {
 	vistos := map[string]bool{}
 	d.linhas = nil
 
+	// O diario e consultado na abertura, e nao a cada quadro: o que ele diz
+	// muda em minutos, e o dialogo e remontado a cada aceite.
+	episodios, err := j.Banco.Abertos()
+	if err != nil {
+		d.erro = "diario: " + err.Error()
+	}
+	reinicios, err := j.Banco.UltimosReinicios()
+	if err != nil {
+		d.erro = "diario: " + err.Error()
+	}
+	agora := time.Now()
+
 	for _, a := range j.frota.AlertasBrutos() {
 		l := &linhaReconhecer{a: a, fixo: !a.Reconhecivel()}
+		ep, temEp := episodios[a.Host+"/"+a.Chave]
+		re, temRe := reinicios[a.Host]
+		if !banco.EhDeEnergia(a.Chave) {
+			temRe = false
+		}
+		l.historia, l.novo = historia(ep, temEp, re, temRe, agora)
 		if r, chave, ok := rec.De(a); ok {
 			// Guardado, mesmo com valor diferente, nao e orfao: e a
 			// aceitacao antiga deste alerta, que o valor novo ja venceu.
@@ -160,7 +185,10 @@ func (j *Janela) desenharReconhecer(gtx C) {
 }
 
 func (j *Janela) linhaReconhecerLayout(gtx C, l *linhaReconhecer, largTotal int) D {
-	const alt = 40
+	alt := 40
+	if l.historia != "" {
+		alt = 56
+	}
 	// A mesma margem da tela de hosts: a material.List recorta os itens na
 	// propria largura, e o botao encostado na borda perdia o traco direito -
 	// ACEITAR e VOLTAR A ALERTAR apareciam como caixas abertas de um lado.
@@ -214,12 +242,66 @@ func (j *Janela) linhaReconhecerLayout(gtx C, l *linhaReconhecer, largTotal int)
 		nota = "valor atual: " + l.a.Valor
 	}
 	j.Texto(gtx, 0, 20, j.cortarPara(gtx, nota, espaco), tela.Ocioso, 11, false)
+	if l.historia != "" {
+		// "novo" em destaque: e a pergunta que a linha existe para responder
+		// de relance - isto e de agora, ou e o mesmo de sempre?
+		cor := tela.Ocioso
+		if l.novo {
+			cor = tela.Titulo
+		}
+		j.Texto(gtx, 0, 36, j.cortarPara(gtx, l.historia, espaco), cor, 11, false)
+	}
 
 	return D{Size: image.Pt(largTotal, alt)}
 }
 
 func quando(ts float64) string {
 	return time.Unix(int64(ts), 0).Format("02/01 15:04")
+}
+
+// janelaNovo e quanto tempo um alerta - ou a ultima mudanca dele - conta
+// como novidade. Um dia cobre "aconteceu esta noite e eu vi de manha".
+const janelaNovo = 24 * time.Hour
+
+// historia monta a terceira linha de um alerta a partir do diario.
+func historia(ep banco.Episodio, temEp bool, re banco.Reinicio, temRe bool,
+	agora time.Time) (string, bool) {
+	if !temEp {
+		return "", false
+	}
+	recente := func(ts float64) bool {
+		return agora.Sub(time.Unix(int64(ts), 0)) < janelaNovo
+	}
+	var partes []string
+	novo := false
+	switch {
+	case ep.Herdado:
+		// Ja estava assim quando o sysmon leu este host pela primeira vez:
+		// a data e de quando ele comecou a olhar, nao de quando aconteceu.
+		// Dizer "desde" aqui seria inventar uma data.
+		partes = append(partes, "ja estava assim na 1a leitura, em "+quando(ep.AbertoEm))
+	case recente(ep.AbertoEm):
+		novo = true
+		partes = append(partes, "novo · desde "+quando(ep.AbertoEm))
+	default:
+		partes = append(partes, "desde "+quando(ep.AbertoEm))
+	}
+	if m := ep.UltimaMudanca; m != nil {
+		pre := ""
+		if recente(m.Em) {
+			novo = true
+			pre = "novo: "
+		}
+		partes = append(partes, pre+m.De+" -> "+m.Para+" em "+quando(m.Em))
+	}
+	if temRe {
+		s := "host religou " + quando(re.BootEm)
+		if re.VistoAntes > 0 {
+			s += " (visto antes em " + quando(re.VistoAntes) + ")"
+		}
+		partes = append(partes, s)
+	}
+	return strings.Join(partes, " · "), novo
 }
 
 func temAceitavel(d *dialogoReconhecer) bool {
@@ -320,11 +402,30 @@ func (j *Janela) copiaReconhecidos() nucleo.Reconhecimentos {
 	return out
 }
 
-// gravarReconhecidos aplica a mudanca no arquivo e na frota.
+// gravarReconhecidos aplica a mudanca no banco e na frota.
 //
 // Grava ANTES de aplicar: uma aceitacao que some no proximo arranque e pior
 // que uma que nao aconteceu, porque o usuario acredita ter resolvido.
 func (j *Janela) gravarReconhecidos(d *dialogoReconhecer, rec nucleo.Reconhecimentos) {
+	if j.Banco != nil {
+		if err := j.Banco.Gravar(rec, float64(time.Now().Unix())); err != nil {
+			d.erro = "nao consegui gravar: " + err.Error()
+			return
+		}
+	} else if err := j.gravarReconhecidosNoConfig(rec); err != nil {
+		d.erro = err.Error()
+		return
+	}
+	d.erro = ""
+	j.frota.DefinirReconhecidos(rec)
+	j.coletar()
+	j.montarReconhecer(d)
+}
+
+// gravarReconhecidosNoConfig e o caminho de quando o banco nao abriu: os
+// aceites vao para o config.json, como ate a v5.7. Pior que o banco - sem
+// historico, sem datas de alerta -, mas melhor que aceitar e perder.
+func (j *Janela) gravarReconhecidosNoConfig(rec nucleo.Reconhecimentos) error {
 	bruto := j.frota.Cfg().ComoBruto()
 	m := map[string]any{}
 	for k, v := range rec {
@@ -339,20 +440,15 @@ func (j *Janela) gravarReconhecidos(d *dialogoReconhecer, rec nucleo.Reconhecime
 	} else {
 		bruto["reconhecidos"] = m
 	}
-
 	nova, err := nucleo.ConfigDe(bruto)
 	if err != nil {
-		d.erro = err.Error()
-		return
+		return err
 	}
 	if err := nucleo.SalvarConfig(j.caminho, bruto); err != nil {
-		d.erro = "nao consegui gravar: " + err.Error()
-		return
+		return fmt.Errorf("nao consegui gravar: %w", err)
 	}
-	d.erro = ""
 	j.frota.Trocar(nova)
-	j.coletar()
-	j.montarReconhecer(d)
+	return nil
 }
 
 // resumoReconhecidos e a linha do rodape que impede o silencio de virar

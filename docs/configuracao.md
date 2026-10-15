@@ -19,8 +19,10 @@ O arquivo fica ao lado do executável. Formato mínimo:
 }
 ```
 
-As demais chaves — `alertas`, `reconhecidos`, `ignorar_mounts` — a interface
-escreve sozinha quando você mexe nos limiares ou aceita um alerta.
+As demais chaves — `alertas`, `ignorar_mounts` — a interface escreve sozinha
+quando você mexe nos limiares. Os alertas aceitos não ficam aqui: moram no
+`sysmon.db`, ao lado deste arquivo ([o banco do cliente](alertas.md#o-banco-do-cliente)).
+Um `reconhecidos` de versão antiga é importado e removido na primeira abertura.
 
 ### Manter o token fora do arquivo
 

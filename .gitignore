@@ -8,6 +8,10 @@ hosts.json
 config.json
 linux-agent/hosts.conf
 
+# Banco do cliente (aceites e diario de alertas), ao lado do config.json.
+sysmon.db
+sysmon.db-*
+
 __pycache__/
 *.pyc
 

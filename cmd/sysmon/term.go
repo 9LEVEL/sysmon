@@ -55,6 +55,8 @@ func rodarTerminal(args []string) int {
 	}
 
 	frota := nucleo.NovaFrota(cfg, nil)
+	// So para ler os aceites: o terminal mostra o mesmo que a janela.
+	defer abrirBanco(c, frota).Fechar()
 	frota.Iniciar()
 	defer frota.Parar()
 	frota.EsperarPrimeiraLeitura(5 * time.Second)
@@ -68,7 +70,7 @@ func rodarTerminal(args []string) int {
 		return imprimirJSON(frota)
 	}
 	if *umaVez {
-		terminal.Desenhar(os.Stdout, frota.Estados(), cfg.Limiares,
+		terminal.Desenhar(os.Stdout, frota.Estados(), frota.Cfg().Limiares,
 			frota.Alertas(), o)
 		// Codigo de saida util para script: 0 tudo bem, 1 ha alerta, 2 ha
 		// host fora do ar. E o que permite `sysmon term --once || avisar`.
@@ -82,7 +84,7 @@ func rodarTerminal(args []string) int {
 	defer tique.Stop()
 	for {
 		fmt.Print("\x1b[H\x1b[2J")
-		terminal.Desenhar(os.Stdout, frota.Estados(), cfg.Limiares,
+		terminal.Desenhar(os.Stdout, frota.Estados(), frota.Cfg().Limiares,
 			frota.Alertas(), o)
 		select {
 		case <-tique.C:

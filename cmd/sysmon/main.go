@@ -67,7 +67,11 @@ func main() {
 	frota.Iniciar()
 	defer frota.Parar()
 
+	bd := abrirBanco(c, frota)
+	defer bd.Fechar()
+
 	j := janela.Nova(frota, c, versao)
+	j.Banco = bd
 
 	// Atualizacao do proprio binario. O primeiro passo e apagar a sobra da
 	// troca anterior: e o unico momento em que ela com certeza nao esta mais

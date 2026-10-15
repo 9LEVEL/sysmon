@@ -164,8 +164,11 @@ func (m *Monitor) Parar() { m.umaVez.Do(func() { close(m.parar) }) }
 
 // Frota e o conjunto de hosts monitorados.
 type Frota struct {
-	mu        sync.RWMutex
-	cfg       Config
+	mu  sync.RWMutex
+	cfg Config
+	// Os aceites ficam fora do cfg: moram no banco, e nao no config.json, e
+	// trocar a configuracao - salvar um limiar, um host - nao pode leva-los.
+	rec       Reconhecimentos
 	monitores []*Monitor
 	aoMudar   func(string, Estado)
 	ctx       context.Context
@@ -173,7 +176,8 @@ type Frota struct {
 }
 
 func NovaFrota(cfg Config, aoMudar func(string, Estado)) *Frota {
-	f := &Frota{cfg: cfg, aoMudar: aoMudar, ctx: context.Background()}
+	f := &Frota{cfg: cfg, rec: cfg.Limiares.Reconhecidos, aoMudar: aoMudar,
+		ctx: context.Background()}
 	f.montar()
 	return f
 }
@@ -187,10 +191,22 @@ func (f *Frota) montar() {
 	}
 }
 
+// Cfg devolve a configuracao com os aceites vigentes nos limiares - e o que
+// todo mundo que avalia alertas precisa ver junto.
 func (f *Frota) Cfg() Config {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	return f.cfg
+	c := f.cfg
+	c.Limiares.Reconhecidos = f.rec
+	return c
+}
+
+// DefinirReconhecidos troca os aceites vigentes. O mapa passa a ser da frota:
+// quem chama nao o altera depois.
+func (f *Frota) DefinirReconhecidos(r Reconhecimentos) {
+	f.mu.Lock()
+	f.rec = r
+	f.mu.Unlock()
 }
 
 func (f *Frota) limiares() Limiares { return f.Cfg().Limiares }
@@ -293,6 +309,7 @@ func (f *Frota) DefinirEstado(host string, e Estado) {
 	f.mu.RLock()
 	monitores := append([]*Monitor(nil), f.monitores...)
 	lim := f.cfg.Limiares
+	lim.Reconhecidos = f.rec
 	f.mu.RUnlock()
 	for _, m := range monitores {
 		if m.Host.Nome == host {
