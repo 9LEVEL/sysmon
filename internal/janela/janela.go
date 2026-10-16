@@ -115,6 +115,7 @@ type Janela struct {
 	dlgExibir     *dialogoExibir
 	dlgAlertas    *dialogoAlertas
 	dlgReconhecer *dialogoReconhecer
+	dlgVersao     *dialogoVersao
 
 	mu        sync.Mutex
 	linhas    []tela.Linha
@@ -164,8 +165,7 @@ type Janela struct {
 	nivelAvisado int
 
 	// Atualizacao do proprio programa. Nil quando desligada.
-	Atual        *atualizar.Atualizador
-	updatePedido bool
+	Atual *atualizar.Atualizador
 
 	// O banco do cliente: aceites e o diario de alertas. Nil quando nao
 	// abriu - a janela funciona igual, so sem as datas.
@@ -720,23 +720,24 @@ func (j *Janela) tratarCliques(gtx C) {
 	}
 }
 
-// acaoUpdate: um botao com dois papeis - procurar quando nao ha nada,
-// aplicar quando ha. Dois botoes seriam um a mais, com o de aplicar passando
-// a vida inteira sem ter o que fazer.
+// acaoUpdate abre a tela de versao e, se nao ha nada baixado, procura.
+//
+// Ate a v5.7 o resultado ia so para o rodape - e por um quadro so: o texto
+// "ja esta na versao mais nova" se apagava no mesmo desenho que o mostrava,
+// e com alerta no rodape nem esse quadro aparecia. Clicar no botao parecia
+// nao fazer nada. Agora a resposta e um dialogo que fica ate voce fecha-lo.
 func (j *Janela) acaoUpdate() {
 	if j.Atual == nil {
 		return
 	}
-	if j.Atual.Estado().Pronta {
-		j.aplicarUpdate()
-		return
+	j.abrirVersao()
+	if !j.Atual.Estado().Pronta {
+		j.Atual.VerificarEmThread(func() {
+			if w := j.wAtual.Load(); w != nil {
+				w.Invalidate()
+			}
+		})
 	}
-	j.updatePedido = true // erro so aparece se voce perguntou
-	j.Atual.VerificarEmThread(func() {
-		if j.w != nil {
-			j.w.Invalidate()
-		}
-	})
 }
 
 // aplicarUpdate troca o binario e sobe a versao nova no lugar desta.
@@ -764,7 +765,9 @@ func (j *Janela) aplicarUpdate() {
 	j.sair()
 }
 
-// textoUpdate e a linha de status sobre atualizacao.
+// textoUpdate e a linha de status sobre atualizacao, no rodape. So o que
+// vale lembrar sem ter perguntado: ha versao pronta, ou ha uma busca em
+// curso. A resposta a quem perguntou vai no dialogo de versao.
 func (j *Janela) textoUpdate() string {
 	if j.Atual == nil {
 		return ""
@@ -778,11 +781,6 @@ func (j *Janela) textoUpdate() string {
 		return "atualizacao " + e.Disponivel + " pronta · clique em ⭳"
 	case e.Checando:
 		return "procurando atualizacao..."
-	case e.Erro != "" && j.updatePedido:
-		return "atualizacao: " + e.Erro
-	case j.updatePedido:
-		j.updatePedido = false
-		return "ja esta na versao mais nova"
 	}
 	return ""
 }
@@ -797,6 +795,8 @@ func (j *Janela) tratarDialogo(gtx C) {
 		j.tratarAlertas(gtx)
 	case dlgReconhecer:
 		j.tratarReconhecer(gtx)
+	case dlgVersao:
+		j.tratarVersao(gtx)
 	}
 }
 
@@ -888,6 +888,8 @@ func (j *Janela) desenhar(gtx C) {
 		j.desenharAlertas(gtx)
 	case dlgReconhecer:
 		j.desenharReconhecer(gtx)
+	case dlgVersao:
+		j.desenharVersao(gtx)
 	}
 }
 

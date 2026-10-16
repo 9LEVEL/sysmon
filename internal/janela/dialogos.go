@@ -33,6 +33,7 @@ const (
 	dlgExibir
 	dlgAlertas
 	dlgReconhecer
+	dlgVersao
 )
 
 // ---------------------------------------------------------------- hosts

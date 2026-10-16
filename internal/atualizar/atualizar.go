@@ -51,6 +51,9 @@ type Estado struct {
 	Pronta     bool   // baixada, conferida e pronta para aplicar
 	Erro       string
 	Versao     string
+	// Conferido e quando o GitHub respondeu pela ultima vez. E o que permite
+	// dizer "esta e a mais recente" com uma data, e nao so de memoria.
+	Conferido time.Time
 }
 
 // Atualizador guarda o estado da verificacao.
@@ -135,6 +138,9 @@ func (a *Atualizador) VerificarEmThread(aoTerminar func()) bool {
 		return false
 	}
 	a.estado.Checando = true
+	// O erro da tentativa anterior sai ja: senao a tela mostraria a falha
+	// velha enquanto a nova verificacao ainda esta em curso.
+	a.estado.Erro = ""
 	a.mu.Unlock()
 
 	go func() {
@@ -160,6 +166,8 @@ func (a *Atualizador) verificar(jaMarcado bool) {
 		a.marcar(func(e *Estado) { e.Checando = false; e.Erro = err.Error() })
 		return
 	}
+	agora := time.Now()
+	a.marcar(func(e *Estado) { e.Conferido = agora })
 	if Compara(tag, a.versao) <= 0 {
 		a.marcar(func(e *Estado) {
 			e.Checando, e.Disponivel, e.Pronta = false, "", false
