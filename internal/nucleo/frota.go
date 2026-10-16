@@ -407,21 +407,36 @@ func TestarHost(bruta, token string, timeout time.Duration) (bool, string) {
 //
 // "Get \"http://...\": dial tcp ...: connect: connection refused" nao ajuda
 // ninguem; "conexao recusada" cabe na tela e diz a mesma coisa.
+//
+// Os textos do Windows sao outros, e era la que a tela de hosts mostrava o
+// erro cru - "dial tcp ...: connectex: No connection could be made because
+// the target machine actively refused it." - justamente no sistema onde o
+// cliente e usado. O teste de cada caso agora roda tambem como Windows.
 func resumirErroRede(err error) string {
-	s := err.Error()
+	s := strings.ToLower(err.Error())
+	tem := func(trechos ...string) bool {
+		for _, t := range trechos {
+			if strings.Contains(s, t) {
+				return true
+			}
+		}
+		return false
+	}
 	switch {
-	case strings.Contains(s, "context deadline exceeded"), strings.Contains(s, "Client.Timeout"):
+	case tem("context deadline exceeded", "client.timeout", "i/o timeout",
+		"did not properly respond"): // Windows: WSAETIMEDOUT
 		return "sem resposta (timeout)"
-	case strings.Contains(s, "connection refused"):
+	case tem("connection refused", "actively refused"): // Windows: WSAECONNREFUSED
 		return "conexao recusada"
-	case strings.Contains(s, "no such host"), strings.Contains(s, "server misbehaving"):
+	case tem("no such host", "server misbehaving"):
 		return "nome nao resolve"
-	case strings.Contains(s, "network is unreachable"), strings.Contains(s, "no route to host"):
+	case tem("network is unreachable", "no route to host",
+		"unreachable network", "unreachable host"): // Windows: WSAENETUNREACH, WSAEHOSTUNREACH
 		return "host inalcancavel"
-	case strings.Contains(s, "certificate"):
+	case tem("certificate"):
 		return "certificado TLS recusado"
 	}
-	return s
+	return err.Error()
 }
 
 func agora() float64 { return float64(time.Now().UnixNano()) / 1e9 }

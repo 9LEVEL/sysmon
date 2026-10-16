@@ -262,7 +262,10 @@ func TestRetencaoDescartaOAntigo(t *testing.T) {
 
 func TestCaminhoPadraoSegueOSystemd(t *testing.T) {
 	t.Setenv("STATE_DIRECTORY", "/var/lib/private/sysmon:/outro")
-	if got := CaminhoPadrao(); got != "/var/lib/private/sysmon/smart-historico.json" {
+	// filepath.Join, e nao a string com barras: o pacote tambem compila e
+	// roda como Windows (os testes do CI passam la), onde o separador e outro.
+	quer := filepath.Join("/var/lib/private/sysmon", "smart-historico.json")
+	if got := CaminhoPadrao(); got != quer {
 		t.Fatalf("caminho = %q", got)
 	}
 }
