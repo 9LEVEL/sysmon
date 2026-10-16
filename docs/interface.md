@@ -51,6 +51,7 @@ exatamente o mesmo coletor que o agente usa — até a v4 era um leitor de
 | 5.3 | [aceitar alertas](#aceitar-um-alerta); janela estreita como tamanho de primeira classe; `ESC` |
 | 5.4 | tela de hosts em duas linhas; altura do gráfico como preset |
 | 5.5 | recolher host; margem esquerda; processador no cabeçalho; colunas mais justas |
+| 5.8 | [banco do cliente](alertas.md#o-banco-do-cliente): aceites que sobrevivem a queda de energia e "desde quando" em cada alerta; ✕ esconde na bandeja de verdade; Sair funciona com a janela minimizada; tela de versão |
 
 ### Atualização automática
 

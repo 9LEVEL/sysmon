@@ -56,3 +56,24 @@ especificação inteira é testável sem disco nenhum.
 - O JSON de `/metrics` manteve todos os campos da v1 e ganhou novos.
 - `--mounts` deixou de ter `/ /var/lib/vz` fixo: os pontos de montagem são
   descobertos do `/proc/mounts`. Passe `--mounts` para fixar manualmente.
+
+## Cortar uma versão
+
+1. Troque a versão no `VERSAO` e no `var versao` do `cmd/sysmon-agent/main.go`;
+   `./checar-versao.sh` confere que os dois concordam.
+2. Merge na `main` com o CI verde — inclusive o job `windows`, que roda os
+   testes no Windows de verdade.
+3. Tag anotada. A primeira linha da mensagem vira o título; o resto, as notas.
+   Com **`[pre-release]`** na mensagem, o release sai como pré-release:
+
+   ```bash
+   git tag -a v5.8.0 -m "v5.8.0 [pre-release]" -m "notas..."
+   git push origin v5.8.0
+   ```
+
+O auto-update consulta `/releases/latest`, que **ignora pré-releases**. É o que
+permite baixar o zip e conferir à mão o que o CI não alcança — a bandeja, o ✕,
+o Sair, um Explorer reiniciado — antes de qualquer cliente instalado receber a
+versão. Conferido, **Set as latest release** no GitHub a promove, e as máquinas
+a recebem na verificação seguinte (até 6 h, ou pelo ⭳).
+

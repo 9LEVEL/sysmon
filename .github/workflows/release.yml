@@ -78,18 +78,33 @@ jobs:
             printf '%s\n' "$MSG" | tail -n +2 > NOTAS.md
           fi
 
+      # Pre-release: a mensagem da tag com [pre-release] publica o release sem
+      # marca-lo como o mais recente. O auto-update consulta /releases/latest,
+      # que ignora pre-releases - entao ninguem recebe a versao ate ela ser
+      # conferida a mao e promovida ("Set as latest release" no GitHub).
+      #
+      # Existe porque a bandeja e o fechar da janela so se testam num Windows
+      # com area de trabalho, e publicar como latest antes disso mandava a
+      # versao para todas as maquinas em ate 6 horas.
       - name: Publica o release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          MARCA="--latest"
+          if git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | grep -qF '[pre-release]'; then
+            MARCA="--prerelease --latest=false"
+            echo "publicando como PRE-RELEASE: o auto-update nao a enxerga"
+          fi
+          TITULO="${{ steps.notas.outputs.titulo }}"
+          TITULO="${TITULO//\[pre-release\]/}"
+          TITULO="${TITULO% }"
           if [ "${{ steps.notas.outputs.gerar }}" = "sim" ]; then
             gh release create "$GITHUB_REF_NAME" dist/* \
-              --title "${{ steps.notas.outputs.titulo }}" \
-              --generate-notes --latest
+              --title "$TITULO" --generate-notes $MARCA
           else
+            sed -i 's/\[pre-release\]//g' NOTAS.md
             gh release create "$GITHUB_REF_NAME" dist/* \
-              --title "${{ steps.notas.outputs.titulo }}" \
-              --notes-file NOTAS.md --latest
+              --title "$TITULO" --notes-file NOTAS.md $MARCA
           fi
 
       # O cliente ja instalado consulta o release mais novo e espera estes dois

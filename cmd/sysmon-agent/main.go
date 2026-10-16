@@ -32,7 +32,7 @@ import (
 )
 
 // versao e sobrescrita no build: -ldflags "-X main.versao=..."
-var versao = "5.7.1"
+var versao = "5.8.0"
 
 func main() {
 	host := flag.String("host", "127.0.0.1",
