@@ -120,10 +120,14 @@ func main() {
 
 	go func() {
 		err := j.Rodar(*oculto)
+		// Os defers do main nao rodam: o app.Main nunca volta, e quem
+		// encerra e o os.Exit abaixo. Por isso a limpeza e explicita - e
+		// nesta ordem: o icone sai primeiro, que e o que o usuario ve.
 		if bnd != nil {
 			bnd.Fechar()
 		}
 		frota.Parar()
+		bd.Fechar()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)

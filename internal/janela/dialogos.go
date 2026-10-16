@@ -248,8 +248,8 @@ func (j *Janela) testar(l *linhaHost) {
 	go func() {
 		ok, msg := nucleo.TestarHost(url, token, 4*time.Second)
 		l.ok, l.resultado = ok, msg
-		if j.w != nil {
-			j.w.Invalidate()
+		if w := j.wAtual.Load(); w != nil {
+			w.Invalidate()
 		}
 	}()
 }

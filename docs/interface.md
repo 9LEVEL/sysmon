@@ -252,9 +252,13 @@ cron ou health check.
 
 No Windows o sysmon se comporta como qualquer app de bandeja:
 
-- **fechar a janela não encerra o programa**: ele fica no ícone da bandeja, e
-  a janela reabre pelo ícone ou pelo atalho
-- **Sair** no menu da bandeja é o que encerra de verdade
+- **fechar a janela não encerra o programa**: o **✕** esconde a janela — some
+  da tela **e da barra de tarefas** — e ela reabre pelo ícone ou pelo atalho.
+  Alt+F4 e "Fechar janela" na barra de tarefas fazem o mesmo
+- **Sair** no menu da bandeja é o que encerra de verdade: tira o ícone, grava
+  o estado da janela e fecha o banco. Funciona com a janela escondida ou
+  minimizada
+- se o Explorer reiniciar, o ícone volta sozinho
 - o ícone muda de cor conforme o pior host, e um balão avisa quando a
   severidade **sobe** — a cada coleta seria ruído, e "voltou ao normal"
   interromperia sem pedir ação

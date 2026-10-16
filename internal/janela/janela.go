@@ -171,6 +171,12 @@ type Janela struct {
 	// abriu - a janela funciona igual, so sem as datas.
 	Banco       *banco.Banco
 	avisouBanco atomic.Bool // coletar roda na thread da tela e no laco
+
+	// Ciclo de vida da janela - ver Rodar.
+	wAtual    atomic.Pointer[app.Window] // j.w, para quem esta fora do laco
+	escondida atomic.Bool                // na bandeja: nada de animacao
+	saindo    bool                       // o usuario pediu para encerrar
+	nativa    janelaNativa               // o que so a plataforma sabe fazer
 }
 
 const (
@@ -203,24 +209,47 @@ func Nova(f *nucleo.Frota, caminho string, versao string) *Janela {
 func (j *Janela) Pedir(cmd string) {
 	select {
 	case j.fila <- cmd:
-		if j.w != nil {
-			j.w.Invalidate()
+		if w := j.wAtual.Load(); w != nil {
+			w.Invalidate()
 		}
 	default:
 	}
 }
 
-// Rodar abre a janela e so volta quando ela fecha.
+// Rodar abre a janela e so volta quando o programa deve encerrar.
+//
+// Com a bandeja ativa, a janela fechada pelo sistema - Alt+F4, "Fechar
+// janela" na barra de tarefas - nao encerra o programa: ela e aberta de novo,
+// escondida, e o sysmon continua vigiando da bandeja. Ate a v5.7 isso matava
+// o processo inteiro, ao contrario do que o X e a propria bandeja prometem.
+// So o Sair encerra.
 func (j *Janela) Rodar(oculto bool) error {
+	j.carregarEstado()
+	j.coletar()
+	go j.laco()
+	for {
+		err := j.abrir(oculto)
+		if !j.reabrir(err) {
+			return err
+		}
+		oculto = true
+	}
+}
+
+// reabrir decide se uma janela destruida volta escondida na bandeja, ou se o
+// programa encerra.
+func (j *Janela) reabrir(err error) bool {
+	return err == nil && j.NaBandeja && !j.saindo
+}
+
+// abrir cria uma janela e roda o laco de eventos dela ate ela ser destruida.
+func (j *Janela) abrir(oculto bool) error {
 	j.w = new(app.Window)
+	j.wAtual.Store(j.w)
+	defer j.wAtual.Store(nil)
 	j.w.Option(app.Title("sysmon"), app.Size(unit.Dp(820), unit.Dp(640)),
 		app.MinSize(unit.Dp(MinLarg), unit.Dp(MinAlt)),
 		app.Decorated(false))
-	if oculto {
-		j.w.Perform(system.ActionMinimize)
-	}
-
-	j.carregarEstado()
 	if j.largSalva >= MinLarg && j.altSalva >= MinAlt {
 		j.w.Option(app.Size(unit.Dp(j.largSalva), unit.Dp(j.altSalva)))
 	}
@@ -229,12 +258,20 @@ func (j *Janela) Rodar(oculto bool) error {
 	if j.noTopo {
 		j.w.Option(app.TopMost(true))
 	}
-	j.coletar()
-	go j.laco()
+	j.nativa = janelaNativa{}
+	j.escondida.Store(false)
+	if oculto {
+		// Minimiza ja, para nao piscar; esconder de vez so da quando a
+		// plataforma entregar o handle - ver janelaNativa.
+		j.w.Perform(system.ActionMinimize)
+		j.esconder()
+	}
 
 	var ops op.Ops
 	for {
-		switch e := j.w.Event().(type) {
+		e := j.w.Event()
+		j.nativa.ver(e)
+		switch e := e.(type) {
 		case app.DestroyEvent:
 			j.salvarEstado()
 			return e.Err
@@ -243,8 +280,48 @@ func (j *Janela) Rodar(oculto bool) error {
 			j.drenar()
 			j.desenhar(gtx)
 			e.Frame(gtx.Ops)
+		default:
+			// Minimizada ou escondida, a janela nao gera quadro nenhum: o
+			// Invalidate do Pedir chega como um evento qualquer. Antes so o
+			// quadro drenava a fila, e o Sair e o Mostrar da bandeja ficavam
+			// parados nela ate alguem trazer a janela de volta por outro
+			// caminho - "nao fecha pela bandeja".
+			j.drenar()
 		}
 	}
+}
+
+// esconder manda a janela para a bandeja: some da tela e da barra de
+// tarefas. Sem bandeja nao ha de onde traze-la de volta, e ela so minimiza.
+func (j *Janela) esconder() {
+	if !j.NaBandeja {
+		j.w.Perform(system.ActionMinimize)
+		return
+	}
+	j.escondida.Store(true)
+	if !j.nativa.esconder() {
+		j.w.Perform(system.ActionMinimize)
+	}
+}
+
+// mostrar traz a janela de volta da bandeja, ou de minimizada.
+func (j *Janela) mostrar() {
+	j.escondida.Store(false)
+	j.nativa.mostrar()
+	j.w.Perform(system.ActionUnmaximize)
+	j.w.Perform(system.ActionRaise)
+	j.w.Invalidate()
+}
+
+// sair encerra pelo caminho normal: a janela fecha, o Rodar volta, e o main
+// tira o icone da bandeja e fecha o banco.
+//
+// Ate a v5.7 era os.Exit(0) direto, que pulava tudo isso: o icone ficava
+// orfao na bandeja ate o mouse passar por cima, e o tamanho da janela e o
+// que estava oculto em "exibir" nao eram gravados.
+func (j *Janela) sair() {
+	j.saindo = true
+	j.w.Perform(system.ActionClose)
 }
 
 // laco atualiza os dados e pede quadro novo.
@@ -265,8 +342,11 @@ func (j *Janela) laco() {
 			j.coletar()
 			ultimaColeta = time.Now()
 		}
-		if j.w != nil {
-			j.w.Invalidate()
+		// Escondida na bandeja, nao ha o que animar: redesenhar a 15Hz uma
+		// janela que ninguem ve e gastar a CPU da maquina que o programa
+		// existe para vigiar. A coleta continua - a bandeja depende dela.
+		if w := j.wAtual.Load(); w != nil && !j.escondida.Load() {
+			w.Invalidate()
 		}
 	}
 }
@@ -510,15 +590,13 @@ func (j *Janela) drenar() {
 		case cmd := <-j.fila:
 			switch cmd {
 			case "mostrar":
-				j.w.Perform(system.ActionUnmaximize)
-				j.w.Perform(system.ActionRaise)
+				j.mostrar()
 			case "atualizar":
 				j.frota.AtualizarAgora()
 			case "topo":
 				j.alternarTopo()
 			case "sair":
-				j.NaBandeja = false
-				os.Exit(0)
+				j.sair()
 			}
 		default:
 			return
@@ -587,9 +665,9 @@ func (j *Janela) tratarCliques(gtx C) {
 	}
 	if j.btFechar.Clicked(gtx) {
 		if j.NaBandeja {
-			j.w.Perform(system.ActionMinimize)
+			j.esconder()
 		} else {
-			os.Exit(0)
+			j.sair()
 		}
 	}
 	if j.btMin.Clicked(gtx) {
@@ -681,8 +759,9 @@ func (j *Janela) aplicarUpdate() {
 		j.mu.Unlock()
 		return
 	}
-	j.NaBandeja = false
-	os.Exit(0)
+	// Sai pelo caminho normal: com os.Exit o icone desta instancia ficava
+	// orfao na bandeja, ao lado do da instancia nova.
+	j.sair()
 }
 
 // textoUpdate e a linha de status sobre atualizacao.
