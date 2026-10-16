@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	gioui.org v0.10.1
-	golang.org/x/image v0.26.0
+	golang.org/x/image v0.41.0
 	modernc.org/sqlite v1.60.1
 )
 
@@ -19,7 +19,7 @@ require (
 	golang.org/x/exp/shiny v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
