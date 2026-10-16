@@ -4,7 +4,8 @@
 #
 # Encerra processos, remove tarefas agendadas, atalhos de inicializacao e de
 # area de trabalho, e restos de atualizacao. NAO apaga o seu config.json - ele
-# tem os tokens dos hosts, e voce vai querer reaproveitar.
+# tem os tokens dos hosts, e voce vai querer reaproveitar - nem o sysmon.db,
+# com os alertas aceitos e o historico deles.
 $ErrorActionPreference = "Continue"
 
 function Ok($m)    { Write-Host "  [removido] $m" -ForegroundColor Green }
@@ -74,6 +75,13 @@ if (Test-Path $cfg) {
 } else {
     Write-Host "Nao ha config.json nesta pasta - o sysmon vai abrir a tela de" -ForegroundColor Yellow
     Write-Host "configuracao no primeiro arranque para voce preencher." -ForegroundColor Yellow
+}
+# O banco guarda os alertas aceitos e o historico deles: apaga-lo e perder
+# quando cada coisa foi vista e aceita. Fica, como o config.json.
+$bd = Join-Path $pasta "sysmon.db"
+if (Test-Path $bd) {
+    Write-Host "Seu sysmon.db (alertas aceitos e historico) foi MANTIDO:" -ForegroundColor Green
+    Write-Host "  $bd"
 }
 
 Write-Host ""

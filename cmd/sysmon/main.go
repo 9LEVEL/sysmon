@@ -67,7 +67,11 @@ func main() {
 	frota.Iniciar()
 	defer frota.Parar()
 
+	bd := abrirBanco(c, frota)
+	defer bd.Fechar()
+
 	j := janela.Nova(frota, c, versao)
+	j.Banco = bd
 
 	// Atualizacao do proprio binario. O primeiro passo e apagar a sobra da
 	// troca anterior: e o unico momento em que ela com certeza nao esta mais
@@ -116,10 +120,14 @@ func main() {
 
 	go func() {
 		err := j.Rodar(*oculto)
+		// Os defers do main nao rodam: o app.Main nunca volta, e quem
+		// encerra e o os.Exit abaixo. Por isso a limpeza e explicita - e
+		// nesta ordem: o icone sai primeiro, que e o que o usuario ve.
 		if bnd != nil {
 			bnd.Fechar()
 		}
 		frota.Parar()
+		bd.Fechar()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)

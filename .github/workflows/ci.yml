@@ -64,10 +64,30 @@ jobs:
             go build -ldflags "-s -w -H windowsgui" -o /tmp/sysmon.exe ./cmd/sysmon
           ls -lh /tmp/sysmon.exe
 
+  # Os testes no Windows de verdade. O cliente e usado la, e o codigo que so
+  # existe la - a bandeja em Win32, a janela escondida, as mensagens de erro
+  # de rede do Winsock - so era compilado, nunca executado. Foi rodando estes
+  # testes como Windows que apareceu o TESTAR da tela de hosts mostrando o
+  # erro cru do Go.
+  #
+  # Nao ha area de trabalho interativa no runner: a bandeja e o fechar da
+  # janela continuam sendo conferidos a mao, numa pre-release.
+  windows:
+    name: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Testes
+        run: go test ./...
+
   pacote:
     name: pacote
     runs-on: ubuntu-latest
-    needs: [versao, codigo]
+    needs: [versao, codigo, windows]
     steps:
       - uses: actions/checkout@v7
 

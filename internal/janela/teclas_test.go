@@ -1,6 +1,7 @@
 package janela
 
 import (
+	"errors"
 	"testing"
 
 	"gioui.org/io/key"
@@ -54,5 +55,25 @@ func TestAAreaDeTecladoNaoEngoleOsCliques(t *testing.T) {
 	b.tecla(key.NameEscape)
 	if b.j.dialogo != semDialogo {
 		t.Fatal("o ESC parou de chegar")
+	}
+}
+
+func TestQuemEncerraOPrograma(t *testing.T) {
+	// Com a bandeja, so o Sair encerra: Alt+F4 ou o "Fechar janela" da barra
+	// de tarefas destroem a janela, e ela volta escondida. Sem a bandeja nao
+	// ha de onde vigiar, e fechar a janela e sair.
+	j := &Janela{NaBandeja: true}
+	if !j.reabrir(nil) {
+		t.Fatal("Alt+F4 com bandeja encerrou o programa")
+	}
+	j.saindo = true
+	if j.reabrir(nil) {
+		t.Fatal("o Sair nao encerrou")
+	}
+	if (&Janela{}).reabrir(nil) {
+		t.Fatal("sem bandeja, fechar a janela nao encerrou")
+	}
+	if (&Janela{NaBandeja: true}).reabrir(errors.New("gpu")) {
+		t.Fatal("reabriu depois de um erro - entraria em laco")
 	}
 }

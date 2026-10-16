@@ -164,8 +164,11 @@ func (m *Monitor) Parar() { m.umaVez.Do(func() { close(m.parar) }) }
 
 // Frota e o conjunto de hosts monitorados.
 type Frota struct {
-	mu        sync.RWMutex
-	cfg       Config
+	mu  sync.RWMutex
+	cfg Config
+	// Os aceites ficam fora do cfg: moram no banco, e nao no config.json, e
+	// trocar a configuracao - salvar um limiar, um host - nao pode leva-los.
+	rec       Reconhecimentos
 	monitores []*Monitor
 	aoMudar   func(string, Estado)
 	ctx       context.Context
@@ -173,7 +176,8 @@ type Frota struct {
 }
 
 func NovaFrota(cfg Config, aoMudar func(string, Estado)) *Frota {
-	f := &Frota{cfg: cfg, aoMudar: aoMudar, ctx: context.Background()}
+	f := &Frota{cfg: cfg, rec: cfg.Limiares.Reconhecidos, aoMudar: aoMudar,
+		ctx: context.Background()}
 	f.montar()
 	return f
 }
@@ -187,10 +191,22 @@ func (f *Frota) montar() {
 	}
 }
 
+// Cfg devolve a configuracao com os aceites vigentes nos limiares - e o que
+// todo mundo que avalia alertas precisa ver junto.
 func (f *Frota) Cfg() Config {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	return f.cfg
+	c := f.cfg
+	c.Limiares.Reconhecidos = f.rec
+	return c
+}
+
+// DefinirReconhecidos troca os aceites vigentes. O mapa passa a ser da frota:
+// quem chama nao o altera depois.
+func (f *Frota) DefinirReconhecidos(r Reconhecimentos) {
+	f.mu.Lock()
+	f.rec = r
+	f.mu.Unlock()
 }
 
 func (f *Frota) limiares() Limiares { return f.Cfg().Limiares }
@@ -293,6 +309,7 @@ func (f *Frota) DefinirEstado(host string, e Estado) {
 	f.mu.RLock()
 	monitores := append([]*Monitor(nil), f.monitores...)
 	lim := f.cfg.Limiares
+	lim.Reconhecidos = f.rec
 	f.mu.RUnlock()
 	for _, m := range monitores {
 		if m.Host.Nome == host {
@@ -390,21 +407,36 @@ func TestarHost(bruta, token string, timeout time.Duration) (bool, string) {
 //
 // "Get \"http://...\": dial tcp ...: connect: connection refused" nao ajuda
 // ninguem; "conexao recusada" cabe na tela e diz a mesma coisa.
+//
+// Os textos do Windows sao outros, e era la que a tela de hosts mostrava o
+// erro cru - "dial tcp ...: connectex: No connection could be made because
+// the target machine actively refused it." - justamente no sistema onde o
+// cliente e usado. O teste de cada caso agora roda tambem como Windows.
 func resumirErroRede(err error) string {
-	s := err.Error()
+	s := strings.ToLower(err.Error())
+	tem := func(trechos ...string) bool {
+		for _, t := range trechos {
+			if strings.Contains(s, t) {
+				return true
+			}
+		}
+		return false
+	}
 	switch {
-	case strings.Contains(s, "context deadline exceeded"), strings.Contains(s, "Client.Timeout"):
+	case tem("context deadline exceeded", "client.timeout", "i/o timeout",
+		"did not properly respond"): // Windows: WSAETIMEDOUT
 		return "sem resposta (timeout)"
-	case strings.Contains(s, "connection refused"):
+	case tem("connection refused", "actively refused"): // Windows: WSAECONNREFUSED
 		return "conexao recusada"
-	case strings.Contains(s, "no such host"), strings.Contains(s, "server misbehaving"):
+	case tem("no such host", "server misbehaving"):
 		return "nome nao resolve"
-	case strings.Contains(s, "network is unreachable"), strings.Contains(s, "no route to host"):
+	case tem("network is unreachable", "no route to host",
+		"unreachable network", "unreachable host"): // Windows: WSAENETUNREACH, WSAEHOSTUNREACH
 		return "host inalcancavel"
-	case strings.Contains(s, "certificate"):
+	case tem("certificate"):
 		return "certificado TLS recusado"
 	}
-	return s
+	return err.Error()
 }
 
 func agora() float64 { return float64(time.Now().UnixNano()) / 1e9 }

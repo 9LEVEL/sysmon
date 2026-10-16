@@ -90,8 +90,8 @@ func TestSoNumerosIgnoraARedacao(t *testing.T) {
 }
 
 func TestReconhecimentoSobreviveAoArquivo(t *testing.T) {
-	// Ele mora no config.json, na raiz: alertas sao a regra, reconhecimento e
-	// a excecao a ela, e um mapa so tornaria o arquivo ilegivel a mao.
+	// Ate a v5.7 ele morava no config.json, na raiz. Ler esse formato
+	// continua necessario: e de la que o banco o importa.
 	bruto := map[string]any{
 		"hosts": []any{},
 		"reconhecidos": map[string]any{
@@ -109,14 +109,21 @@ func TestReconhecimentoSobreviveAoArquivo(t *testing.T) {
 		t.Error("guardou reconhecimento sem valor")
 	}
 
+	// Desde que os aceites moram no banco, o ComoBruto nao os reescreve: o
+	// que esta no arquivo segue intacto ate a migracao, e o que esta em
+	// memoria nao volta para o arquivo.
 	cfg, err := ConfigDe(bruto)
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Limiares.Reconhecidos["pve/raid:md0"] = Reconhecido{Valor: "U_"}
 	volta := cfg.ComoBruto()
 	rec, ok := volta["reconhecidos"].(map[string]any)
-	if !ok || len(rec) != 1 {
-		t.Fatalf("ida e volta perdeu o reconhecimento: %v", volta["reconhecidos"])
+	if !ok || len(rec) != 2 {
+		t.Fatalf("o arquivo antigo nao foi preservado: %v", volta["reconhecidos"])
+	}
+	if _, tem := rec["pve/raid:md0"]; tem {
+		t.Fatal("um aceite em memoria voltou para o config.json")
 	}
 }
 

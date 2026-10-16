@@ -51,6 +51,7 @@ exatamente o mesmo coletor que o agente usa — até a v4 era um leitor de
 | 5.3 | [aceitar alertas](#aceitar-um-alerta); janela estreita como tamanho de primeira classe; `ESC` |
 | 5.4 | tela de hosts em duas linhas; altura do gráfico como preset |
 | 5.5 | recolher host; margem esquerda; processador no cabeçalho; colunas mais justas |
+| 5.8 | [banco do cliente](alertas.md#o-banco-do-cliente): aceites que sobrevivem a queda de energia e "desde quando" em cada alerta; ✕ esconde na bandeja de verdade; Sair funciona com a janela minimizada; tela de versão |
 
 ### Atualização automática
 
@@ -252,9 +253,13 @@ cron ou health check.
 
 No Windows o sysmon se comporta como qualquer app de bandeja:
 
-- **fechar a janela não encerra o programa**: ele fica no ícone da bandeja, e
-  a janela reabre pelo ícone ou pelo atalho
-- **Sair** no menu da bandeja é o que encerra de verdade
+- **fechar a janela não encerra o programa**: o **✕** esconde a janela — some
+  da tela **e da barra de tarefas** — e ela reabre pelo ícone ou pelo atalho.
+  Alt+F4 e "Fechar janela" na barra de tarefas fazem o mesmo
+- **Sair** no menu da bandeja é o que encerra de verdade: tira o ícone, grava
+  o estado da janela e fecha o banco. Funciona com a janela escondida ou
+  minimizada
+- se o Explorer reiniciar, o ícone volta sozinho
 - o ícone muda de cor conforme o pior host, e um balão avisa quando a
   severidade **sobe** — a cada coleta seria ruído, e "voltou ao normal"
   interromperia sem pedir ação

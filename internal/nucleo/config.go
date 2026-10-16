@@ -173,6 +173,14 @@ func SalvarConfig(caminho string, bruto map[string]any) error {
 		tmp.Close()
 		return err
 	}
+	// fsync antes do rename. Sem ele, a troca atomica protege contra o
+	// programa morrer no meio, mas nao contra a energia cair: o sistema de
+	// arquivos pode persistir o rename antes dos dados, e o config acorda
+	// vazio - sem os tokens de host nenhum.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
@@ -184,7 +192,25 @@ func SalvarConfig(caminho string, bruto map[string]any) error {
 		}
 	}
 	// Troca atomica: nunca existe um config pela metade no disco.
-	return os.Rename(nome, caminho)
+	if err := os.Rename(nome, caminho); err != nil {
+		return err
+	}
+	sincronizarPasta(dir)
+	return nil
+}
+
+// sincronizarPasta faz o fsync da pasta, que e o que torna o rename duravel
+// no Linux. No Windows uma pasta nao abre para isso, e o NTFS registra o
+// rename no proprio journal; o erro e ignorado de proposito - o arquivo ja
+// esta trocado, e falhar aqui so faria o usuario achar que nao salvou.
+func sincronizarPasta(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		d.Close()
+	}
 }
 
 // AvisarPermissao devolve aviso quando o config com tokens esta legivel
@@ -236,19 +262,10 @@ func (c Config) ComoBruto() map[string]any {
 	}
 	out["ignorar_mounts"] = ign
 
-	if len(c.Limiares.Reconhecidos) > 0 {
-		rec := map[string]any{}
-		for k, v := range c.Limiares.Reconhecidos {
-			m := map[string]any{"valor": v.Valor, "quando": v.Quando}
-			if v.Texto != "" {
-				m["texto"] = v.Texto
-			}
-			rec[k] = m
-		}
-		out["reconhecidos"] = rec
-	} else {
-		delete(out, "reconhecidos")
-	}
+	// Os aceites NAO voltam para o arquivo: agora eles moram no banco
+	// (internal/banco). Um "reconhecidos" que ainda esteja no Bruto e o de
+	// um config antigo, ainda nao migrado - e segue como estava, copiado
+	// acima, para nao se perder se o banco nao puder ser aberto.
 	return out
 }
 

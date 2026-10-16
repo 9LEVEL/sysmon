@@ -58,8 +58,10 @@ O que foi aceito não fica invisível: o ícone acende, a dica dele conta quanto
 são e o rodapé mostra "3 alertas aceitos". Silêncio precisa ser visível, senão
 vira esquecimento.
 
-Fica no `config.json`, na chave `reconhecidos` — na raiz, e não dentro de
-`alertas`: alertas são a regra, aceitação é a exceção a ela.
+Fica no **banco do cliente**, o `sysmon.db` ao lado do `config.json` — e não
+mais no próprio `config.json`, como até a 5.7. Na primeira abertura os aceites
+antigos são importados com a data original e saem do arquivo. Veja
+[O banco do cliente](#o-banco-do-cliente).
 
 Cada aceite é **por host**: a entrada se chama `pve/smart:sda:...`, e não só
 `smart:sda:...`. Até a 5.7 o host ficava de fora, e dois hosts com a mesma
@@ -67,6 +69,61 @@ condição — um `sda` com desligamentos sujos em cada — disputavam a mesma
 entrada: aceitar os dois fazia um deles voltar, e os dois se revezavam no
 rodapé. Entradas antigas, sem host, continuam valendo; o **ACEITAR TODOS** as
 converte para o formato novo.
+
+## O banco do cliente
+
+O `sysmon.db` (SQLite) fica na mesma pasta do `config.json` e guarda duas
+coisas: **o que você decidiu** e **o que o sysmon viu acontecer**.
+
+**Por que um banco.** O `config.json` era gravado trocando o arquivo inteiro,
+sem esperar o disco confirmar. Numa queda de energia logo depois de salvar, ele
+podia voltar vazio ou na versão anterior — perdendo o aceite e, junto, os
+tokens dos hosts. O banco grava em modo WAL com `synchronous=FULL`: quando o
+botão responde, o aceite já está no disco. (O `config.json` também passou a
+esperar o disco antes de trocar o arquivo.)
+
+**Desde quando.** Na tela de alertas, cada um ganha uma terceira linha:
+
+```
+novo · desde 15/10 03:47                         ← apareceu nas últimas 24 h
+desde 02/10 14:10                                ← antigo
+já estava assim na 1a leitura, em 01/10 09:00     ← o sysmon começou a olhar já assim
+novo: 89/267/33 -> 90/268/34 em 15/10 03:47 · host religou 15/10 03:46 (visto antes em 15/10 03:12)
+```
+
+A última é a de uma queda de energia: o contador de desligamentos sujos subiu,
+o host religou às 03:46, e a última leitura viva antes disso foi às 03:12 — a
+queda foi nesse intervalo. A hora do boot sai do uptime do próprio host, então
+é exata mesmo que o cliente estivesse fechado; o "visto antes" só é tão preciso
+quanto o tempo que o cliente ficou aberto.
+
+**O que fica guardado:**
+
+| Tabela | O quê |
+|---|---|
+| `aceite` | os aceites vigentes |
+| `aceite_historico` | todo aceite, revogação e importação, com data — nunca é apagado |
+| `alerta` | cada episódio de alerta: quando abriu, quando fechou, valor inicial e atual |
+| `alerta_valor` | cada mudança de valor dentro de um episódio |
+| `reinicio` | cada boot detectado de cada host, e a última leitura antes dele |
+
+**O que não fica:** as séries de CPU, RAM e temperatura. Mudam a cada leitura,
+ninguém consulta o passado delas, e gravá-las seria escrever sem parar no SSD
+da máquina. O banco só grava quando algo **muda**: um alerta abre, muda de
+valor ou fecha, um host reinicia. Um alerta só é dado por encerrado depois de
+2 minutos sumido — temperatura oscilando no limiar não vira um episódio novo a
+cada oscilação. E host fora do ar não fecha os alertas dele: o disco não sarou
+porque a rede caiu.
+
+Para consultar à mão, qualquer cliente SQLite serve:
+
+```sql
+SELECT host, chave, datetime(aberto_em, 'unixepoch', 'localtime'), valor_atual
+FROM alerta WHERE fechado_em IS NULL;
+```
+
+Se o banco não puder ser aberto, nada quebra: os aceites voltam a ir para o
+`config.json`, como antes, e o motivo aparece no terminal.
 
 ## Limiares de alerta
 

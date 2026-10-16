@@ -34,6 +34,8 @@ var (
 	pDispatchMessage  = user32.NewProc("DispatchMessageW")
 	pPostMessage      = user32.NewProc("PostMessageW")
 	pPostQuitMessage  = user32.NewProc("PostQuitMessage")
+	pDestroyWindow    = user32.NewProc("DestroyWindow")
+	pRegisterWinMsg   = user32.NewProc("RegisterWindowMessageW")
 	pCreatePopupMenu  = user32.NewProc("CreatePopupMenu")
 	pAppendMenu       = user32.NewProc("AppendMenuW")
 	pDestroyMenu      = user32.NewProc("DestroyMenu")
@@ -63,13 +65,13 @@ const (
 	nifInfo    = 0x10
 
 	wmDestroy      = 0x0002
+	wmClose        = 0x0010
 	wmCommand      = 0x0111
 	wmRButtonUp    = 0x0205
 	wmLButtonUp    = 0x0202
 	wmLButtonDbl   = 0x0203
 	wmBandeja      = 0x0400 + 1 // WM_APP + 1
 	wsOverlapped   = 0x00000000
-	hwndMessage    = ^uintptr(2) // (HWND)-3
 	tpmRightButton = 0x0002
 	mfString       = 0x0000
 	mfSeparator    = 0x0800
@@ -157,6 +159,14 @@ type bandejaWin struct {
 	fechou bool
 }
 
+// wmTaskbarCreated e a mensagem que o Explorer manda a todas as janelas de
+// topo quando a barra de tarefas e recriada - Explorer reiniciado, travou e
+// voltou, mudanca de DPI. Todo icone de bandeja some nessa hora, e quem nao
+// o adiciona de novo fica sem icone: o programa segue rodando, invisivel, e
+// sem o Sair do menu nao ha como fecha-lo a nao ser pelo Gerenciador de
+// Tarefas.
+var wmTaskbarCreated uint32
+
 // instancia e global porque o wndProc do Win32 e uma funcao C: ela recebe
 // so o handle da janela, sem lugar para carregar um ponteiro nosso. Ha uma
 // bandeja por processo, entao a global e honesta aqui.
@@ -195,16 +205,25 @@ func (b *bandejaWin) laco(pronto chan<- error) {
 		return
 	}
 
-	// Janela so de mensagem (HWND_MESSAGE): nunca aparece na tela nem na
-	// barra de tarefas, existe apenas para receber os cliques do icone.
+	// Janela de topo, mas nunca mostrada: nao aparece na tela nem na barra
+	// de tarefas, e existe apenas para receber os cliques do icone.
+	//
+	// Era uma janela so de mensagem (HWND_MESSAGE), que e mais leve - mas
+	// essas nao recebem broadcast, e o TaskbarCreated chega por broadcast.
+	// Com ela o icone sumia para sempre na primeira vez que o Explorer
+	// reiniciava.
 	hwnd, _, err := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(classe)),
 		uintptr(unsafe.Pointer(classe)), wsOverlapped, 0, 0, 0, 0,
-		hwndMessage, 0, hinst, 0)
+		0, 0, hinst, 0)
 	if hwnd == 0 {
 		pronto <- errors.New("nao consegui criar a janela da bandeja: " + err.Error())
 		return
 	}
 	b.hwnd = syscall.Handle(hwnd)
+
+	nome, _ := syscall.UTF16PtrFromString("TaskbarCreated")
+	r, _, _ := pRegisterWinMsg.Call(uintptr(unsafe.Pointer(nome)))
+	wmTaskbarCreated = uint32(r)
 
 	if err := b.adicionar(); err != nil {
 		pronto <- err
@@ -287,7 +306,21 @@ func (b *bandejaWin) Fechar() {
 	if b.icone != 0 {
 		pDestroyIcon.Call(uintptr(b.icone))
 	}
-	pPostMessage.Call(uintptr(b.hwnd), wmDestroy, 0, 0)
+	// WM_CLOSE, e nao WM_DESTROY: postar WM_DESTROY so finge que a janela
+	// foi destruida. O WM_CLOSE faz o DestroyWindow na thread dela, que e a
+	// unica que pode faze-lo, e o WM_DESTROY de verdade encerra o laco.
+	pPostMessage.Call(uintptr(b.hwnd), wmClose, 0, 0)
+}
+
+// readicionar poe o icone de volta depois de o Explorer recria-lo.
+func (b *bandejaWin) readicionar() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.fechou {
+		return
+	}
+	d := b.dados(nifMessage | nifIcon | nifTip)
+	pShellNotifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(d)))
 }
 
 // wndProc recebe os cliques do icone.
@@ -317,8 +350,15 @@ func wndProc(hwnd syscall.Handle, m uint32, wp, lp uintptr) uintptr {
 			chamar(b, func(a Acoes) func() { return a.Sair })
 		}
 		return 0
+	case wmClose:
+		pDestroyWindow.Call(uintptr(hwnd))
+		return 0
 	case wmDestroy:
 		pPostQuitMessage.Call(0)
+		return 0
+	}
+	if wmTaskbarCreated != 0 && m == wmTaskbarCreated && b != nil {
+		b.readicionar()
 		return 0
 	}
 	r, _, _ := pDefWindowProc.Call(uintptr(hwnd), uintptr(m), wp, lp)
